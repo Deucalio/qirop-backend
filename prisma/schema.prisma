@@ -1,0 +1,550 @@
+// Qirop School of Wisdom & Technology — ERP database schema
+// Money is always Decimal(10,2). IDs are cuid(). Every model carries timestamps.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // single direct connection (pgbouncer to be added later)
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  TEACHER
+  PARENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  LEAVE
+}
+
+enum ChallanStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+  ADVANCE
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  OTHER
+}
+
+enum SalaryStatus {
+  PENDING
+  PAID
+}
+
+enum ExpenseCategory {
+  RENT
+  UTILITIES
+  MAINTENANCE
+  SALARIES
+  SUPPLIES
+  TRANSPORT
+  OTHER
+}
+
+enum PermissionModule {
+  SCHOOL_SETUP
+  USERS
+  STUDENTS
+  PARENTS
+  STAFF
+  CLASSES
+  ATTENDANCE
+  HOMEWORK
+  FEES
+  EXPENSES
+  SALARIES
+  REPORTS
+}
+
+// ============================================================================
+// Identity & Access
+// ============================================================================
+
+model User {
+  id           String     @id @default(cuid())
+  cnic         String     @unique // format XXXXX-XXXXXXX-X
+  passwordHash String
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  fullName     String
+  phone        String?
+  avatarUrl    String?
+  lastLoginAt  DateTime?
+
+  // Self-relation: who created this user
+  createdById  String?
+  createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdUsers User[]  @relation("UserCreatedBy")
+
+  // Profiles / permissions
+  teacherProfile   TeacherProfile?
+  parentProfile    ParentProfile?
+  adminPermissions AdminPermission[]
+
+  // Reverse relations for actor references elsewhere
+  feePaymentsReceived  FeePayment[]   @relation("FeePaymentReceivedBy")
+  expensesRecorded     Expense[]      @relation("ExpenseRecordedBy")
+  salarySlipsGenerated SalarySlip[]   @relation("SalarySlipGeneratedBy")
+  notifications           Notification[]      @relation("NotificationTargetUser")
+  auditLogs               AuditLog[]          @relation("AuditLogUser")
+  markedStudentAttendance StudentAttendance[] @relation("StudentAttendanceMarkedBy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([status])
+  @@index([createdById])
+}
+
+model AdminPermission {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module    PermissionModule
+  canView   Boolean          @default(false)
+  canEdit   Boolean          @default(false)
+  canManage Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, module])
+  @@index([userId])
+}
+
+// ============================================================================
+// School profile (single row)
+// ============================================================================
+
+model School {
+  id           String  @id @default(cuid())
+  name         String  @default("Qirop School of Wisdom & Technology")
+  logoUrl      String?
+  address      String?
+  phone        String?
+  email        String?
+  academicYear String
+  settings     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// Staff & Parent profiles
+// ============================================================================
+
+model TeacherProfile {
+  id            String     @id @default(cuid())
+  userId        String     @unique
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeId    String     @unique
+  qualification String?
+  address       String?
+  joiningDate   DateTime
+  salary        Decimal    @db.Decimal(10, 2) // never returned to TEACHER role
+  status        UserStatus @default(ACTIVE)
+
+  teachingAssignments  TeachingAssignment[]
+  classTeacherSections Section[]            @relation("SectionClassTeacher")
+  teacherAttendance    TeacherAttendance[]
+  homework             Homework[]
+  salarySlips          SalarySlip[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+model ParentProfile {
+  id         String  @id @default(cuid())
+  userId     String  @unique
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  occupation String?
+  address    String?
+
+  students Student[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// Academic structure
+// ============================================================================
+
+model Class {
+  id    String @id @default(cuid())
+  name  String @unique // e.g. "Class 5"
+  order Int
+
+  sections      Section[]
+  classSubjects ClassSubject[]
+  feeStructure  FeeStructure?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([order])
+}
+
+model Section {
+  id             String          @id @default(cuid())
+  name           String // e.g. "A"
+  classId        String
+  class          Class           @relation(fields: [classId], references: [id], onDelete: Restrict)
+  classTeacherId String?
+  classTeacher   TeacherProfile? @relation("SectionClassTeacher", fields: [classTeacherId], references: [id], onDelete: SetNull)
+
+  students            Student[]
+  teachingAssignments TeachingAssignment[]
+  studentAttendance   StudentAttendance[]
+  homework            Homework[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([classId, name])
+  @@index([classId])
+  @@index([classTeacherId])
+}
+
+model Subject {
+  id   String @id @default(cuid())
+  name String @unique
+
+  classSubjects       ClassSubject[]
+  teachingAssignments TeachingAssignment[]
+  homework            Homework[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ClassSubject {
+  id        String  @id @default(cuid())
+  classId   String
+  class     Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([classId, subjectId])
+  @@index([classId])
+  @@index([subjectId])
+}
+
+// One teacher teaches a given subject in a given section.
+// Different sections of a class may have different teachers for the same subject.
+model TeachingAssignment {
+  id        String         @id @default(cuid())
+  sectionId String
+  section   Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subjectId String
+  subject   Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sectionId, subjectId])
+  @@index([sectionId])
+  @@index([subjectId])
+  @@index([teacherId])
+}
+
+// ============================================================================
+// Students
+// ============================================================================
+
+model Student {
+  id            String     @id @default(cuid())
+  admissionNo   String     @unique
+  rollNo        String?
+  firstName     String
+  lastName      String
+  gender        Gender
+  dob           DateTime?
+  admissionDate DateTime
+  photoUrl      String?
+  status        UserStatus @default(ACTIVE)
+
+  sectionId String
+  section   Section       @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  parentId  String
+  parent    ParentProfile @relation(fields: [parentId], references: [id], onDelete: Restrict)
+
+  attendance StudentAttendance[]
+  challans   FeeChallan[]
+  payments   FeePayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sectionId, rollNo]) // roll number unique within a section (nulls allowed)
+  @@index([sectionId])
+  @@index([parentId])
+  @@index([status])
+}
+
+// ============================================================================
+// Attendance
+// ============================================================================
+
+model StudentAttendance {
+  id         String           @id @default(cuid())
+  studentId  String
+  student    Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sectionId  String // denormalized for fast per-section queries
+  section    Section          @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  date       DateTime
+  status     AttendanceStatus
+  markedById String // the User (teacher or admin) who marked this record
+  markedBy   User             @relation("StudentAttendanceMarkedBy", fields: [markedById], references: [id], onDelete: Restrict)
+  note       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, date])
+  @@index([date])
+  @@index([sectionId])
+  @@index([studentId])
+  @@index([markedById])
+}
+
+model TeacherAttendance {
+  id          String           @id @default(cuid())
+  teacherId   String
+  teacher     TeacherProfile   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  date        DateTime
+  status      AttendanceStatus
+  checkInTime DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, date])
+  @@index([date])
+  @@index([teacherId])
+}
+
+// ============================================================================
+// Homework (scoped to section + subject)
+// ============================================================================
+
+model Homework {
+  id            String         @id @default(cuid())
+  sectionId     String
+  section       Section        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subjectId     String
+  subject       Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  teacherId     String
+  teacher       TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  title         String
+  description   String
+  dueDate       DateTime
+  attachmentUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sectionId])
+  @@index([subjectId])
+  @@index([teacherId])
+  @@index([dueDate])
+}
+
+// ============================================================================
+// Fees
+// ============================================================================
+
+model FeeStructure {
+  id         String  @id @default(cuid())
+  classId    String  @unique
+  class      Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  monthlyFee Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// One challan per student per month, system-generated.
+model FeeChallan {
+  id        String        @id @default(cuid())
+  challanNo String        @unique // e.g. CH-2025-000123
+  studentId String
+  student   Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  year      Int
+  month     Int // 1..12
+  amount    Decimal       @db.Decimal(10, 2)
+  dueDate   DateTime
+  status    ChallanStatus @default(UNPAID)
+
+  allocations FeePaymentAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, year, month])
+  @@index([studentId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+// A single received transaction.
+model FeePayment {
+  id           String        @id @default(cuid())
+  studentId    String
+  student      Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  amount       Decimal       @db.Decimal(10, 2) // total received in this transaction
+  paymentDate  DateTime
+  method       PaymentMethod
+  receivedById String
+  receivedBy   User          @relation("FeePaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+  note         String?
+
+  allocations FeePaymentAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([paymentDate])
+  @@index([receivedById])
+}
+
+// Splits a payment across one or more challans (partial / advance / carry-forward).
+model FeePaymentAllocation {
+  id            String     @id @default(cuid())
+  paymentId     String
+  payment       FeePayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  challanId     String
+  challan       FeeChallan @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  amountApplied Decimal    @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([paymentId, challanId])
+  @@index([paymentId])
+  @@index([challanId])
+}
+
+// ============================================================================
+// Salaries & Expenses (admin-only)
+// ============================================================================
+
+model SalarySlip {
+  id            String         @id @default(cuid())
+  teacherId     String
+  teacher       TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  year          Int
+  month         Int
+  basicSalary   Decimal        @db.Decimal(10, 2)
+  allowances    Decimal        @default(0) @db.Decimal(10, 2)
+  deductions    Decimal        @default(0) @db.Decimal(10, 2)
+  netSalary     Decimal        @db.Decimal(10, 2)
+  status        SalaryStatus   @default(PENDING)
+  paidDate      DateTime?
+  generatedById String
+  generatedBy   User           @relation("SalarySlipGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, year, month])
+  @@index([teacherId])
+  @@index([status])
+}
+
+model Expense {
+  id            String          @id @default(cuid())
+  category      ExpenseCategory
+  title         String
+  amount        Decimal         @db.Decimal(10, 2)
+  date          DateTime
+  note          String?
+  attachmentUrl String?
+  recordedById  String
+  recordedBy    User            @relation("ExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([date])
+  @@index([recordedById])
+}
+
+// ============================================================================
+// Notifications & Audit
+// ============================================================================
+
+model Notification {
+  id           String  @id @default(cuid())
+  title        String
+  body         String
+  type         String?
+  targetRole   Role?
+  targetUserId String?
+  targetUser   User?   @relation("NotificationTargetUser", fields: [targetUserId], references: [id], onDelete: Cascade)
+  isRead       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([targetUserId])
+  @@index([targetRole])
+  @@index([isRead])
+}
+
+model AuditLog {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation("AuditLogUser", fields: [userId], references: [id], onDelete: Cascade)
+  action   String
+  entity   String
+  entityId String?
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([entity])
+  @@index([createdAt])
+}
