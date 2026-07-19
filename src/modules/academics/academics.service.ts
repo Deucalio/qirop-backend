@@ -1,5 +1,11 @@
 import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
+import {
+  buildValidity,
+  getTimetableLayout,
+  totalWeeklySlots,
+  type TimetableStatus,
+} from '../timetable/timetable.service';
 
 const conflict = (message: string) => new AppError(message, 409, 'CONFLICT');
 
@@ -7,18 +13,70 @@ const conflict = (message: string) => new AppError(message, 409, 'CONFLICT');
 // Classes
 // ===========================================================================
 
+/**
+ * Sort position derived from the class name: the first number in it
+ * ("Class 10" → 10). Names without a number (Nursery, KG, …) get 0 so they
+ * sort before Class 1; ties fall back to alphabetical order.
+ */
+function classOrderFromName(name: string): number {
+  const match = /\d+/.exec(name);
+  return match ? parseInt(match[0], 10) : 0;
+}
+
+/**
+ * Roll the per-section timetable states up to one badge for the class:
+ * anything expired wins, then anything unfinished, else active.
+ */
+function aggregateTimetableStatus(statuses: TimetableStatus[]): TimetableStatus {
+  if (statuses.length === 0 || statuses.every((s) => s === 'EMPTY')) return 'EMPTY';
+  if (statuses.includes('EXPIRED')) return 'EXPIRED';
+  if (statuses.some((s) => s === 'INCOMPLETE' || s === 'EMPTY')) return 'INCOMPLETE';
+  return 'ACTIVE';
+}
+
 export async function listClasses() {
-  const classes = await prisma.class.findMany({
-    orderBy: { order: 'asc' },
-    include: { _count: { select: { sections: true, classSubjects: true } } },
-  });
-  return classes.map((c) => ({
-    id: c.id,
-    name: c.name,
-    order: c.order,
-    sectionCount: c._count.sections,
-    subjectCount: c._count.classSubjects,
-  }));
+  const [classes, periodConfig] = await Promise.all([
+    prisma.class.findMany({
+      include: {
+        _count: { select: { sections: true, classSubjects: true } },
+        sections: {
+          select: {
+            timetableFrom: true,
+            timetableUntil: true,
+            _count: { select: { students: true, timetableSlots: true } },
+          },
+        },
+      },
+    }),
+    getTimetableLayout(),
+  ]);
+  const weeklySlots = totalWeeklySlots(periodConfig);
+
+  // Self-heal: `order` is now always derived from the name. Fix any stale rows
+  // (created before auto-ordering) so every query sorting on `order` agrees.
+  const stale = classes.filter((c) => c.order !== classOrderFromName(c.name));
+  if (stale.length > 0) {
+    await prisma.$transaction(
+      stale.map((c) =>
+        prisma.class.update({ where: { id: c.id }, data: { order: classOrderFromName(c.name) } }),
+      ),
+    );
+    for (const c of stale) c.order = classOrderFromName(c.name);
+  }
+
+  return classes
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      order: c.order,
+      sectionCount: c._count.sections,
+      subjectCount: c._count.classSubjects,
+      studentCount: c.sections.reduce((n, s) => n + s._count.students, 0),
+      timetableStatus: aggregateTimetableStatus(
+        c.sections.map((s) => buildValidity(s, s._count.timetableSlots, weeklySlots).status),
+      ),
+    }))
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
 
 async function assertClassNameFree(name: string, exceptId?: string) {
@@ -28,20 +86,20 @@ async function assertClassNameFree(name: string, exceptId?: string) {
   }
 }
 
-export async function createClass(name: string, order: number) {
+export async function createClass(name: string) {
   await assertClassNameFree(name);
-  return prisma.class.create({ data: { name, order } });
+  return prisma.class.create({ data: { name, order: classOrderFromName(name) } });
 }
 
-export async function updateClass(id: string, data: { name?: string; order?: number }) {
+export async function updateClass(id: string, data: { name: string }) {
   const cls = await prisma.class.findUnique({ where: { id } });
   if (!cls) throw NotFound('Class not found');
-  if (data.name && data.name !== cls.name) {
+  if (data.name !== cls.name) {
     await assertClassNameFree(data.name, id);
   }
   return prisma.class.update({
     where: { id },
-    data: { name: data.name ?? undefined, order: data.order ?? undefined },
+    data: { name: data.name, order: classOrderFromName(data.name) },
   });
 }
 
@@ -75,17 +133,22 @@ async function loadClassOr404(classId: string) {
 
 export async function listSections(classId: string) {
   await loadClassOr404(classId);
-  const sections = await prisma.section.findMany({
-    where: { classId },
-    orderBy: { name: 'asc' },
-    include: { _count: { select: { students: true } } },
-  });
+  const [sections, layout] = await Promise.all([
+    prisma.section.findMany({
+      where: { classId },
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { students: true, timetableSlots: true } } },
+    }),
+    getTimetableLayout(),
+  ]);
+  const totalSlots = totalWeeklySlots(layout);
   return sections.map((s) => ({
     id: s.id,
     name: s.name,
     classId: s.classId,
     classTeacherId: s.classTeacherId,
     studentCount: s._count.students,
+    timetable: buildValidity(s, s._count.timetableSlots, totalSlots),
   }));
 }
 
@@ -167,6 +230,49 @@ export async function deleteSubject(id: string) {
     throw conflict('Cannot delete a subject that is mapped to one or more classes.');
   }
   await prisma.subject.delete({ where: { id } });
+}
+
+/**
+ * Detailed view of one subject: the classes offering it and (when the caller
+ * may see staff info) every teaching assignment, i.e. who teaches it where.
+ */
+export async function getSubjectDetails(id: string, includeTeachers: boolean) {
+  const subject = await prisma.subject.findUnique({
+    where: { id },
+    include: {
+      classSubjects: { include: { class: true }, orderBy: { class: { order: 'asc' } } },
+    },
+  });
+  if (!subject) throw NotFound('Subject not found');
+
+  const classes = subject.classSubjects.map((cs) => ({
+    id: cs.class.id,
+    name: cs.class.name,
+    order: cs.class.order,
+  }));
+
+  if (!includeTeachers) {
+    return { id: subject.id, name: subject.name, classes, assignments: null };
+  }
+
+  const assignments = await prisma.teachingAssignment.findMany({
+    where: { subjectId: id },
+    include: { section: { include: { class: true } }, teacher: { include: { user: true } } },
+    orderBy: [{ section: { class: { order: 'asc' } } }, { section: { name: 'asc' } }],
+  });
+
+  return {
+    id: subject.id,
+    name: subject.name,
+    classes,
+    assignments: assignments.map((a) => ({
+      sectionId: a.sectionId,
+      sectionName: a.section.name,
+      classId: a.section.classId,
+      className: a.section.class.name,
+      teacher: { id: a.teacher.id, fullName: a.teacher.user.fullName },
+    })),
+  };
 }
 
 // ===========================================================================

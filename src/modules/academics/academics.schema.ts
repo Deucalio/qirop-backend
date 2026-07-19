@@ -1,17 +1,14 @@
 import { z } from 'zod';
 
 // ---- Classes ----
+// `order` is derived automatically from the number in the class name.
 export const createClassSchema = z.object({
   name: z.string().min(1, 'Class name is required').max(100),
-  order: z.number().int().min(0).max(1000),
 });
 
-export const updateClassSchema = z
-  .object({
-    name: z.string().min(1).max(100).optional(),
-    order: z.number().int().min(0).max(1000).optional(),
-  })
-  .refine((v) => v.name !== undefined || v.order !== undefined, { message: 'Nothing to update' });
+export const updateClassSchema = z.object({
+  name: z.string().min(1, 'Class name is required').max(100),
+});
 
 // ---- Sections ----
 export const createSectionSchema = z.object({

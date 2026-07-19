@@ -1,14 +1,23 @@
-import { Prisma, Role, UserStatus } from '@prisma/client';
+import { AttendanceStatus, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
 import { publicUrl, replaceFile } from '../../services/storage';
-import { AppError, NotFound } from '../../utils/apiResponse';
+import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
+import { userHasPermission } from '../../utils/permissions';
+import { summarize } from '../../utils/attendanceMetrics';
+import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateTeacherInput, ListTeachersQuery, UpdateTeacherInput } from './teachers.schema';
+
+export interface Actor {
+  userId: string;
+  role: Role;
+}
 
 const teacherInclude = {
   user: true,
   teachingAssignments: { include: { section: { include: { class: true } }, subject: true } },
   classTeacherSections: { include: { class: true } },
+  qualifications: { orderBy: { level: 'asc' } },
 } satisfies Prisma.TeacherProfileInclude;
 
 type TeacherWithRels = Prisma.TeacherProfileGetPayload<{ include: typeof teacherInclude }>;
@@ -42,6 +51,13 @@ function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
     joiningDate: profile.joiningDate,
     status: profile.status,
     ...(includeSalary ? { salary: profile.salary.toString() } : {}),
+    qualifications: profile.qualifications.map((q) => ({
+      level: q.level,
+      institution: q.institution,
+      passingYear: q.passingYear,
+      marks: q.marks,
+      grade: q.grade,
+    })),
     teachingAssignments: profile.teachingAssignments.map(shapeTeaching),
     classTeacherSections: profile.classTeacherSections.map(shapeClassTeacherSection),
   };
@@ -125,6 +141,9 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
           joiningDate: input.joiningDate,
           salary: new Prisma.Decimal(input.salary),
           status: UserStatus.ACTIVE,
+          ...(input.qualifications && input.qualifications.length > 0
+            ? { qualifications: { create: input.qualifications } }
+            : {}),
         },
       },
     },
@@ -150,6 +169,10 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput) {
       address: data.address === undefined ? undefined : data.address,
       joiningDate: data.joiningDate ?? undefined,
       salary: data.salary === undefined ? undefined : new Prisma.Decimal(data.salary),
+      // Omitted = untouched; sent = the full new set (replace-all).
+      ...(data.qualifications !== undefined
+        ? { qualifications: { deleteMany: {}, create: data.qualifications } }
+        : {}),
       user: {
         update: {
           fullName: data.fullName ?? undefined,
@@ -199,4 +222,34 @@ export async function setPhoto(id: string, buffer: Buffer, originalName: string,
   const newPath = await replaceFile(profile.user.avatarUrl, buffer, originalName, `/teachers/${id}`, contentType);
   await prisma.user.update({ where: { id: profile.userId }, data: { avatarUrl: newPath } });
   return getTeacher(id, true);
+}
+
+/**
+ * Month-scoped attendance snapshot (day map + check-in times + summary) for the
+ * admin profile view. Requires ATTENDANCE view on top of the route's STAFF view.
+ */
+export async function getTeacherAttendance(id: string, actor: Actor, year?: number, month?: number) {
+  const profile = await prisma.teacherProfile.findUnique({ where: { id } });
+  if (!profile) throw NotFound('Teacher not found');
+  if (!(await userHasPermission(actor.userId, actor.role, PermissionModule.ATTENDANCE, 'view'))) {
+    throw Forbidden('You do not have permission to view attendance');
+  }
+
+  const now = pktDay();
+  year = year ?? now.getUTCFullYear();
+  month = month ?? now.getUTCMonth() + 1;
+  const { start, endExclusive } = pktMonthRange(year, month);
+
+  const marks = await prisma.teacherAttendance.findMany({
+    where: { teacherId: id, date: { gte: start, lt: endExclusive } },
+    orderBy: { date: 'asc' },
+  });
+  const days: Record<string, AttendanceStatus> = {};
+  const checkInTimes: Record<string, string | null> = {};
+  for (const m of marks) {
+    const key = pktDayString(m.date);
+    days[key] = m.status;
+    checkInTimes[key] = m.checkInTime ? m.checkInTime.toISOString() : null;
+  }
+  return { year, month, days, checkInTimes, summary: summarize(marks.map((m) => m.status)) };
 }

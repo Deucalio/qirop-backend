@@ -46,6 +46,7 @@ export const subjectsRouter = Router();
 subjectsRouter.use(requireAuth);
 
 subjectsRouter.get('/', canView, asyncHandler(c.listSubjects));
+subjectsRouter.get('/:id/details', canView, asyncHandler(c.subjectDetails));
 subjectsRouter.post('/', canEdit, validateBody(createSubjectSchema), asyncHandler(c.createSubject));
 subjectsRouter.put('/:id', canEdit, validateBody(updateSubjectSchema), asyncHandler(c.updateSubject));
 subjectsRouter.delete('/:id', canEdit, asyncHandler(c.deleteSubject));

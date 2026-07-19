@@ -19,6 +19,7 @@ teachersRouter.use(requireAuth);
 teachersRouter.get('/', view, asyncHandler(c.list));
 teachersRouter.get('/:id', view, asyncHandler(c.detail));
 teachersRouter.get('/:id/assignments', view, asyncHandler(c.assignments));
+teachersRouter.get('/:id/attendance', view, asyncHandler(c.attendance));
 teachersRouter.post('/', manage, validateBody(createTeacherSchema), asyncHandler(c.create));
 teachersRouter.put('/:id', manage, validateBody(updateTeacherSchema), asyncHandler(c.update));
 teachersRouter.patch('/:id/status', manage, validateBody(teacherStatusSchema), asyncHandler(c.updateStatus));

@@ -17,6 +17,7 @@ studentsRouter.use(requireAuth);
 
 studentsRouter.get('/', view, asyncHandler(c.list));
 studentsRouter.get('/:id', view, asyncHandler(c.detail));
+studentsRouter.get('/:id/attendance', view, asyncHandler(c.attendance));
 studentsRouter.post('/', edit, validateBody(createStudentSchema), asyncHandler(c.create));
 studentsRouter.put('/:id', edit, validateBody(updateStudentSchema), asyncHandler(c.update));
 studentsRouter.patch('/:id/status', edit, validateBody(studentStatusSchema), asyncHandler(c.updateStatus));

@@ -61,9 +61,12 @@ export async function getSettings(): Promise<Record<string, unknown>> {
 
 export async function updateSettings(settings: Record<string, unknown>) {
   const school = await ensureSchool();
+  const current = (school.settings as Record<string, unknown> | null) ?? {};
+  // Merge, don't replace: sub-configs owned by other modules (e.g. `timetable`,
+  // managed by School Setup → Periods & Timings) must survive a settings save.
   const updated = await prisma.school.update({
     where: { id: school.id },
-    data: { settings: settings as Prisma.InputJsonValue },
+    data: { settings: { ...current, ...settings } as Prisma.InputJsonValue },
   });
   return (updated.settings as Record<string, unknown> | null) ?? {};
 }

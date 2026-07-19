@@ -1,7 +1,15 @@
-import { PrismaClient, Prisma, Role, Gender, UserStatus } from '@prisma/client';
+import { PrismaClient, Prisma, Role, Gender, UserStatus, QualificationLevel } from '@prisma/client';
 
 /** Default password for all seeded teachers and parents. */
 export const DEFAULT_PEOPLE_PASSWORD = 'Password#123';
+
+interface QualificationDef {
+  level: QualificationLevel;
+  institution: string;
+  passingYear: number;
+  marks: string;
+  grade: string;
+}
 
 interface TeacherDef {
   cnic: string;
@@ -10,6 +18,7 @@ interface TeacherDef {
   employeeId: string;
   qualification: string;
   salary: string;
+  qualifications: QualificationDef[];
 }
 interface ParentDef {
   cnic: string;
@@ -30,10 +39,42 @@ interface StudentDef {
 }
 
 const TEACHERS: TeacherDef[] = [
-  { cnic: '35201-1000001-1', fullName: 'Ayesha Khan', phone: '0300-1000001', employeeId: 'EMP-101', qualification: 'M.Sc Mathematics', salary: '65000.00' },
-  { cnic: '35201-1000002-2', fullName: 'Bilal Ahmed', phone: '0300-1000002', employeeId: 'EMP-102', qualification: 'M.A English', salary: '60000.00' },
-  { cnic: '35201-1000003-3', fullName: 'Sana Malik', phone: '0300-1000003', employeeId: 'EMP-103', qualification: 'M.A Urdu', salary: '58000.00' },
-  { cnic: '35201-1000004-4', fullName: 'Usman Tariq', phone: '0300-1000004', employeeId: 'EMP-104', qualification: 'B.Sc Computer Science', salary: '62000.00' },
+  {
+    cnic: '35201-1000001-1', fullName: 'Ayesha Khan', phone: '0300-1000001', employeeId: 'EMP-101', qualification: 'M.Sc Mathematics', salary: '65000.00',
+    qualifications: [
+      { level: 'MATRICULATION', institution: 'BISE Lahore', passingYear: 2008, marks: '890/1050', grade: 'A+' },
+      { level: 'INTERMEDIATE', institution: 'BISE Lahore', passingYear: 2010, marks: '912/1100', grade: 'A+' },
+      { level: 'BACHELOR', institution: 'University of the Punjab', passingYear: 2014, marks: '3.4/4.0 CGPA', grade: '1st Division' },
+      { level: 'MASTERS', institution: 'University of the Punjab', passingYear: 2016, marks: '3.6/4.0 CGPA', grade: '1st Division' },
+    ],
+  },
+  {
+    cnic: '35201-1000002-2', fullName: 'Bilal Ahmed', phone: '0300-1000002', employeeId: 'EMP-102', qualification: 'M.A English', salary: '60000.00',
+    qualifications: [
+      { level: 'MATRICULATION', institution: 'BISE Gujranwala', passingYear: 2006, marks: '765/1050', grade: 'A' },
+      { level: 'INTERMEDIATE', institution: 'BISE Gujranwala', passingYear: 2008, marks: '832/1100', grade: 'A' },
+      { level: 'BACHELOR', institution: 'GC University Lahore', passingYear: 2012, marks: '620/800', grade: '1st Division' },
+      { level: 'MASTERS', institution: 'GC University Lahore', passingYear: 2014, marks: '3.2/4.0 CGPA', grade: '1st Division' },
+    ],
+  },
+  {
+    cnic: '35201-1000003-3', fullName: 'Sana Malik', phone: '0300-1000003', employeeId: 'EMP-103', qualification: 'M.A Urdu', salary: '58000.00',
+    qualifications: [
+      { level: 'MATRICULATION', institution: 'BISE Rawalpindi', passingYear: 2009, marks: '812/1050', grade: 'A' },
+      { level: 'INTERMEDIATE', institution: 'BISE Rawalpindi', passingYear: 2011, marks: '858/1100', grade: 'A' },
+      { level: 'BACHELOR', institution: 'Fatima Jinnah Women University', passingYear: 2015, marks: '3.1/4.0 CGPA', grade: '2nd Division' },
+      { level: 'MASTERS', institution: 'Allama Iqbal Open University', passingYear: 2018, marks: '3.3/4.0 CGPA', grade: '1st Division' },
+    ],
+  },
+  {
+    // Deliberately missing Masters — exercises the "not on record" state in the UI.
+    cnic: '35201-1000004-4', fullName: 'Usman Tariq', phone: '0300-1000004', employeeId: 'EMP-104', qualification: 'B.Sc Computer Science', salary: '62000.00',
+    qualifications: [
+      { level: 'MATRICULATION', institution: 'BISE Faisalabad', passingYear: 2011, marks: '901/1050', grade: 'A+' },
+      { level: 'INTERMEDIATE', institution: 'BISE Faisalabad', passingYear: 2013, marks: '876/1100', grade: 'A' },
+      { level: 'BACHELOR', institution: 'COMSATS University Islamabad', passingYear: 2017, marks: '3.5/4.0 CGPA', grade: '1st Division' },
+    ],
+  },
 ];
 
 const PARENTS: ParentDef[] = [
@@ -71,7 +112,7 @@ export async function seedPeople(prisma: PrismaClient, passwordHash: string) {
       update: { fullName: t.fullName, phone: t.phone, role: Role.TEACHER },
       create: { cnic: t.cnic, fullName: t.fullName, phone: t.phone, passwordHash, role: Role.TEACHER },
     });
-    await prisma.teacherProfile.upsert({
+    const profile = await prisma.teacherProfile.upsert({
       where: { userId: user.id },
       update: {},
       create: {
@@ -83,6 +124,13 @@ export async function seedPeople(prisma: PrismaClient, passwordHash: string) {
         status: UserStatus.ACTIVE,
       },
     });
+    for (const q of t.qualifications) {
+      await prisma.teacherQualification.upsert({
+        where: { teacherId_level: { teacherId: profile.id, level: q.level } },
+        update: { institution: q.institution, passingYear: q.passingYear, marks: q.marks, grade: q.grade },
+        create: { teacherId: profile.id, ...q },
+      });
+    }
   }
 
   for (const p of PARENTS) {

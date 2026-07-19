@@ -80,6 +80,32 @@ export async function upsertTeachingAssignment(sectionId: string, subjectId: str
     throw conflict('Cannot assign an inactive teacher', 'TEACHER_INACTIVE');
   }
 
+  // If this subject is on the section's timetable, the replacement teacher must
+  // be free at every scheduled (day, period) — no double-booking across sections.
+  const scheduled = await prisma.timetableSlot.findMany({ where: { sectionId, subjectId } });
+  if (scheduled.length > 0) {
+    const others = await prisma.timetableSlot.findMany({
+      where: {
+        sectionId: { not: sectionId },
+        OR: scheduled.map((s) => ({ day: s.day, periodIndex: s.periodIndex })),
+      },
+      include: { section: { include: { class: true } }, subject: true },
+    });
+    if (others.length > 0) {
+      const taught = await prisma.teachingAssignment.findMany({
+        where: { teacherId, OR: others.map((o) => ({ sectionId: o.sectionId, subjectId: o.subjectId })) },
+      });
+      const owned = new Set(taught.map((a) => `${a.sectionId}:${a.subjectId}`));
+      const clash = others.find((o) => owned.has(`${o.sectionId}:${o.subjectId}`));
+      if (clash) {
+        throw conflict(
+          `${teacher.user.fullName} is already scheduled for ${clash.subject.name} in ${clash.section.class.name} · Section ${clash.section.name} (${clash.day} P${clash.periodIndex}). Resolve the timetable clash first.`,
+          'TEACHER_CLASH',
+        );
+      }
+    }
+  }
+
   // Upholds @@unique([sectionId, subjectId]) — replaces any existing teacher.
   await prisma.teachingAssignment.upsert({
     where: { sectionId_subjectId: { sectionId, subjectId } },
@@ -93,6 +119,23 @@ export async function upsertTeachingAssignment(sectionId: string, subjectId: str
 export async function deleteTeachingAssignment(sectionId: string, subjectId: string) {
   const section = await prisma.section.findUnique({ where: { id: sectionId } });
   if (!section) throw NotFound('Section not found');
+
+  // Block un-assigning while the subject is still on this section's timetable.
+  const slots = await prisma.timetableSlot.findMany({
+    where: { sectionId, subjectId },
+    include: { subject: true },
+    orderBy: [{ day: 'asc' }, { periodIndex: 'asc' }],
+  });
+  if (slots.length > 0) {
+    const where = slots.map((s) => `${s.day} P${s.periodIndex}`).join(', ');
+    throw new AppError(
+      `${slots[0].subject.name} is scheduled on this section's timetable (${where}). Remove those periods or assign a different teacher instead.`,
+      409,
+      'SUBJECT_ON_TIMETABLE',
+      { slots: slots.map((s) => ({ day: s.day, periodIndex: s.periodIndex })) },
+    );
+  }
+
   await prisma.teachingAssignment.deleteMany({ where: { sectionId, subjectId } });
   return getSectionTeachingAssignments(sectionId);
 }

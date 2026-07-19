@@ -1,12 +1,14 @@
 import type { Request, Response } from 'express';
+import { PermissionModule } from '@prisma/client';
 import * as svc from './academics.service';
+import { userHasPermission } from '../../utils/permissions';
 
 // ---- Classes ----
 export async function listClasses(_req: Request, res: Response): Promise<void> {
   res.json(await svc.listClasses());
 }
 export async function createClass(req: Request, res: Response): Promise<void> {
-  res.status(201).json(await svc.createClass(req.body.name, req.body.order));
+  res.status(201).json(await svc.createClass(req.body.name));
 }
 export async function updateClass(req: Request, res: Response): Promise<void> {
   res.json(await svc.updateClass(req.params.id, req.body));
@@ -44,6 +46,12 @@ export async function updateSubject(req: Request, res: Response): Promise<void> 
 export async function deleteSubject(req: Request, res: Response): Promise<void> {
   await svc.deleteSubject(req.params.id);
   res.json({ message: 'Subject deleted' });
+}
+export async function subjectDetails(req: Request, res: Response): Promise<void> {
+  const user = req.user!;
+  // Teacher names are staff data — include them only when the caller may view STAFF.
+  const includeTeachers = await userHasPermission(user.userId, user.role, PermissionModule.STAFF, 'view');
+  res.json(await svc.getSubjectDetails(req.params.id, includeTeachers));
 }
 
 // ---- Class ↔ Subject mapping ----

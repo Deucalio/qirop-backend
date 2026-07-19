@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import * as teachersService from './teachers.service';
-import { listTeachersQuerySchema } from './teachers.schema';
+import { attendanceMonthQuerySchema, listTeachersQuerySchema } from './teachers.schema';
 import { AppError, Unauthorized } from '../../utils/apiResponse';
 
 export async function list(req: Request, res: Response): Promise<void> {
@@ -15,6 +15,12 @@ export async function detail(req: Request, res: Response): Promise<void> {
 
 export async function assignments(req: Request, res: Response): Promise<void> {
   res.json(await teachersService.getTeacherAssignments(req.params.id));
+}
+
+export async function attendance(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw Unauthorized();
+  const { year, month } = attendanceMonthQuerySchema.parse(req.query);
+  res.json(await teachersService.getTeacherAttendance(req.params.id, req.user, year, month));
 }
 
 export async function create(req: Request, res: Response): Promise<void> {

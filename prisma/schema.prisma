@@ -39,6 +39,14 @@ enum AttendanceStatus {
   LEAVE
 }
 
+// Pakistan's four major academic milestones (SSC → HSSC → BS → MS).
+enum QualificationLevel {
+  MATRICULATION
+  INTERMEDIATE
+  BACHELOR
+  MASTERS
+}
+
 enum ChallanStatus {
   UNPAID
   PARTIAL
@@ -82,6 +90,17 @@ enum PermissionModule {
   EXPENSES
   SALARIES
   REPORTS
+  TIMETABLE // sub-permission of CLASSES in the UI (weekly section timetables)
+}
+
+// School days for the weekly timetable (Mon–Sat; Sunday off).
+enum DayOfWeek {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
 }
 
 // ============================================================================
@@ -116,6 +135,7 @@ model User {
   notifications           Notification[]      @relation("NotificationTargetUser")
   auditLogs               AuditLog[]          @relation("AuditLogUser")
   markedStudentAttendance StudentAttendance[] @relation("StudentAttendanceMarkedBy")
+  markedTeacherPeriodAttendance TeacherPeriodAttendance[] @relation("TeacherPeriodAttendanceMarkedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -177,13 +197,33 @@ model TeacherProfile {
   teachingAssignments  TeachingAssignment[]
   classTeacherSections Section[]            @relation("SectionClassTeacher")
   teacherAttendance    TeacherAttendance[]
+  periodAttendance     TeacherPeriodAttendance[]
   homework             Homework[]
   salarySlips          SalarySlip[]
+  qualifications       TeacherQualification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
+}
+
+// One row per academic milestone (board/university, year, marks, grade/division).
+model TeacherQualification {
+  id          String             @id @default(cuid())
+  teacherId   String
+  teacher     TeacherProfile     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  level       QualificationLevel
+  institution String // board (Matric/Inter) or university (Bachelor/Masters)
+  passingYear Int
+  marks       String? // e.g. "850/1100" or a CGPA
+  grade       String? // grade or division, e.g. "A+", "1st Division"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teacherId, level])
+  @@index([teacherId])
 }
 
 model ParentProfile {
@@ -226,10 +266,17 @@ model Section {
   classTeacherId String?
   classTeacher   TeacherProfile? @relation("SectionClassTeacher", fields: [classTeacherId], references: [id], onDelete: SetNull)
 
-  students            Student[]
-  teachingAssignments TeachingAssignment[]
-  studentAttendance   StudentAttendance[]
-  homework            Homework[]
+  students              Student[]
+  teachingAssignments   TeachingAssignment[]
+  studentAttendance     StudentAttendance[]
+  homework              Homework[]
+  timetableSlots        TimetableSlot[]
+  teacherPeriodAttendance TeacherPeriodAttendance[]
+
+  // How long the weekly timetable pattern keeps repeating. Set when the first
+  // slot is scheduled (defaults to one week); `timetableUntil` null = no end date.
+  timetableFrom  DateTime? // canonical PKT day
+  timetableUntil DateTime? // canonical PKT day; null = repeats indefinitely
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -243,12 +290,64 @@ model Subject {
   id   String @id @default(cuid())
   name String @unique
 
-  classSubjects       ClassSubject[]
-  teachingAssignments TeachingAssignment[]
-  homework            Homework[]
+  classSubjects           ClassSubject[]
+  teachingAssignments     TeachingAssignment[]
+  homework                Homework[]
+  timetableSlots          TimetableSlot[]
+  teacherPeriodAttendance TeacherPeriodAttendance[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// Timetable (weekly per-section grid; repeats every week)
+// ============================================================================
+
+// One scheduled lesson cell: section × day × period → subject. The teacher is
+// resolved through TeachingAssignment(sectionId, subjectId) so reassignments
+// automatically flow through. Period timings come from School.settings.
+model TimetableSlot {
+  id          String    @id @default(cuid())
+  sectionId   String
+  section     Section   @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  day         DayOfWeek
+  periodIndex Int // 1-based, within the school-wide period template
+  subjectId   String
+  subject     Subject   @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sectionId, day, periodIndex])
+  @@index([sectionId])
+  @@index([subjectId])
+}
+
+// Per-period teacher attendance for a calendar date, marked against the
+// timetable. Denormalized (section/subject) so history survives timetable edits.
+model TeacherPeriodAttendance {
+  id          String           @id @default(cuid())
+  teacherId   String
+  teacher     TeacherProfile   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  date        DateTime // canonical PKT day
+  periodIndex Int
+  sectionId   String
+  section     Section          @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  subjectId   String
+  subject     Subject          @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  status      AttendanceStatus
+  markedById  String
+  markedBy    User             @relation("TeacherPeriodAttendanceMarkedBy", fields: [markedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A teacher can only be in one place per period per day.
+  @@unique([teacherId, date, periodIndex])
+  @@index([date])
+  @@index([sectionId])
+  @@index([teacherId])
 }
 
 model ClassSubject {

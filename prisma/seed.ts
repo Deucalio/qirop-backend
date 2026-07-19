@@ -5,6 +5,7 @@ import { seedPeople, DEFAULT_PEOPLE_PASSWORD } from './seed/people';
 import { seedAssignments } from './seed/assignments';
 import { seedAttendance } from './seed/attendance';
 import { seedHomework } from './seed/homework';
+import { seedTimetable } from './seed/timetable';
 
 const prisma = new PrismaClient();
 
@@ -108,6 +109,7 @@ async function main(): Promise<void> {
   await seedAssignments(prisma);
   await seedAttendance(prisma);
   await seedHomework(prisma);
+  await seedTimetable(prisma);
 
   // eslint-disable-next-line no-console
   console.log('✅ Seed complete.');

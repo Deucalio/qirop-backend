@@ -1,9 +1,24 @@
-import { Prisma, Role, UserStatus } from '@prisma/client';
+import { AttendanceStatus, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
 import { publicUrl, replaceFile } from '../../services/storage';
-import { AppError, NotFound } from '../../utils/apiResponse';
+import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
+import { userHasPermission } from '../../utils/permissions';
+import { summarize, type AttendanceSummary } from '../../utils/attendanceMetrics';
+import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateStudentInput, ListStudentsQuery, UpdateStudentInput } from './students.schema';
+
+export interface Actor {
+  userId: string;
+  role: Role;
+}
+
+interface AttendanceSnapshot {
+  year: number;
+  month: number;
+  days: Record<string, AttendanceStatus>;
+  summary: AttendanceSummary;
+}
 
 const studentInclude = {
   section: { include: { class: true } },
@@ -22,6 +37,8 @@ function shapeListItem(s: StudentWithRels) {
     name: `${s.firstName} ${s.lastName}`,
     gender: s.gender,
     status: s.status,
+    dob: s.dob,
+    admissionDate: s.admissionDate,
     photoUrl: publicUrl(s.photoUrl),
     section: { id: s.section.id, name: s.section.name },
     class: { id: s.section.class.id, name: s.section.class.name },
@@ -32,18 +49,33 @@ function shapeListItem(s: StudentWithRels) {
 function shapeDetail(s: StudentWithRels) {
   return {
     ...shapeListItem(s),
-    dob: s.dob,
-    admissionDate: s.admissionDate,
     parent: {
       id: s.parent.id,
       name: s.parent.user.fullName,
       cnic: s.parent.user.cnic,
       phone: s.parent.user.phone,
     },
-    // Populated in later phases:
-    attendance: [] as unknown[],
+    // Current-month attendance; null when the viewer lacks ATTENDANCE view.
+    attendance: null as AttendanceSnapshot | null,
+    // Populated in Phase 5:
     fees: [] as unknown[],
   };
+}
+
+/** The student's attendance for a PKT month (day map + summary); defaults to the current month. */
+async function attendanceSnapshot(studentId: string, year?: number, month?: number): Promise<AttendanceSnapshot> {
+  const now = pktDay();
+  year = year ?? now.getUTCFullYear();
+  month = month ?? now.getUTCMonth() + 1;
+  const { start, endExclusive } = pktMonthRange(year, month);
+
+  const marks = await prisma.studentAttendance.findMany({
+    where: { studentId, date: { gte: start, lt: endExclusive } },
+    orderBy: { date: 'asc' },
+  });
+  const days: Record<string, AttendanceStatus> = {};
+  for (const m of marks) days[pktDayString(m.date)] = m.status;
+  return { year, month, days, summary: summarize(marks.map((m) => m.status)) };
 }
 
 async function loadStudentOr404(id: string): Promise<StudentWithRels> {
@@ -88,11 +120,24 @@ export async function listStudents(query: ListStudentsQuery) {
   return students.map(shapeListItem);
 }
 
-export async function getStudent(id: string) {
-  return shapeDetail(await loadStudentOr404(id));
+export async function getStudent(id: string, actor?: Actor) {
+  const detail = shapeDetail(await loadStudentOr404(id));
+  if (actor && (await userHasPermission(actor.userId, actor.role, PermissionModule.ATTENDANCE, 'view'))) {
+    detail.attendance = await attendanceSnapshot(id);
+  }
+  return detail;
 }
 
-export async function createStudent(actorId: string, input: CreateStudentInput) {
+/** Month-scoped attendance snapshot for the profile view's month picker. */
+export async function getStudentAttendance(id: string, actor: Actor, year?: number, month?: number) {
+  await loadStudentOr404(id);
+  if (!(await userHasPermission(actor.userId, actor.role, PermissionModule.ATTENDANCE, 'view'))) {
+    throw Forbidden('You do not have permission to view attendance');
+  }
+  return attendanceSnapshot(id, year, month);
+}
+
+export async function createStudent(actor: Actor, input: CreateStudentInput) {
   const section = await prisma.section.findUnique({ where: { id: input.sectionId } });
   if (!section) throw NotFound('Section not found');
 
@@ -115,7 +160,7 @@ export async function createStudent(actorId: string, input: CreateStudentInput) 
     const parent = await prisma.parentProfile.findUnique({ where: { id: input.parentId } });
     if (!parent) throw NotFound('Parent not found');
     const created = await prisma.student.create({ data: { ...baseData, parentId: input.parentId } });
-    return getStudent(created.id);
+    return getStudent(created.id, actor);
   }
 
   // Case 2: create the parent + student atomically.
@@ -132,17 +177,17 @@ export async function createStudent(actorId: string, input: CreateStudentInput) 
         phone: p.phone ?? null,
         passwordHash,
         role: Role.PARENT,
-        createdById: actorId,
+        createdById: actor.userId,
         parentProfile: { create: { occupation: p.occupation ?? null, address: p.address ?? null } },
       },
       include: { parentProfile: true },
     });
     return tx.student.create({ data: { ...baseData, parentId: user.parentProfile!.id } });
   });
-  return getStudent(created.id);
+  return getStudent(created.id, actor);
 }
 
-export async function updateStudent(id: string, data: UpdateStudentInput) {
+export async function updateStudent(id: string, data: UpdateStudentInput, actor?: Actor) {
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw NotFound('Student not found');
 
@@ -178,20 +223,20 @@ export async function updateStudent(id: string, data: UpdateStudentInput) {
       parentId: data.parentId ?? undefined,
     },
   });
-  return getStudent(id);
+  return getStudent(id, actor);
 }
 
-export async function setStatus(id: string, status: UserStatus) {
+export async function setStatus(id: string, status: UserStatus, actor?: Actor) {
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw NotFound('Student not found');
   await prisma.student.update({ where: { id }, data: { status } });
-  return getStudent(id);
+  return getStudent(id, actor);
 }
 
-export async function setPhoto(id: string, buffer: Buffer, originalName: string, contentType: string) {
+export async function setPhoto(id: string, buffer: Buffer, originalName: string, contentType: string, actor?: Actor) {
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw NotFound('Student not found');
   const newPath = await replaceFile(student.photoUrl, buffer, originalName, `/students/${id}`, contentType);
   await prisma.student.update({ where: { id }, data: { photoUrl: newPath } });
-  return getStudent(id);
+  return getStudent(id, actor);
 }

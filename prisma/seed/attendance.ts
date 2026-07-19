@@ -1,9 +1,9 @@
 import { PrismaClient, Prisma, AttendanceStatus } from '@prisma/client';
 import { lastNPktDays } from '../../src/utils/pktDate';
 
-// Realistic-ish rotating patterns (mostly present, some late/absent/leave).
-const STUDENT_PATTERN: AttendanceStatus[] = ['PRESENT', 'PRESENT', 'PRESENT', 'LATE', 'PRESENT', 'ABSENT', 'PRESENT', 'LEAVE'];
-const TEACHER_PATTERN: AttendanceStatus[] = ['PRESENT', 'PRESENT', 'LEAVE', 'PRESENT', 'ABSENT', 'PRESENT', 'PRESENT'];
+// Rotating patterns — the school currently records only Present / Absent.
+const STUDENT_PATTERN: AttendanceStatus[] = ['PRESENT', 'PRESENT', 'PRESENT', 'PRESENT', 'PRESENT', 'ABSENT', 'PRESENT', 'ABSENT'];
+const TEACHER_PATTERN: AttendanceStatus[] = ['PRESENT', 'PRESENT', 'PRESENT', 'PRESENT', 'ABSENT', 'PRESENT', 'PRESENT'];
 
 /**
  * Seeds student + teacher attendance for the last ~7 PKT school days.
@@ -53,7 +53,7 @@ export async function seedAttendance(prisma: PrismaClient) {
         teacherId: t.id,
         date,
         status,
-        checkInTime: status === 'PRESENT' || status === 'LATE' ? new Date(date.getTime() + 8 * 3600 * 1000) : null,
+        checkInTime: status === 'PRESENT' ? new Date(date.getTime() + 8 * 3600 * 1000) : null,
       });
     });
   });

@@ -53,6 +53,12 @@ export const listStudentsQuerySchema = z.object({
   search: z.string().trim().max(150).optional(),
 });
 
+/** ?year=&month= for the month-scoped attendance snapshot (defaults to the current PKT month). */
+export const attendanceMonthQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+});
+
 export type CreateStudentInput = z.infer<typeof createStudentSchema>;
 export type UpdateStudentInput = z.infer<typeof updateStudentSchema>;
 export type ListStudentsQuery = z.infer<typeof listStudentsQuerySchema>;

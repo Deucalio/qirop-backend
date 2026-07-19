@@ -10,6 +10,13 @@ import { schoolRouter } from './modules/school/school.routes';
 import { adminsRouter } from './modules/admins/admins.routes';
 import { classesRouter, sectionsRouter, subjectsRouter } from './modules/academics/academics.routes';
 import { teachersRouter, meRouter } from './modules/teachers/teachers.routes';
+import {
+  timetableConfigRouter,
+  sectionTimetableRouter,
+  periodAttendanceRouter,
+  meTeacherTimetableRouter,
+  meChildTimetableRouter,
+} from './modules/timetable/timetable.routes';
 import { parentsRouter } from './modules/parents/parents.routes';
 import { studentsRouter } from './modules/students/students.routes';
 import {
@@ -61,6 +68,9 @@ export function createApp(): Express {
   app.use('/api/sections', sectionsRouter);
   app.use('/api/sections', assignmentSectionsRouter); // class-teacher + teaching-assignments (STAFF)
   app.use('/api/sections', sectionAttendanceRouter); // student attendance roster/marking (ATTENDANCE)
+  app.use('/api/timetable-config', timetableConfigRouter); // school-wide period & break timings
+  app.use('/api/sections', sectionTimetableRouter); // weekly timetable grid (TIMETABLE)
+  app.use('/api/sections', periodAttendanceRouter); // per-period teacher attendance (ATTENDANCE)
   app.use('/api/subjects', subjectsRouter);
   app.use('/api/teachers', teachersRouter);
   app.use('/api/teachers', attendanceTeachersRouter); // admin set/correct teacher attendance
@@ -72,8 +82,10 @@ export function createApp(): Express {
   app.use('/api/homework', homeworkRouter);
   app.use('/api/me/teacher/attendance', meTeacherAttendanceRouter);
   app.use('/api/me/teacher/homework', meTeacherHomeworkRouter);
+  app.use('/api/me/teacher/timetable', meTeacherTimetableRouter);
   app.use('/api/me/children', meChildrenRouter);
   app.use('/api/me/children', meChildHomeworkRouter);
+  app.use('/api/me/children', meChildTimetableRouter);
   app.use('/api/me', meRouter);
 
   // Protected test route to verify RBAC.
