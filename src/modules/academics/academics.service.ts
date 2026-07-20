@@ -6,6 +6,7 @@ import {
   totalWeeklySlots,
   type TimetableStatus,
 } from '../timetable/timetable.service';
+import { BUILT_IN_COLORS, normalizeHex } from './subjectColors';
 
 const conflict = (message: string) => new AppError(message, 409, 'CONFLICT');
 
@@ -40,9 +41,14 @@ export async function listClasses() {
       include: {
         _count: { select: { sections: true, classSubjects: true } },
         sections: {
+          orderBy: { name: 'asc' },
           select: {
+            id: true,
+            name: true,
+            isDefault: true,
             timetableFrom: true,
             timetableUntil: true,
+            classTeacher: { include: { user: { select: { fullName: true } } } },
             _count: { select: { students: true, timetableSlots: true } },
           },
         },
@@ -69,12 +75,20 @@ export async function listClasses() {
       id: c.id,
       name: c.name,
       order: c.order,
-      sectionCount: c._count.sections,
+      // The implicit section isn't a section the school has — don't count it.
+      sectionCount: c.sections.filter((s) => !s.isDefault).length,
       subjectCount: c._count.classSubjects,
       studentCount: c.sections.reduce((n, s) => n + s._count.students, 0),
       timetableStatus: aggregateTimetableStatus(
         c.sections.map((s) => buildValidity(s, s._count.timetableSlots, weeklySlots).status),
       ),
+      /** Class teacher per section, for the card summary. */
+      classTeachers: c.sections.map((s) => ({
+        sectionId: s.id,
+        sectionName: s.name,
+        isDefault: s.isDefault,
+        teacherName: s.classTeacher?.user.fullName ?? null,
+      })),
     }))
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
@@ -86,9 +100,30 @@ async function assertClassNameFree(name: string, exceptId?: string) {
   }
 }
 
-export async function createClass(name: string) {
+/** Name of the implicit section used by classes that aren't split into sections. */
+export const DEFAULT_SECTION_NAME = 'Main';
+
+/**
+ * Create a class and its sections. A class always ends up with at least one
+ * section — students, timetables and attendance all hang off sections — so when
+ * no names are given we add one flagged `isDefault`, which the UI presents as
+ * "no sections" rather than inventing a letter the school doesn't use.
+ */
+export async function createClass(name: string, sectionNames: string[] = []) {
   await assertClassNameFree(name);
-  return prisma.class.create({ data: { name, order: classOrderFromName(name) } });
+
+  const cleaned = [...new Set(sectionNames.map((s) => s.trim()).filter(Boolean))];
+  return prisma.class.create({
+    data: {
+      name,
+      order: classOrderFromName(name),
+      sections: {
+        create: cleaned.length
+          ? cleaned.map((n) => ({ name: n }))
+          : [{ name: DEFAULT_SECTION_NAME, isDefault: true }],
+      },
+    },
+  });
 }
 
 export async function updateClass(id: string, data: { name: string }) {
@@ -106,11 +141,14 @@ export async function updateClass(id: string, data: { name: string }) {
 export async function deleteClass(id: string) {
   const cls = await prisma.class.findUnique({
     where: { id },
-    include: { _count: { select: { sections: true } } },
+    include: { sections: { select: { id: true, isDefault: true } } },
   });
   if (!cls) throw NotFound('Class not found');
 
-  if (cls._count.sections > 0) {
+  // The implicit section isn't something the admin created, so it shouldn't
+  // block deletion — only real, named sections do.
+  const namedSections = cls.sections.filter((s) => !s.isDefault);
+  if (namedSections.length > 0) {
     throw conflict('Cannot delete a class that still has sections. Remove its sections first.');
   }
   const studentCount = await prisma.student.count({ where: { section: { classId: id } } });
@@ -118,7 +156,11 @@ export async function deleteClass(id: string) {
     throw conflict('Cannot delete a class that still has students.');
   }
 
-  await prisma.class.delete({ where: { id } });
+  // Cascade the implicit section away with the class.
+  await prisma.$transaction([
+    prisma.section.deleteMany({ where: { classId: id } }),
+    prisma.class.delete({ where: { id } }),
+  ]);
 }
 
 // ===========================================================================
@@ -133,6 +175,12 @@ async function loadClassOr404(classId: string) {
 
 export async function listSections(classId: string) {
   await loadClassOr404(classId);
+  // Classes created before implicit sections existed may have none; give them
+  // one so their timetable and roster have somewhere to live.
+  const existing = await prisma.section.count({ where: { classId } });
+  if (existing === 0) {
+    await prisma.section.create({ data: { classId, name: DEFAULT_SECTION_NAME, isDefault: true } });
+  }
   const [sections, layout] = await Promise.all([
     prisma.section.findMany({
       where: { classId },
@@ -148,6 +196,8 @@ export async function listSections(classId: string) {
     classId: s.classId,
     classTeacherId: s.classTeacherId,
     studentCount: s._count.students,
+    /** True for the implicit section of a class that isn't split into sections. */
+    isDefault: s.isDefault,
     timetable: buildValidity(s, s._count.timetableSlots, totalSlots),
   }));
 }
@@ -158,6 +208,18 @@ export async function createSection(classId: string, name: string) {
     where: { classId_name: { classId, name } },
   });
   if (existing) throw conflict(`Section "${name}" already exists in this class`);
+
+  // The class wasn't split into sections until now: convert its implicit section
+  // rather than adding a second, so its students and timetable carry over.
+  const sections = await prisma.section.findMany({ where: { classId } });
+  const onlyDefault = sections.length === 1 && sections[0].isDefault;
+  if (onlyDefault) {
+    return prisma.section.update({
+      where: { id: sections[0].id },
+      data: { name, isDefault: false },
+    });
+  }
+
   return prisma.section.create({ data: { classId, name } });
 }
 
@@ -182,6 +244,21 @@ export async function deleteSection(id: string) {
   if (section._count.students > 0) {
     throw conflict('Cannot delete a section that still has students.');
   }
+
+  // Removing the last section would leave the class with nowhere to hold its
+  // timetable, so it reverts to the implicit "no sections" one instead.
+  const siblings = await prisma.section.count({ where: { classId: section.classId } });
+  if (siblings <= 1) {
+    if (section.isDefault) {
+      throw conflict('This class is not split into sections, so there is nothing to remove.');
+    }
+    await prisma.section.update({
+      where: { id },
+      data: { name: DEFAULT_SECTION_NAME, isDefault: true, classTeacherId: null },
+    });
+    return;
+  }
+
   await prisma.section.delete({ where: { id } });
 }
 
@@ -194,10 +271,14 @@ export async function listSubjects() {
     orderBy: { name: 'asc' },
     include: { _count: { select: { classSubjects: true } } },
   });
-  return subjects.map((s) => ({
+  return subjects.map((s, i) => ({
     id: s.id,
     name: s.name,
     classCount: s._count.classSubjects,
+    // Chosen colour, else a built-in slot from the alphabetical rank.
+    color: s.colorHex ?? BUILT_IN_COLORS[i % BUILT_IN_COLORS.length],
+    /** True while the colour is still the automatic one. */
+    colorIsAuto: s.colorHex === null,
   }));
 }
 
@@ -213,11 +294,35 @@ export async function createSubject(name: string) {
   return prisma.subject.create({ data: { name } });
 }
 
-export async function updateSubject(id: string, name: string) {
+export async function updateSubject(id: string, data: { name?: string; color?: string | null }) {
   const subject = await prisma.subject.findUnique({ where: { id } });
   if (!subject) throw NotFound('Subject not found');
-  if (name !== subject.name) await assertSubjectNameFree(name, id);
-  return prisma.subject.update({ where: { id }, data: { name } });
+  if (data.name && data.name !== subject.name) await assertSubjectNameFree(data.name, id);
+
+  let colorHex: string | null | undefined;
+  if (data.color !== undefined) {
+    colorHex = data.color === null ? null : normalizeHex(data.color);
+    if (colorHex) {
+      // One colour per subject, or the timetable stops being readable at a glance.
+      const clash = await prisma.subject.findFirst({
+        where: { colorHex, id: { not: id } },
+        select: { name: true },
+      });
+      if (clash) {
+        throw conflict(`${clash.name} already uses that colour. Pick a different one.`);
+      }
+    }
+  }
+
+  await prisma.subject.update({
+    where: { id },
+    data: {
+      name: data.name ?? undefined,
+      // null is meaningful (revert to automatic), so only skip when not sent.
+      ...(colorHex !== undefined ? { colorHex } : {}),
+    },
+  });
+  return listSubjects();
 }
 
 export async function deleteSubject(id: string) {

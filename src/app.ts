@@ -60,6 +60,17 @@ export function createApp(): Express {
     }
   });
 
+
+  app.get("/api/health-two", async (_req: Request, res: Response) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() });
+    } catch {
+      res.status(503).json({ status: 'error', db: 'disconnected' });
+    }
+  });
+
+
   // Feature routers
   app.use('/api/auth', authRouter);
   app.use('/api/school', schoolRouter);

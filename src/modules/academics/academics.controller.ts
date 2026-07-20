@@ -8,7 +8,7 @@ export async function listClasses(_req: Request, res: Response): Promise<void> {
   res.json(await svc.listClasses());
 }
 export async function createClass(req: Request, res: Response): Promise<void> {
-  res.status(201).json(await svc.createClass(req.body.name));
+  res.status(201).json(await svc.createClass(req.body.name, req.body.sections));
 }
 export async function updateClass(req: Request, res: Response): Promise<void> {
   res.json(await svc.updateClass(req.params.id, req.body));
@@ -41,7 +41,7 @@ export async function createSubject(req: Request, res: Response): Promise<void> 
   res.status(201).json(await svc.createSubject(req.body.name));
 }
 export async function updateSubject(req: Request, res: Response): Promise<void> {
-  res.json(await svc.updateSubject(req.params.id, req.body.name));
+  res.json(await svc.updateSubject(req.params.id, { name: req.body.name, color: req.body.color }));
 }
 export async function deleteSubject(req: Request, res: Response): Promise<void> {
   await svc.deleteSubject(req.params.id);

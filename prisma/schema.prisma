@@ -259,8 +259,12 @@ model Class {
 }
 
 model Section {
-  id             String          @id @default(cuid())
-  name           String // e.g. "A"
+  id   String @id @default(cuid())
+  name String // e.g. "A"
+  // A class that isn't split into sections still needs somewhere to hang its
+  // students, timetable and attendance, so it gets one implicit section. The UI
+  // hides section wording for these; naming a real section converts it.
+  isDefault      Boolean         @default(false)
   classId        String
   class          Class           @relation(fields: [classId], references: [id], onDelete: Restrict)
   classTeacherId String?
@@ -289,6 +293,11 @@ model Section {
 model Subject {
   id   String @id @default(cuid())
   name String @unique
+
+  // Hex colour chosen by the admin (e.g. "#6366f1"). Null falls back to a
+  // built-in palette slot picked by alphabetical rank, so untouched subjects
+  // still get stable, distinct colours.
+  colorHex String?
 
   classSubjects           ClassSubject[]
   teachingAssignments     TeachingAssignment[]

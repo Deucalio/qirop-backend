@@ -1,8 +1,14 @@
 # Deploying the backend to an Ubuntu VPS (systemd)
 
-The service runs the compiled app (`npm run build` → `node dist/src/server.js`),
-reads `.env` from its working directory, and never writes to local disk
-(uploads stream to the external FileStore), so it runs under a hardened unit.
+The service runs the TypeScript sources directly (`node --import tsx
+src/server.ts`), reads `.env` from its working directory, and never writes to
+local disk (uploads stream to the external FileStore), so it runs under a
+hardened unit.
+
+**There is no build step in a deploy.** `tsx` strips types at load time, so
+updating is `git pull` + `systemctl restart` — see §8. This costs ~1-2s of
+extra startup and means type errors surface at runtime, not at deploy time;
+run `npm run typecheck` before pushing to keep that safety net.
 
 Two production constraints decide the architecture:
 
@@ -58,15 +64,17 @@ sudo useradd --system --create-home --shell /usr/sbin/nologin akm
 sudo mkdir -p /opt/akm && sudo chown akm:akm /opt/akm
 ```
 
-## 2. Get the code and build
+## 2. Get the code
 
 ```bash
 sudo -u akm git clone <your-repo-url> /opt/akm/src   # or rsync/scp the repo
 cd /opt/akm/src/backend
-sudo -u akm npm ci                  # dev deps included — needed for tsc + prisma
+sudo -u akm npm ci                  # dev deps included — needed for prisma CLI
 sudo -u akm npx prisma generate
-sudo -u akm npm run build           # → dist/src/server.js
 ```
+
+No compile step: `tsx` is a runtime dependency and the unit runs `src/server.ts`
+directly.
 
 > If you clone to `/opt/akm/src`, either symlink `/opt/akm/backend` →
 > `/opt/akm/src/backend` or adjust `WorkingDirectory` in the unit file.
@@ -140,13 +148,26 @@ sudo ufw enable        # port 4000 stays unreachable from outside — only nginx
 
 ## 8. Updating a running deployment
 
+The common case — code changes only:
+
 ```bash
 cd /opt/akm/src/backend
-sudo -u akm git pull
-sudo -u akm npm ci && sudo -u akm npx prisma generate
+sudo -u akm git pull origin main
+sudo systemctl restart akm-backend.service
+sudo systemctl status akm-backend.service
+sudo journalctl -u akm-backend.service -f
+```
+
+Two things `git pull` cannot apply on its own. Run these only when the pull
+actually touched them:
+
+```bash
+# package.json changed → new/updated deps
+sudo -u akm npm ci
+
+# prisma/schema.prisma changed → regenerate client, apply migrations
+sudo -u akm npx prisma generate
 sudo -u akm npx prisma migrate deploy
-sudo -u akm npm run build
-sudo systemctl restart akm-backend
 ```
 
 The server shuts down gracefully on SIGTERM (systemd's stop signal), so

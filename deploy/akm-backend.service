@@ -14,7 +14,9 @@ User=akm
 Group=akm
 WorkingDirectory=/opt/akm/backend
 # dotenv reads /opt/akm/backend/.env at startup (relative to WorkingDirectory).
-ExecStart=/usr/bin/node dist/src/server.js
+# tsx strips types at load time, so deploys are `git pull` + `systemctl restart`
+# with no build step. Costs ~1-2s of startup; nothing is written to disk.
+ExecStart=/usr/bin/node --import tsx src/server.ts
 # Wins over any NODE_ENV inside .env (dotenv never overrides existing vars).
 Environment=NODE_ENV=production
 Restart=always

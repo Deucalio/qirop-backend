@@ -3,6 +3,7 @@ import { AttendanceStatus, DayOfWeek, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { pktDay, pktDayString, parsePktDay, isFuturePktDay } from '../../utils/pktDate';
+import { subjectColorMap, BUILT_IN_COLORS } from '../academics/subjectColors';
 
 export interface Actor {
   userId: string;
@@ -238,11 +239,8 @@ export async function saveTimetableConfig(raw: unknown, dryRun: boolean) {
   };
 }
 
-/** Stable per-subject color slot: the subject's rank in the global name-ordered list. */
-async function subjectColorIndexes(): Promise<Map<string, number>> {
-  const all = await prisma.subject.findMany({ orderBy: { name: 'asc' }, select: { id: true } });
-  return new Map(all.map((s, i) => [s.id, i]));
-}
+/** Resolved hex colour per subject (admin choice, else automatic). */
+const subjectColorIndexes = subjectColorMap;
 
 // ---------------------------------------------------------------------------
 // Validity window — how long the weekly pattern keeps repeating
@@ -362,7 +360,7 @@ export async function getSectionTimetable(sectionId: string) {
     slots: slots.map((s) => ({
       day: s.day,
       periodIndex: s.periodIndex,
-      subject: { id: s.subject.id, name: s.subject.name, colorIndex: colors.get(s.subject.id) ?? 0 },
+      subject: { id: s.subject.id, name: s.subject.name, color: colors.get(s.subject.id) ?? BUILT_IN_COLORS[0] },
       // null when an assignment was removed historically — surfaced as a warning in the UI.
       teacher: teachers.get(s.subjectId) ?? null,
       /** Other sections taught together with this one in the same lesson. */
@@ -382,13 +380,14 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
   const layout = await getTimetableLayout();
   const schedule = scheduleFor(layout, day);
 
-  const [classSubjects, assignments] = await Promise.all([
+  const [classSubjects, assignments, colors] = await Promise.all([
     prisma.classSubject.findMany({
       where: { classId: section.classId },
       include: { subject: true },
       orderBy: { subject: { name: 'asc' } },
     }),
     prisma.teachingAssignment.findMany({ where: { sectionId }, include: { teacher: { include: { user: true } } } }),
+    subjectColorIndexes(),
   ]);
   const assignmentBySubject = new Map(assignments.map((a) => [a.subjectId, a]));
   const teacherIds = [...new Set(assignments.map((a) => a.teacherId))];
@@ -449,6 +448,9 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
     const siblings = await prisma.teachingAssignment.findMany({
       where: {
         sectionId: { not: sectionId },
+        // Only other sections of the SAME class: combining Class 1 with Class 7
+        // makes no sense even when one teacher covers both.
+        section: { classId: section.classId },
         OR: assignments.map((a) => ({ subjectId: a.subjectId, teacherId: a.teacherId })),
       },
       include: { section: { include: { class: true } } },
@@ -508,6 +510,7 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
       return {
         subjectId: cs.subject.id,
         subjectName: cs.subject.name,
+        color: colors.get(cs.subject.id) ?? BUILT_IN_COLORS[0],
         teacher,
         clash,
         commitments,
@@ -609,7 +612,19 @@ export async function setSlot(
   // Every participating section, the primary one first.
   const extraIds = [...new Set(options.withSectionIds ?? [])].filter((id) => id !== sectionId);
   const sections = [section];
-  for (const id of extraIds) sections.push(await loadSectionOr404(id));
+  for (const id of extraIds) {
+    const extra = await loadSectionOr404(id);
+    // A combined class is two sections of the same class sitting together —
+    // different year groups can't share a lesson.
+    if (extra.classId !== section.classId) {
+      throw new AppError(
+        `Only sections of the same class can be combined. ${extra.class.name} · Section ${extra.name} is not part of ${section.class.name}.`,
+        409,
+        'COMBINED_DIFFERENT_CLASS',
+      );
+    }
+    sections.push(extra);
+  }
 
   // The subject must be offered, and the SAME teacher assigned, in every section —
   // a combined lesson is one teacher in one room.
@@ -734,7 +749,7 @@ export async function getTeacherTimetable(userId: string) {
     slots: slots.map((s) => ({
       day: s.day,
       periodIndex: s.periodIndex,
-      subject: { id: s.subject.id, name: s.subject.name, colorIndex: colors.get(s.subject.id) ?? 0 },
+      subject: { id: s.subject.id, name: s.subject.name, color: colors.get(s.subject.id) ?? BUILT_IN_COLORS[0] },
       section: { id: s.section.id, name: s.section.name, className: s.section.class.name },
     })),
   };
@@ -800,7 +815,7 @@ export async function getSectionPeriodAttendance(sectionId: string, dateStr?: st
       const mark = markByPeriod.get(p.index);
       return {
         ...p,
-        subject: { id: slot.subject.id, name: slot.subject.name, colorIndex: colors.get(slot.subject.id) ?? 0 },
+        subject: { id: slot.subject.id, name: slot.subject.name, color: colors.get(slot.subject.id) ?? BUILT_IN_COLORS[0] },
         teacher: teacher ? { id: teacher.id, fullName: teacher.fullName, status: teacher.status } : null,
         dailyStatus: dailyRec?.status ?? ('UNMARKED' as const),
         checkInTime: dailyRec?.checkInTime ?? null,

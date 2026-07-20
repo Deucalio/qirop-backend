@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Backend API for Qirop School of Wisdom & Technology ERP",
-  "main": "dist/src/server.js",
+  "main": "src/server.ts",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/src/server.js",
+    "start": "node --import tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
@@ -29,6 +29,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
+    "tsx": "^4.19.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -40,7 +41,6 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.10.5",
     "prisma": "^6.11.1",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
 }
