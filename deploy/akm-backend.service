@@ -19,7 +19,12 @@ WorkingDirectory=/home/rdpuser/qirop-backend
 # dotenv reads .env from WorkingDirectory at startup.
 # tsx strips types at load time, so deploys are `git pull` + `systemctl restart`
 # with no build step. Costs ~1-2s of startup; nothing is written to disk.
-ExecStart=/usr/bin/node --import tsx src/server.ts
+#
+# `-r tsx/cjs` (not `--import tsx`): the require hook works on every Node that
+# tsx supports, while `--import` needs Node >= 20.6 and this box runs older.
+# It also keeps everything in one process, so systemd's SIGTERM reaches the
+# server directly and the graceful shutdown in src/server.ts still runs.
+ExecStart=/usr/bin/node -r tsx/cjs src/server.ts
 # Wins over any NODE_ENV inside .env (dotenv never overrides existing vars).
 Environment=NODE_ENV=production
 Restart=always
