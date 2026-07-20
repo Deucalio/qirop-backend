@@ -4,8 +4,12 @@ import { DayOfWeek } from '@prisma/client';
 /** Set one grid cell; subjectId null clears it. */
 export const setSlotSchema = z.object({
   day: z.nativeEnum(DayOfWeek),
-  periodIndex: z.coerce.number().int().min(1).max(12),
+  periodIndex: z.coerce.number().int().min(1).max(14),
   subjectId: z.string().min(1).nullable(),
+  /** Sections taught together with this one as a single combined lesson. */
+  withSectionIds: z.array(z.string().min(1)).max(20).optional(),
+  /** Overwrite conflicting lessons instead of rejecting. */
+  force: z.boolean().optional(),
 });
 
 const pktDateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');

@@ -35,6 +35,7 @@ timetableConfigRouter.put(
 export const sectionTimetableRouter = Router();
 sectionTimetableRouter.use(requireAuth);
 sectionTimetableRouter.get('/:sectionId/timetable', timetableView, asyncHandler(c.sectionTimetable));
+sectionTimetableRouter.get('/:sectionId/timetable/slot-options', timetableView, asyncHandler(c.slotOptions));
 sectionTimetableRouter.put('/:sectionId/timetable/slot', timetableEdit, validateBody(setSlotSchema), asyncHandler(c.setSlot));
 sectionTimetableRouter.put(
   '/:sectionId/timetable/validity',

@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import type { DayOfWeek } from '@prisma/client';
 import * as svc from './timetable.service';
 import { Unauthorized } from '../../utils/apiResponse';
 
@@ -6,9 +7,15 @@ export async function sectionTimetable(req: Request, res: Response): Promise<voi
   res.json(await svc.getSectionTimetable(req.params.sectionId));
 }
 
+export async function slotOptions(req: Request, res: Response): Promise<void> {
+  const day = req.query.day as DayOfWeek;
+  const periodIndex = Number(req.query.periodIndex);
+  res.json(await svc.getSlotOptions(req.params.sectionId, day, periodIndex));
+}
+
 export async function setSlot(req: Request, res: Response): Promise<void> {
-  const { day, periodIndex, subjectId } = req.body;
-  res.json(await svc.setSlot(req.params.sectionId, day, periodIndex, subjectId));
+  const { day, periodIndex, subjectId, withSectionIds, force } = req.body;
+  res.json(await svc.setSlot(req.params.sectionId, day, periodIndex, subjectId, { withSectionIds, force }));
 }
 
 export async function timetableConfig(_req: Request, res: Response): Promise<void> {

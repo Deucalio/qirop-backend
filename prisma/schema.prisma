@@ -316,12 +316,18 @@ model TimetableSlot {
   subjectId   String
   subject     Subject   @relation(fields: [subjectId], references: [id], onDelete: Restrict)
 
+  // Combined class: sections taught together in one room share a groupId, so the
+  // same teacher at the same time across them is intentional, not a clash. Each
+  // section still owns its own row, keeping per-section queries unchanged.
+  groupId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([sectionId, day, periodIndex])
   @@index([sectionId])
   @@index([subjectId])
+  @@index([groupId])
 }
 
 // Per-period teacher attendance for a calendar date, marked against the

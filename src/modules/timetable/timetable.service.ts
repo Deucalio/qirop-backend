@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AttendanceStatus, DayOfWeek, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
@@ -334,6 +335,21 @@ export async function getSectionTimetable(sectionId: string) {
     subjectColorIndexes(),
   ]);
 
+  // For combined lessons, name the other sections sharing each slot.
+  const groupIds = slots.map((s) => s.groupId).filter((g): g is string => !!g);
+  const partnersByGroup = new Map<string, { sectionId: string; sectionName: string; className: string }[]>();
+  if (groupIds.length > 0) {
+    const partners = await prisma.timetableSlot.findMany({
+      where: { groupId: { in: groupIds }, sectionId: { not: sectionId } },
+      include: { section: { include: { class: true } } },
+    });
+    for (const p of partners) {
+      const list = partnersByGroup.get(p.groupId!) ?? [];
+      list.push({ sectionId: p.sectionId, sectionName: p.section.name, className: p.section.class.name });
+      partnersByGroup.set(p.groupId!, list);
+    }
+  }
+
   return {
     sectionId: section.id,
     sectionName: section.name,
@@ -349,36 +365,214 @@ export async function getSectionTimetable(sectionId: string) {
       subject: { id: s.subject.id, name: s.subject.name, colorIndex: colors.get(s.subject.id) ?? 0 },
       // null when an assignment was removed historically — surfaced as a warning in the UI.
       teacher: teachers.get(s.subjectId) ?? null,
+      /** Other sections taught together with this one in the same lesson. */
+      combinedWith: s.groupId ? (partnersByGroup.get(s.groupId) ?? []) : [],
     })),
   };
 }
 
 /**
- * Detect a teacher being scheduled in two places at once: any OTHER section's
- * slot at the same (day, period) whose resolved teacher is `teacherId`.
+ * Everything the "what can I schedule here?" picker needs: every subject the
+ * class offers, its teacher in this section, whether that teacher is already
+ * booked at this exact (day, period), and their full commitments for the day —
+ * so a clash is visible *before* the admin hits save rather than after.
  */
-async function findTeacherClash(teacherId: string, day: DayOfWeek, periodIndex: number, excludeSectionId: string) {
+export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIndex: number) {
+  const section = await loadSectionOr404(sectionId);
+  const layout = await getTimetableLayout();
+  const schedule = scheduleFor(layout, day);
+
+  const [classSubjects, assignments] = await Promise.all([
+    prisma.classSubject.findMany({
+      where: { classId: section.classId },
+      include: { subject: true },
+      orderBy: { subject: { name: 'asc' } },
+    }),
+    prisma.teachingAssignment.findMany({ where: { sectionId }, include: { teacher: { include: { user: true } } } }),
+  ]);
+  const assignmentBySubject = new Map(assignments.map((a) => [a.subjectId, a]));
+  const teacherIds = [...new Set(assignments.map((a) => a.teacherId))];
+
+  // Where each of those teachers already stands on this day, school-wide.
+  const commitmentsByTeacher = new Map<string, { periodIndex: number; className: string; sectionName: string; sectionId: string; subjectName: string }[]>();
+  if (teacherIds.length > 0) {
+    const [daySlots, teacherAssignments] = await Promise.all([
+      prisma.timetableSlot.findMany({
+        where: { day },
+        include: { section: { include: { class: true } }, subject: true },
+      }),
+      prisma.teachingAssignment.findMany({ where: { teacherId: { in: teacherIds } } }),
+    ]);
+    // A slot's teacher is whoever is assigned that subject in that section.
+    const teacherOfSlot = new Map(teacherAssignments.map((a) => [`${a.sectionId}:${a.subjectId}`, a.teacherId]));
+    for (const slot of daySlots) {
+      const teacherId = teacherOfSlot.get(`${slot.sectionId}:${slot.subjectId}`);
+      if (!teacherId) continue;
+      const list = commitmentsByTeacher.get(teacherId) ?? [];
+      list.push({
+        periodIndex: slot.periodIndex,
+        className: slot.section.class.name,
+        sectionName: slot.section.name,
+        sectionId: slot.sectionId,
+        subjectName: slot.subject.name,
+      });
+      commitmentsByTeacher.set(teacherId, list);
+    }
+  }
+
+  const periodTime = (index: number) => {
+    const def = schedule?.periods[index - 1];
+    return def ? { start: def.start, end: def.end } : null;
+  };
+
+  // Sections already sharing this exact period with us as a combined lesson.
+  // They run the SAME lesson, so the teacher being "in" both is not a clash.
+  const ownSlot = await prisma.timetableSlot.findUnique({
+    where: { sectionId_day_periodIndex: { sectionId, day, periodIndex } },
+  });
+  const partnerSectionIds = new Set<string>();
+  if (ownSlot?.groupId) {
+    const partners = await prisma.timetableSlot.findMany({
+      where: { groupId: ownSlot.groupId, sectionId: { not: sectionId } },
+      select: { sectionId: true },
+    });
+    for (const p of partners) partnerSectionIds.add(p.sectionId);
+  }
+
+  // ---- Combined-class candidates -------------------------------------------
+  // A section can join only if the SAME teacher takes the SAME subject there.
+  const combinableBySubject = new Map<
+    string,
+    { sectionId: string; sectionName: string; className: string }[]
+  >();
+  if (assignments.length > 0) {
+    const siblings = await prisma.teachingAssignment.findMany({
+      where: {
+        sectionId: { not: sectionId },
+        OR: assignments.map((a) => ({ subjectId: a.subjectId, teacherId: a.teacherId })),
+      },
+      include: { section: { include: { class: true } } },
+    });
+    for (const sib of siblings) {
+      const list = combinableBySubject.get(sib.subjectId) ?? [];
+      list.push({
+        sectionId: sib.sectionId,
+        sectionName: sib.section.name,
+        className: sib.section.class.name,
+      });
+      combinableBySubject.set(sib.subjectId, list);
+    }
+    for (const list of combinableBySubject.values()) {
+      list.sort((a, b) => a.className.localeCompare(b.className) || a.sectionName.localeCompare(b.sectionName));
+    }
+  }
+
+  // What those candidate sections already have booked in this exact period.
+  const candidateIds = [...new Set([...combinableBySubject.values()].flat().map((c) => c.sectionId))];
+  const occupiedBySection = new Map<string, { subjectName: string; groupId: string | null }>();
+  if (candidateIds.length > 0) {
+    const busy = await prisma.timetableSlot.findMany({
+      where: { day, periodIndex, sectionId: { in: candidateIds } },
+      include: { subject: true },
+    });
+    for (const b of busy) {
+      occupiedBySection.set(b.sectionId, { subjectName: b.subject.name, groupId: b.groupId });
+    }
+  }
+
+  return {
+    sectionId: section.id,
+    day,
+    periodIndex,
+    period: periodTime(periodIndex),
+    options: classSubjects.map((cs) => {
+      const assignment = assignmentBySubject.get(cs.subjectId);
+      const teacher = assignment
+        ? { id: assignment.teacher.id, fullName: assignment.teacher.user.fullName, status: assignment.teacher.status }
+        : null;
+
+      const commitments = (teacher ? (commitmentsByTeacher.get(teacher.id) ?? []) : [])
+        .map((c) => ({
+          ...c,
+          ...(periodTime(c.periodIndex) ?? { start: '', end: '' }),
+          isThisSection: c.sectionId === sectionId,
+          /** Part of the same combined lesson as this section, not a conflict. */
+          isCombinedWithThis: c.periodIndex === periodIndex && partnerSectionIds.has(c.sectionId),
+        }))
+        .sort((a, b) => a.periodIndex - b.periodIndex);
+
+      // Busy only counts if it's some OTHER, unrelated section at this period.
+      const clash =
+        commitments.find((c) => c.periodIndex === periodIndex && !c.isThisSection && !c.isCombinedWithThis) ?? null;
+
+      return {
+        subjectId: cs.subject.id,
+        subjectName: cs.subject.name,
+        teacher,
+        clash,
+        commitments,
+        // Sections this lesson could be taught to at the same time (same teacher,
+        // same subject), each with whatever they already have booked here.
+        combinable: (combinableBySubject.get(cs.subjectId) ?? []).map((c) => ({
+          ...c,
+          occupied: occupiedBySection.get(c.sectionId) ?? null,
+        })),
+      };
+    }),
+  };
+}
+
+/**
+ * Every OTHER section's slot at the same (day, period) taught by `teacherId`.
+ * Sections in `sameGroup` are excluded: a combined class is the same lesson in
+ * two rooms, not the teacher being in two places at once.
+ */
+async function findTeacherClashes(
+  teacherId: string,
+  day: DayOfWeek,
+  periodIndex: number,
+  excludeSectionIds: string[],
+) {
   const others = await prisma.timetableSlot.findMany({
-    where: { day, periodIndex, sectionId: { not: excludeSectionId } },
+    where: { day, periodIndex, sectionId: { notIn: excludeSectionIds } },
     include: { section: { include: { class: true } }, subject: true },
   });
-  if (others.length === 0) return null;
+  if (others.length === 0) return [];
 
   const assignments = await prisma.teachingAssignment.findMany({
-    where: {
-      teacherId,
-      OR: others.map((o) => ({ sectionId: o.sectionId, subjectId: o.subjectId })),
-    },
+    where: { teacherId, OR: others.map((o) => ({ sectionId: o.sectionId, subjectId: o.subjectId })) },
   });
   const clashKeys = new Set(assignments.map((a) => `${a.sectionId}:${a.subjectId}`));
-  const clash = others.find((o) => clashKeys.has(`${o.sectionId}:${o.subjectId}`));
-  return clash
-    ? { className: clash.section.class.name, sectionName: clash.section.name, subjectName: clash.subject.name }
-    : null;
+  return others
+    .filter((o) => clashKeys.has(`${o.sectionId}:${o.subjectId}`))
+    .map((o) => ({
+      slotId: o.id,
+      sectionId: o.sectionId,
+      className: o.section.class.name,
+      sectionName: o.section.name,
+      subjectName: o.subject.name,
+    }));
+}
+
+export interface SetSlotOptions {
+  /** Extra sections taught together with this one as a single combined lesson. */
+  withSectionIds?: string[];
+  /**
+   * Resolve conflicts instead of rejecting: frees the teacher by clearing the
+   * lessons they'd otherwise be double-booked for, and overwrites whatever the
+   * joining sections had in this period.
+   */
+  force?: boolean;
 }
 
 /** Set (or clear, with subjectId null) one cell of the weekly grid. */
-export async function setSlot(sectionId: string, day: DayOfWeek, periodIndex: number, subjectId: string | null) {
+export async function setSlot(
+  sectionId: string,
+  day: DayOfWeek,
+  periodIndex: number,
+  subjectId: string | null,
+  options: SetSlotOptions = {},
+) {
   const section = await loadSectionOr404(sectionId);
   const layout = await getTimetableLayout();
   const schedule = scheduleFor(layout, day);
@@ -394,53 +588,105 @@ export async function setSlot(sectionId: string, day: DayOfWeek, periodIndex: nu
   }
 
   if (subjectId === null) {
+    // Clearing one section of a combined lesson leaves the others intact; if only
+    // one remains it is no longer "combined", so drop its group tag.
+    const existing = await prisma.timetableSlot.findUnique({
+      where: { sectionId_day_periodIndex: { sectionId, day, periodIndex } },
+    });
     await prisma.timetableSlot.deleteMany({ where: { sectionId, day, periodIndex } });
+    if (existing?.groupId) {
+      const remaining = await prisma.timetableSlot.findMany({ where: { groupId: existing.groupId } });
+      if (remaining.length <= 1) {
+        await prisma.timetableSlot.updateMany({ where: { groupId: existing.groupId }, data: { groupId: null } });
+      }
+    }
     return getSectionTimetable(sectionId);
   }
 
   const subject = await prisma.subject.findUnique({ where: { id: subjectId } });
   if (!subject) throw NotFound('Subject not found');
 
-  const offered = await prisma.classSubject.findUnique({
-    where: { classId_subjectId: { classId: section.classId, subjectId } },
-  });
-  if (!offered) {
-    throw new AppError(`${subject.name} is not offered in ${section.class.name}`, 409, 'SUBJECT_NOT_OFFERED');
+  // Every participating section, the primary one first.
+  const extraIds = [...new Set(options.withSectionIds ?? [])].filter((id) => id !== sectionId);
+  const sections = [section];
+  for (const id of extraIds) sections.push(await loadSectionOr404(id));
+
+  // The subject must be offered, and the SAME teacher assigned, in every section —
+  // a combined lesson is one teacher in one room.
+  let teacherId: string | null = null;
+  let teacherName = '';
+  for (const sec of sections) {
+    const offered = await prisma.classSubject.findUnique({
+      where: { classId_subjectId: { classId: sec.classId, subjectId } },
+    });
+    if (!offered) {
+      throw new AppError(`${subject.name} is not offered in ${sec.class.name}`, 409, 'SUBJECT_NOT_OFFERED');
+    }
+
+    const assignment = await prisma.teachingAssignment.findUnique({
+      where: { sectionId_subjectId: { sectionId: sec.id, subjectId } },
+      include: { teacher: { include: { user: true } } },
+    });
+    if (!assignment) {
+      throw new AppError(
+        `${subject.name} has no teacher assigned in ${sec.class.name} · Section ${sec.name}. Assign a teacher first (Classes → Manage Subjects & Teachers).`,
+        409,
+        'NO_TEACHER_ASSIGNED',
+      );
+    }
+    if (assignment.teacher.status !== UserStatus.ACTIVE) {
+      throw new AppError(
+        `${assignment.teacher.user.fullName} (assigned to ${subject.name}) is inactive — reassign the subject before scheduling it.`,
+        409,
+        'TEACHER_INACTIVE',
+      );
+    }
+    if (teacherId && assignment.teacherId !== teacherId) {
+      throw new AppError(
+        `A combined class needs one teacher: ${subject.name} is taught by ${teacherName} in ${sections[0].class.name} · Section ${sections[0].name} but by ${assignment.teacher.user.fullName} in ${sec.class.name} · Section ${sec.name}.`,
+        409,
+        'COMBINED_TEACHER_MISMATCH',
+      );
+    }
+    teacherId = assignment.teacherId;
+    teacherName = assignment.teacher.user.fullName;
   }
 
-  const assignment = await prisma.teachingAssignment.findUnique({
-    where: { sectionId_subjectId: { sectionId, subjectId } },
-    include: { teacher: { include: { user: true } } },
-  });
-  if (!assignment) {
-    throw new AppError(
-      `${subject.name} has no teacher assigned in ${section.class.name} · Section ${section.name}. Assign a teacher first (Classes → Manage Subjects & Teachers).`,
-      409,
-      'NO_TEACHER_ASSIGNED',
-    );
-  }
-  if (assignment.teacher.status !== UserStatus.ACTIVE) {
-    throw new AppError(
-      `${assignment.teacher.user.fullName} (assigned to ${subject.name}) is inactive — reassign the subject before scheduling it.`,
-      409,
-      'TEACHER_INACTIVE',
-    );
+  const participantIds = sections.map((s) => s.id);
+  const clashes = await findTeacherClashes(teacherId!, day, periodIndex, participantIds);
+  if (clashes.length > 0) {
+    if (!options.force) {
+      const first = clashes[0];
+      throw new AppError(
+        `${teacherName} already teaches ${first.subjectName} in ${first.className} · Section ${first.sectionName} at this time.`,
+        409,
+        'TEACHER_CLASH',
+      );
+    }
+    // Forced: free the teacher by removing those lessons. Their sections' timetables
+    // become incomplete, which their status badge will now report.
+    await prisma.timetableSlot.deleteMany({ where: { id: { in: clashes.map((c) => c.slotId) } } });
   }
 
-  const clash = await findTeacherClash(assignment.teacherId, day, periodIndex, sectionId);
-  if (clash) {
-    throw new AppError(
-      `${assignment.teacher.user.fullName} already teaches ${clash.subjectName} in ${clash.className} · Section ${clash.sectionName} at this time.`,
-      409,
-      'TEACHER_CLASH',
-    );
+  const groupId = participantIds.length > 1 ? randomUUID() : null;
+  for (const sec of sections) {
+    await prisma.timetableSlot.upsert({
+      where: { sectionId_day_periodIndex: { sectionId: sec.id, day, periodIndex } },
+      update: { subjectId, groupId },
+      create: { sectionId: sec.id, day, periodIndex, subjectId, groupId },
+    });
+    // Joining sections need a repeat window too, or they'd read as "not set".
+    if (sec.id !== sectionId && !sec.timetableFrom) {
+      const today = pktDay();
+      await prisma.section.update({
+        where: { id: sec.id },
+        data: {
+          timetableFrom: today,
+          timetableUntil: new Date(today.getTime() + (DEFAULT_REPEAT_DAYS - 1) * 86_400_000),
+        },
+      });
+    }
   }
-
-  await prisma.timetableSlot.upsert({
-    where: { sectionId_day_periodIndex: { sectionId, day, periodIndex } },
-    update: { subjectId },
-    create: { sectionId, day, periodIndex, subjectId },
-  });
 
   // First time this section is scheduled: start the repeat window today and run
   // it for a week. Admins can extend it afterwards.
