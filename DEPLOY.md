@@ -31,12 +31,12 @@ An `https://…vercel.app` page can NOT call `http://VPS_IP` directly — browse
 block mixed content, and cross-site cookies are dropped. Route the API
 through Vercel instead (see `vercel.json` at the repo root):
 
-- `/api/*` is rewritten server-side to `http://VPS_IP:4000/api/*` — the
+- `/api/*` is rewritten server-side to `http://VPS_IP:4100/api/*` — the
   browser only ever talks to vercel.app, so everything is same-origin:
   cookies (`Secure` + `Lax`) and CORS just work. Keep `COOKIE_SECURE="auto"`.
 - In the Vercel project settings set the env var `VITE_API_URL=/api` and
   redeploy.
-- The VPS port must be reachable from Vercel: `sudo ufw allow 4000`.
+- The VPS port must be reachable from Vercel: `sudo ufw allow 4100`.
 - `CLIENT_ORIGIN="https://your-app.vercel.app"` in the backend `.env`.
 
 ## No domain yet? (bare IP over HTTP)
@@ -100,7 +100,7 @@ DATABASE_URL="postgresql://qirop:STRONG_PASSWORD@localhost:5432/qirop"
 JWT_SECRET="$(openssl rand -base64 48)"     # paste the output, don't leave the $()
 CLIENT_ORIGIN="https://school.example.com"  # or http://YOUR.VPS.IP while domain-less
 NODE_ENV="production"
-PORT="4000"
+PORT="4100"
 COOKIE_SECURE="auto"                        # "false" ONLY while serving plain HTTP
 SUPERADMIN_CNIC / SUPERADMIN_PASSWORD       # change before seeding!
 FILESTORE_TOKEN / FILESTORE_APP_ID          # server-side only
@@ -120,7 +120,7 @@ sudo cp deploy/akm-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now akm-backend
 systemctl status akm-backend                   # should be active (running)
-curl -s http://127.0.0.1:4000/api/health       # sanity check
+curl -s http://127.0.0.1:4100/api/health       # sanity check
 journalctl -u akm-backend -f                   # live logs
 ```
 
@@ -150,7 +150,7 @@ sudo certbot --nginx -d school.example.com
 ```bash
 sudo ufw allow OpenSSH
 sudo ufw allow 'Nginx Full'
-sudo ufw enable        # port 4000 stays unreachable from outside — only nginx talks to it
+sudo ufw enable        # port 4100 stays unreachable from outside — only nginx talks to it
 ```
 
 ## 8. Updating a running deployment
@@ -158,8 +158,8 @@ sudo ufw enable        # port 4000 stays unreachable from outside — only nginx
 The common case — code changes only:
 
 ```bash
-cd /opt/akm/src/backend
-sudo -u akm git pull origin main
+cd ~/qirop-backend
+git pull origin main
 sudo systemctl restart akm-backend.service
 sudo systemctl status akm-backend.service
 sudo journalctl -u akm-backend.service -f
@@ -170,11 +170,18 @@ actually touched them:
 
 ```bash
 # package.json changed → new/updated deps
-sudo -u akm npm ci
+npm ci
 
 # prisma/schema.prisma changed → regenerate client, apply migrations
-sudo -u akm npx prisma generate
-sudo -u akm npx prisma migrate deploy
+npx prisma generate
+npx prisma migrate deploy
+```
+
+If the unit file itself changed, systemd keeps the old copy cached until you
+reinstall it:
+
+```bash
+sudo cp deploy/akm-backend.service /etc/systemd/system/ && sudo systemctl daemon-reload
 ```
 
 The server shuts down gracefully on SIGTERM (systemd's stop signal), so

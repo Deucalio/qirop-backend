@@ -20,11 +20,14 @@ WorkingDirectory=/home/rdpuser/qirop-backend
 # tsx strips types at load time, so deploys are `git pull` + `systemctl restart`
 # with no build step. Costs ~1-2s of startup; nothing is written to disk.
 #
-# `-r tsx/cjs` (not `--import tsx`): the require hook works on every Node that
-# tsx supports, while `--import` needs Node >= 20.6 and this box runs older.
-# It also keeps everything in one process, so systemd's SIGTERM reaches the
-# server directly and the graceful shutdown in src/server.ts still runs.
-ExecStart=/usr/bin/node -r tsx/cjs src/server.ts
+# NOT /usr/bin/node — that is v12.22.9 on this box and cannot run tsx (needs
+# >= 18). The real runtime is nvm's v22. This path is version-pinned, so an
+# nvm upgrade breaks it; the permanent fix is installing Node 22 system-wide
+# (see DEPLOY.md §1), after which /usr/bin/node works again.
+#
+# `-r tsx/cjs` keeps everything in one process, so systemd's SIGTERM reaches
+# the server directly and the graceful shutdown in src/server.ts still runs.
+ExecStart=/home/rdpuser/.nvm/versions/node/v22.15.0/bin/node -r tsx/cjs src/server.ts
 # Wins over any NODE_ENV inside .env (dotenv never overrides existing vars).
 Environment=NODE_ENV=production
 Restart=always
