@@ -10,6 +10,13 @@ updating is `git pull` + `systemctl restart` — see §8. This costs ~1-2s of
 extra startup and means type errors surface at runtime, not at deploy time;
 run `npm run typecheck` before pushing to keep that safety net.
 
+> **The live server does not match §1-§2 below.** Those sections describe a
+> greenfield `/opt/akm` + dedicated `akm` user setup. The actual deployment
+> runs as **`rdpuser` from `/home/rdpuser/qirop-backend`**, and
+> `deploy/akm-backend.service` is written to match *that*. If you copy the unit
+> file, it is already correct — don't "fix" the paths back to `/opt/akm`.
+> Sections §4 (migrate) and §8 (updating) apply as written.
+
 Two production constraints decide the architecture:
 
 - The auth cookie is **`SameSite=Lax`** → the frontend and API must be served

@@ -1,7 +1,10 @@
 # Qirop School ERP backend — systemd unit.
 # Copy to /etc/systemd/system/akm-backend.service, then:
 #   sudo systemctl daemon-reload && sudo systemctl enable --now akm-backend
-# Adjust User/WorkingDirectory if you deploy somewhere other than /opt/akm.
+#
+# User/Group/WorkingDirectory below match the live deployment (rdpuser in its
+# home directory). If you move the app, all three must change together — a
+# mismatched User= fails with status=217/USER before Node is ever spawned.
 
 [Unit]
 Description=Qirop School ERP backend (Express + Prisma)
@@ -10,10 +13,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=akm
-Group=akm
-WorkingDirectory=/opt/akm/backend
-# dotenv reads /opt/akm/backend/.env at startup (relative to WorkingDirectory).
+User=rdpuser
+Group=rdpuser
+WorkingDirectory=/home/rdpuser/qirop-backend
+# dotenv reads .env from WorkingDirectory at startup.
 # tsx strips types at load time, so deploys are `git pull` + `systemctl restart`
 # with no build step. Costs ~1-2s of startup; nothing is written to disk.
 ExecStart=/usr/bin/node --import tsx src/server.ts
@@ -27,7 +30,9 @@ RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+# MUST stay read-only, not true: the app lives under /home, and ProtectHome=true
+# would hide its own source and .env from it. Reads are all it needs.
+ProtectHome=read-only
 ReadWritePaths=
 
 [Install]
