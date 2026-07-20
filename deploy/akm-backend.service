@@ -1,0 +1,32 @@
+# Qirop School ERP backend — systemd unit.
+# Copy to /etc/systemd/system/akm-backend.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now akm-backend
+# Adjust User/WorkingDirectory if you deploy somewhere other than /opt/akm.
+
+[Unit]
+Description=Qirop School ERP backend (Express + Prisma)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=akm
+Group=akm
+WorkingDirectory=/opt/akm/backend
+# dotenv reads /opt/akm/backend/.env at startup (relative to WorkingDirectory).
+ExecStart=/usr/bin/node dist/src/server.js
+# Wins over any NODE_ENV inside .env (dotenv never overrides existing vars).
+Environment=NODE_ENV=production
+Restart=always
+RestartSec=5
+
+# Hardening — safe because the app never writes to local disk
+# (uploads go to the external FileStore; multer uses memory storage).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,13 +1,13 @@
 import type { CookieOptions, Request, Response, NextFunction } from 'express';
 import * as authService from './auth.service';
 import { AUTH_COOKIE, AUTH_COOKIE_MAX_AGE } from './auth.constants';
-import { isProduction } from '../../config/env';
+import { cookieSecure } from '../../config/env';
 import { Unauthorized } from '../../utils/apiResponse';
 
 const cookieOptions: CookieOptions = {
   httpOnly: true,
   sameSite: 'lax',
-  secure: isProduction, // over HTTPS only in production
+  secure: cookieSecure, // HTTPS-only unless COOKIE_SECURE=false (no-TLS deployments)
   maxAge: AUTH_COOKIE_MAX_AGE,
   path: '/',
 };

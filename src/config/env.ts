@@ -17,6 +17,11 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
+  // 'auto' = Secure cookie in production only. Set to 'false' when serving
+  // production over plain HTTP (e.g. a bare-IP VPS with no domain/TLS yet),
+  // otherwise the browser drops the auth cookie and logins won't stick.
+  COOKIE_SECURE: z.enum(['auto', 'true', 'false']).default('auto'),
+
   SUPERADMIN_CNIC: z.string().default('00000-0000000-0'),
   SUPERADMIN_PASSWORD: z.string().default('ChangeMe#123'),
   SUPERADMIN_NAME: z.string().default('School Owner'),
@@ -37,3 +42,5 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export const isProduction = env.NODE_ENV === 'production';
+/** Whether the auth cookie carries the Secure flag (HTTPS-only). */
+export const cookieSecure = env.COOKIE_SECURE === 'auto' ? isProduction : env.COOKIE_SECURE === 'true';
