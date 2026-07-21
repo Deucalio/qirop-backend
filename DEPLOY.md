@@ -1,7 +1,6 @@
 # Deploying the backend to an Ubuntu VPS (systemd)
 
-The service runs the TypeScript sources directly (`node -r tsx/cjs
-src/server.ts`), reads `.env` from its working directory, and never writes to
+The service runs the TypeScript sources directly (`node -r tsx/cjs src/server.ts`), reads `.env` from its working directory, and never writes to
 local disk (uploads stream to the external FileStore), so it runs under a
 hardened unit.
 

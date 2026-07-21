@@ -4,8 +4,17 @@ import { z } from 'zod';
 // `order` is derived automatically from the number in the class name.
 export const createClassSchema = z.object({
   name: z.string().min(1, 'Class name is required').max(100),
-  /** Optional section names; omit for a class that isn't split into sections. */
-  sections: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
+  /** Optional single-letter section names; omit if the class isn't split. */
+  sections: z
+    .array(
+      z
+        .string()
+        .trim()
+        .transform((v) => v.toUpperCase())
+        .pipe(z.string().regex(/^[A-Z]$/, 'Sections must be a single letter from A to Z')),
+    )
+    .max(26)
+    .optional(),
 });
 
 export const updateClassSchema = z.object({
@@ -13,13 +22,23 @@ export const updateClassSchema = z.object({
 });
 
 // ---- Sections ----
-export const createSectionSchema = z.object({
-  name: z.string().min(1, 'Section name is required').max(50),
-});
+/**
+ * A section is a single letter (A, B, C…). The UI always renders it as
+ * "Section A", so allowing free text produced "Section Section C".
+ */
+const sectionName = z
+  .string()
+  .trim()
+  .transform((v) => v.toUpperCase())
+  .pipe(
+    z
+      .string()
+      .length(1, 'Use a single letter, e.g. A')
+      .regex(/^[A-Z]$/, 'Use a single letter from A to Z'),
+  );
 
-export const updateSectionSchema = z.object({
-  name: z.string().min(1, 'Section name is required').max(50),
-});
+export const createSectionSchema = z.object({ name: sectionName });
+export const updateSectionSchema = z.object({ name: sectionName });
 
 // ---- Subjects ----
 export const createSubjectSchema = z.object({
