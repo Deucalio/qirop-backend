@@ -35,3 +35,8 @@ export async function uploadPhoto(req: Request, res: Response): Promise<void> {
   if (!req.file) throw new AppError('No photo file provided (field name: "photo")', 400, 'NO_FILE');
   res.json(await studentsService.setPhoto(req.params.id, req.file.buffer, req.file.originalname, req.file.mimetype, req.user));
 }
+
+export async function getAuditLogs(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw Unauthorized();
+  res.json(await studentsService.getStudentAuditLogs(req.params.id, req.user));
+}

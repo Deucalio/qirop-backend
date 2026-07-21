@@ -51,3 +51,11 @@ export async function meTeacher(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Unauthorized();
   res.json(await teachersService.getMeTeacher(req.user.userId));
 }
+
+export async function linkStudent(req: Request, res: Response): Promise<void> {
+  const { studentId } = req.body as { studentId: string };
+  if (!studentId) {
+    throw new AppError('studentId is required', 400, 'BAD_REQUEST');
+  }
+  res.json(await teachersService.linkStudentToTeacher(req.params.id, studentId));
+}

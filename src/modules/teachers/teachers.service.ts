@@ -14,7 +14,23 @@ export interface Actor {
 }
 
 const teacherInclude = {
-  user: true,
+  user: {
+    include: {
+      parentProfile: {
+        include: {
+          students: {
+            include: {
+              section: {
+                include: {
+                  class: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   teachingAssignments: { include: { section: { include: { class: true } }, subject: true } },
   classTeacherSections: { include: { class: true } },
   qualifications: { orderBy: { level: 'asc' } },
@@ -28,7 +44,7 @@ function shapeTeaching(ta: TeachingRow) {
   return {
     id: ta.id,
     section: { id: ta.section.id, name: ta.section.name, classId: ta.section.classId, className: ta.section.class.name },
-    subject: { id: ta.subject.id, name: ta.subject.name },
+    subject: { id: ta.subject.id, name: ta.subject.name, colorHex: ta.subject.colorHex },
   };
 }
 
@@ -38,6 +54,16 @@ function shapeClassTeacherSection(s: SectionRow) {
 
 /** Shape a teacher for a detail view. `salary` is included ONLY when allowed. */
 function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
+  const parentProfile = (profile.user as any).parentProfile;
+  const children = parentProfile?.students.map((s: any) => ({
+    id: s.id,
+    name: `${s.firstName} ${s.lastName}`,
+    admissionNo: s.admissionNo,
+    className: s.section.class.name,
+    sectionName: s.section.name,
+    status: s.status,
+  })) || [];
+
   return {
     id: profile.id,
     userId: profile.userId,
@@ -60,6 +86,7 @@ function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
     })),
     teachingAssignments: profile.teachingAssignments.map(shapeTeaching),
     classTeacherSections: profile.classTeacherSections.map(shapeClassTeacherSection),
+    children,
   };
 }
 
@@ -251,5 +278,98 @@ export async function getTeacherAttendance(id: string, actor: Actor, year?: numb
     days[key] = m.status;
     checkInTimes[key] = m.checkInTime ? m.checkInTime.toISOString() : null;
   }
-  return { year, month, days, checkInTimes, summary: summarize(marks.map((m) => m.status)) };
+
+  // Calculate student attendance stats class-wise (sections the teacher teaches or is class teacher of)
+  const sections = await prisma.section.findMany({
+    where: {
+      OR: [
+        { classTeacherId: id },
+        { teachingAssignments: { some: { teacherId: id } } },
+      ],
+    },
+    include: {
+      class: true,
+      teachingAssignments: { where: { teacherId: id }, include: { subject: true } },
+    },
+  });
+
+  const classAttendance = [];
+  const today = pktDay();
+
+  for (const sec of sections) {
+    const isClassTeacher = sec.classTeacherId === id;
+    const subjects = sec.teachingAssignments.map((ta) => ta.subject.name);
+
+    const studentCount = await prisma.student.count({
+      where: { sectionId: sec.id, status: UserStatus.ACTIVE },
+    });
+
+    const studentMarks = await prisma.studentAttendance.findMany({
+      where: { sectionId: sec.id, date: { gte: start, lt: endExclusive } },
+    });
+
+    const total = studentMarks.length;
+    const present = studentMarks.filter((m) => m.status === 'PRESENT' || m.status === 'LATE').length;
+    const rate = total > 0 ? Math.round((present / total) * 100) : null;
+
+    const todayMarks = await prisma.studentAttendance.count({
+      where: { sectionId: sec.id, date: today },
+    });
+    const markedToday = todayMarks > 0;
+
+    classAttendance.push({
+      sectionId: sec.id,
+      className: sec.class.name,
+      sectionName: sec.name,
+      isDefaultSection: sec.isDefault,
+      isClassTeacher,
+      subjects,
+      studentCount,
+      attendanceRate: rate,
+      markedToday,
+    });
+  }
+
+  return {
+    year,
+    month,
+    days,
+    checkInTimes,
+    summary: summarize(marks.map((m) => m.status)),
+    classAttendance,
+  };
+}
+
+export async function linkStudentToTeacher(teacherId: string, studentId: string) {
+  const profile = await prisma.teacherProfile.findUnique({
+    where: { id: teacherId },
+    include: { user: { include: { parentProfile: true } } },
+  });
+
+  if (!profile) throw NotFound('Teacher not found');
+
+  const student = await prisma.student.findUnique({ where: { id: studentId } });
+  if (!student) throw NotFound('Student not found');
+
+  let parentProfileId = profile.user.parentProfile?.id;
+
+  if (!parentProfileId) {
+    const updatedUser = await prisma.user.update({
+      where: { id: profile.userId },
+      data: {
+        parentProfile: {
+          create: { address: profile.address, occupation: 'Teacher' },
+        },
+      },
+      include: { parentProfile: true },
+    });
+    parentProfileId = updatedUser.parentProfile!.id;
+  }
+
+  await prisma.student.update({
+    where: { id: studentId },
+    data: { parentId: parentProfileId },
+  });
+
+  return getTeacher(teacherId, true);
 }

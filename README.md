@@ -352,6 +352,28 @@ and parent CNICs plus default passwords are printed to the console afterwards.
    school administrator** can act on.
 4. Any date that represents a school day goes through `utils/pktDate.ts`.
 5. Never return `passwordHash`; never return teacher `salary` to a TEACHER.
-6. All file I/O through `services/storage.ts`.
+  All file I/O through `services/storage.ts`.
 7. Guard destructive operations, and prefer a **dry-run preview** where a change
    can silently destroy data (see `saveTimetableConfig`).
+
+### Dual-Role Switcher & Student Parent linkage updates (Phase 2 additions)
+
+- **Dual-role Switcher (`POST /auth/switch-role`)**:
+  - Signs and updates a new JWT token in the secure `httpOnly` cookie containing the switched `role` (must be `TEACHER` or `PARENT`).
+  - Updates the active role field inside the `User` table to match.
+  - Validates that the user holds the target profile (`teacherProfile` or `parentProfile`) before switching, returning `403 Forbidden` if missing.
+- **Parent Profile Auto-resolution on existing user**:
+  - Inside `createStudent` and `updateStudent` services:
+    - If a user with the parent's CNIC already exists in the database, the backend does not throw `CNIC_TAKEN`.
+    - If the user has a `parentProfile`, it automatically links the student.
+    - If the user exists (e.g. a teacher) but lacks a `parentProfile`, the backend automatically creates a `ParentProfile` linked to that user, then attaches the student.
+    - Furthermore, `updateStudent` accepts `parentId` as either a `ParentProfile.id` or a `User.id` (such as a teacher's user ID) and resolves it to a parent profile seamlessly.
+- **Class-wise student attendance analytics in `getTeacherAttendance`**:
+  - The `GET /teachers/:id/attendance` endpoint has been enhanced to return a list of sections taught by the teacher (where they are either a Class Teacher or subject teacher).
+  - For each section, it calculates the monthly overall student attendance rate (average percentage present/late) and today's mark status, allowing the admin dashboard to show teacher class-marking history.
+- **Teacher Student-linking endpoint (`POST /teachers/:id/students`)**:
+  - Allows linking a student directly to a teacher's parent profile. Resolves and creates a `ParentProfile` linked to the teacher's user record if not already present.
+- **Student Audit Logs (`GET /students/:id/audit-logs`)**:
+  - Exposes the chronological sequence of student mutation logs.
+  - Automatically records student creation (`ENROLLED`), class updates (`PROMOTED` or `TRANSFERRED`), details modifications (`UPDATED`), deactivations and activations (`STATUS_CHANGE`) in the `AuditLog` table.
+  - Includes changed-by user (admin name and role) information.

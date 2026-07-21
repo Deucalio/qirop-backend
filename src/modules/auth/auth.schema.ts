@@ -16,5 +16,10 @@ export const changePasswordSchema = z.object({
     .max(128, 'New password is too long'),
 });
 
+export const switchRoleSchema = z.object({
+  role: z.enum(['TEACHER', 'PARENT']),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type SwitchRoleInput = z.infer<typeof switchRoleSchema>;

@@ -22,3 +22,4 @@ studentsRouter.post('/', edit, validateBody(createStudentSchema), asyncHandler(c
 studentsRouter.put('/:id', edit, validateBody(updateStudentSchema), asyncHandler(c.update));
 studentsRouter.patch('/:id/status', edit, validateBody(studentStatusSchema), asyncHandler(c.updateStatus));
 studentsRouter.post('/:id/photo', edit, imageUpload.single('photo'), asyncHandler(c.uploadPhoto));
+studentsRouter.get('/:id/audit-logs', view, asyncHandler(c.getAuditLogs));

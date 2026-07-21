@@ -25,6 +25,7 @@ teachersRouter.put('/:id', manage, validateBody(updateTeacherSchema), asyncHandl
 teachersRouter.patch('/:id/status', manage, validateBody(teacherStatusSchema), asyncHandler(c.updateStatus));
 teachersRouter.post('/:id/reset-password', manage, validateBody(resetPasswordSchema), asyncHandler(c.resetPassword));
 teachersRouter.post('/:id/photo', manage, imageUpload.single('photo'), asyncHandler(c.uploadPhoto));
+teachersRouter.post('/:id/students', manage, asyncHandler(c.linkStudent));
 
 // Teacher self-view: GET /api/me/teacher (TEACHER role only, no salary).
 export const meRouter = Router();

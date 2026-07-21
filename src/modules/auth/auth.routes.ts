@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import * as authController from './auth.controller';
-import { loginSchema, changePasswordSchema } from './auth.schema';
+import { loginSchema, changePasswordSchema, switchRoleSchema } from './auth.schema';
 import { validateBody } from '../../middleware/validate';
 import { requireAuth } from '../../middleware/requireAuth';
 
@@ -26,4 +26,10 @@ authRouter.post(
   requireAuth,
   validateBody(changePasswordSchema),
   authController.changePassword,
+);
+authRouter.post(
+  '/switch-role',
+  requireAuth,
+  validateBody(switchRoleSchema),
+  authController.switchRole,
 );

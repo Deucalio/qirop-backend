@@ -156,3 +156,41 @@ export async function changePassword(
   const passwordHash = await hashPassword(newPassword);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
 }
+
+export async function switchRole(userId: string, targetRole: Role): Promise<LoginResult> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { teacherProfile: true, parentProfile: true },
+  });
+
+  if (!user) {
+    throw NotFound('User not found');
+  }
+
+  if (targetRole === Role.TEACHER && !user.teacherProfile) {
+    throw Forbidden('You do not have a teacher profile.');
+  }
+
+  if (targetRole === Role.PARENT && !user.parentProfile) {
+    throw Forbidden('You do not have a parent profile.');
+  }
+
+  // Update the user's current role in the database
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: { role: targetRole },
+  });
+
+  const permissions = await getPermissionsForUser(userId, targetRole);
+  const token = signToken({ userId, role: targetRole });
+
+  return {
+    token,
+    user: {
+      id: userId,
+      fullName: updatedUser.fullName,
+      role: targetRole,
+      permissions,
+    },
+  };
+}

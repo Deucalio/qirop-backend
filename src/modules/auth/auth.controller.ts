@@ -1,4 +1,5 @@
 import type { CookieOptions, Request, Response, NextFunction } from 'express';
+import { Role } from '@prisma/client';
 import * as authService from './auth.service';
 import { AUTH_COOKIE, AUTH_COOKIE_MAX_AGE } from './auth.constants';
 import { cookieSecure } from '../../config/env';
@@ -51,6 +52,20 @@ export async function changePassword(req: Request, res: Response, next: NextFunc
     };
     await authService.changePassword(req.user.userId, currentPassword, newPassword);
     res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function switchRole(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user) {
+      throw Unauthorized();
+    }
+    const { role } = req.body as { role: Role };
+    const { token, user } = await authService.switchRole(req.user.userId, role);
+    res.cookie(AUTH_COOKIE, token, cookieOptions);
+    res.json(user);
   } catch (err) {
     next(err);
   }

@@ -137,8 +137,24 @@ export async function getStudentAttendance(id: string, actor: Actor, year?: numb
   return attendanceSnapshot(id, year, month);
 }
 
+async function logStudentEvent(studentId: string, actorId: string, action: string, description: string) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: actorId,
+        action,
+        entity: 'Student',
+        entityId: studentId,
+        metadata: { description },
+      },
+    });
+  } catch (err) {
+    console.error('Failed to write student audit log:', err);
+  }
+}
+
 export async function createStudent(actor: Actor, input: CreateStudentInput) {
-  const section = await prisma.section.findUnique({ where: { id: input.sectionId } });
+  const section = await prisma.section.findUnique({ where: { id: input.sectionId }, include: { class: true } });
   if (!section) throw NotFound('Section not found');
 
   await assertAdmissionFree(input.admissionNo);
@@ -155,40 +171,72 @@ export async function createStudent(actor: Actor, input: CreateStudentInput) {
     sectionId: input.sectionId,
   };
 
+  let createdStudent: any = null;
+
   // Case 1: link to an existing parent.
   if (input.parentId) {
     const parent = await prisma.parentProfile.findUnique({ where: { id: input.parentId } });
     if (!parent) throw NotFound('Parent not found');
-    const created = await prisma.student.create({ data: { ...baseData, parentId: input.parentId } });
-    return getStudent(created.id, actor);
-  }
-
-  // Case 2: create the parent + student atomically.
-  const p = input.parent!;
-  const cnicTaken = await prisma.user.findUnique({ where: { cnic: p.cnic } });
-  if (cnicTaken) throw new AppError('A user with this CNIC already exists', 409, 'CNIC_TAKEN');
-  const passwordHash = await hashPassword(p.password);
-
-  const created = await prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({
-      data: {
-        cnic: p.cnic,
-        fullName: p.fullName,
-        phone: p.phone ?? null,
-        passwordHash,
-        role: Role.PARENT,
-        createdById: actor.userId,
-        parentProfile: { create: { occupation: p.occupation ?? null, address: p.address ?? null } },
-      },
+    createdStudent = await prisma.student.create({ data: { ...baseData, parentId: input.parentId } });
+  } else {
+    // Case 2: create the parent + student atomically (or link to existing user).
+    const p = input.parent!;
+    const existingUser = await prisma.user.findUnique({
+      where: { cnic: p.cnic },
       include: { parentProfile: true },
     });
-    return tx.student.create({ data: { ...baseData, parentId: user.parentProfile!.id } });
-  });
-  return getStudent(created.id, actor);
+
+    if (existingUser) {
+      if (existingUser.parentProfile) {
+        createdStudent = await prisma.student.create({
+          data: { ...baseData, parentId: existingUser.parentProfile.id },
+        });
+      } else {
+        const updatedUser = await prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            parentProfile: {
+              create: { occupation: p.occupation ?? null, address: p.address ?? null },
+            },
+          },
+          include: { parentProfile: true },
+        });
+
+        createdStudent = await prisma.student.create({
+          data: { ...baseData, parentId: updatedUser.parentProfile!.id },
+        });
+      }
+    } else {
+      const passwordHash = await hashPassword(p.password);
+      createdStudent = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            cnic: p.cnic,
+            fullName: p.fullName,
+            phone: p.phone ?? null,
+            passwordHash,
+            role: Role.PARENT,
+            createdById: actor.userId,
+            parentProfile: { create: { occupation: p.occupation ?? null, address: p.address ?? null } },
+          },
+          include: { parentProfile: true },
+        });
+        return tx.student.create({ data: { ...baseData, parentId: user.parentProfile!.id } });
+      });
+    }
+  }
+
+  const classDisplay = section ? `${section.class.name} (Section ${section.name})` : '';
+  await logStudentEvent(createdStudent.id, actor.userId, 'ENROLLED', `Student enrolled in ${classDisplay}`);
+
+  return getStudent(createdStudent.id, actor);
 }
 
 export async function updateStudent(id: string, data: UpdateStudentInput, actor?: Actor) {
-  const student = await prisma.student.findUnique({ where: { id } });
+  const student = await prisma.student.findUnique({
+    where: { id },
+    include: { section: { include: { class: true } } },
+  });
   if (!student) throw NotFound('Student not found');
 
   const targetSectionId = data.sectionId ?? student.sectionId;
@@ -199,14 +247,79 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
   if (data.admissionNo && data.admissionNo !== student.admissionNo) {
     await assertAdmissionFree(data.admissionNo, id);
   }
+  let resolvedParentId = data.parentId;
   if (data.parentId && data.parentId !== student.parentId) {
-    const parent = await prisma.parentProfile.findUnique({ where: { id: data.parentId } });
-    if (!parent) throw NotFound('Parent not found');
+    let parent = await prisma.parentProfile.findUnique({ where: { id: data.parentId } });
+    if (!parent) {
+      const user = await prisma.user.findUnique({
+        where: { id: data.parentId },
+        include: { parentProfile: true },
+      });
+      if (!user) throw NotFound('Parent not found');
+      if (user.parentProfile) {
+        parent = user.parentProfile;
+      } else {
+        parent = await prisma.parentProfile.create({
+          data: {
+            userId: user.id,
+            occupation: 'Teacher',
+          },
+        });
+      }
+    }
+    resolvedParentId = parent.id;
   }
   // roll number must stay unique within its (possibly new) section
   const nextRollNo = data.rollNo === undefined ? student.rollNo : data.rollNo;
   if (nextRollNo && (data.rollNo !== undefined || data.sectionId)) {
     await assertRollNoFree(targetSectionId, nextRollNo, id);
+  }
+
+  const changes: string[] = [];
+  let actionType = 'UPDATED';
+
+  if (data.sectionId && data.sectionId !== student.sectionId) {
+    const newSection = await prisma.section.findUnique({
+      where: { id: data.sectionId },
+      include: { class: true },
+    });
+    if (newSection) {
+      const oldSection = student.section;
+      if (newSection.class.id !== oldSection.class.id) {
+        if (newSection.class.order > oldSection.class.order) {
+          actionType = 'PROMOTED';
+          changes.push(`Promoted from ${oldSection.class.name} to ${newSection.class.name} (Section ${newSection.name})`);
+        } else {
+          actionType = 'TRANSFERRED';
+          changes.push(`Transferred from ${oldSection.class.name} to ${newSection.class.name} (Section ${newSection.name})`);
+        }
+      } else {
+        actionType = 'TRANSFERRED';
+        changes.push(`Moved from Section ${oldSection.name} to Section ${newSection.name} in ${oldSection.class.name}`);
+      }
+    }
+  }
+
+  if (data.firstName && data.firstName !== student.firstName) {
+    changes.push(`First name changed from '${student.firstName}' to '${data.firstName}'`);
+  }
+  if (data.lastName && data.lastName !== student.lastName) {
+    changes.push(`Last name changed from '${student.lastName}' to '${data.lastName}'`);
+  }
+  if (data.rollNo !== undefined && data.rollNo !== student.rollNo) {
+    changes.push(`Roll number changed from ${student.rollNo ?? 'none'} to ${data.rollNo ?? 'none'}`);
+  }
+  if (data.admissionNo && data.admissionNo !== student.admissionNo) {
+    changes.push(`Admission number changed from ${student.admissionNo} to ${data.admissionNo}`);
+  }
+  if (data.dob !== undefined && data.dob !== student.dob) {
+    changes.push(`Date of birth changed`);
+  }
+  if (data.gender && data.gender !== student.gender) {
+    changes.push(`Gender changed from ${student.gender} to ${data.gender}`);
+  }
+  if (resolvedParentId && resolvedParentId !== student.parentId) {
+    changes.push(`Parent link updated`);
   }
 
   await prisma.student.update({
@@ -220,9 +333,14 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
       dob: data.dob === undefined ? undefined : data.dob,
       admissionDate: data.admissionDate ?? undefined,
       sectionId: data.sectionId ?? undefined,
-      parentId: data.parentId ?? undefined,
+      parentId: resolvedParentId ?? undefined,
     },
   });
+
+  if (actor && changes.length > 0) {
+    await logStudentEvent(id, actor.userId, actionType, changes.join(', '));
+  }
+
   return getStudent(id, actor);
 }
 
@@ -230,6 +348,10 @@ export async function setStatus(id: string, status: UserStatus, actor?: Actor) {
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw NotFound('Student not found');
   await prisma.student.update({ where: { id }, data: { status } });
+  if (actor) {
+    const desc = status === 'ACTIVE' ? 'Student account activated.' : 'Student account deactivated.';
+    await logStudentEvent(id, actor.userId, 'STATUS_CHANGE', desc);
+  }
   return getStudent(id, actor);
 }
 
@@ -238,5 +360,41 @@ export async function setPhoto(id: string, buffer: Buffer, originalName: string,
   if (!student) throw NotFound('Student not found');
   const newPath = await replaceFile(student.photoUrl, buffer, originalName, `/students/${id}`, contentType);
   await prisma.student.update({ where: { id }, data: { photoUrl: newPath } });
+  if (actor) {
+    await logStudentEvent(id, actor.userId, 'UPDATED', 'Student photo updated.');
+  }
   return getStudent(id, actor);
+}
+
+export async function getStudentAuditLogs(studentId: string, actor: Actor) {
+  await loadStudentOr404(studentId);
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      entity: 'Student',
+      entityId: studentId,
+    },
+    include: {
+      user: {
+        select: {
+          fullName: true,
+          role: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  return logs.map((log) => {
+    const meta: any = log.metadata;
+    return {
+      id: log.id,
+      action: log.action,
+      description: meta?.description ?? '',
+      createdAt: log.createdAt,
+      actorName: log.user.fullName,
+      actorRole: log.user.role,
+    };
+  });
 }
