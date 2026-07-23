@@ -485,18 +485,32 @@ Money columns are `Decimal(10,2)`, never floats.
 
 ### Migrations
 
-| Migration | What it added |
-| --- | --- |
-| `init` | Full initial schema (22 models, 9 enums) |
-| `student_rollno_unique` | `@@unique([sectionId, rollNo])` |
-| `attendance_markedby_user` | Attendance records point at the acting user |
-| `teacher_qualifications` | `TeacherQualification` ladder |
-| `timetable_and_period_attendance` | `TimetableSlot`, `TeacherPeriodAttendance`, `DayOfWeek` |
-| `section_timetable_validity` | `Section.timetableFrom/Until` |
-| `timetable_combined_classes` | `TimetableSlot.groupId` |
-| `subject_color` → `subject_color_hex` | Subject colour (index, then hex) |
-| `section_is_default` | `Section.isDefault` |
-| `teacher_parent_gender_grading` | `TeacherProfile.gender`, `fatherName`, `parentCnic`; `MarkingType` enum; `TeacherQualification.markingType`, `obtainedMarks`, `totalMarks` |
+There is a **single baseline migration**, `0_init`, holding the complete current
+schema. It was squashed on 2026-07-23 (see below) and is verified to reproduce
+`schema.prisma` exactly on an empty database.
+
+```bash
+npx prisma migrate deploy   # production / CI — applies the baseline
+npx prisma migrate dev      # local — creates a new migration from schema changes
+```
+
+**Why it was squashed.** Phases 0–4 had eleven migrations, but the history had
+drifted: `_prisma_migrations` carried a duplicate row for
+`teacher_parent_gender_grading` left over from a failed attempt
+(`finished_at = NULL`), which made `migrate dev` demand a destructive reset. To
+avoid losing data, all of Phase 5's schema went in with `prisma db push` — so the
+database was correct but **no migration file described Fees, Transport, Salaries
+or Expenses**, and a fresh deploy would have built a database missing them entirely.
+
+The fix was to baseline: generate one migration from the live schema
+(`migrate diff --from-empty --to-schema-datamodel`), replace the eleven drifted
+files with it, clear the stale bookkeeping rows, and `migrate resolve --applied 0_init`.
+No table or row of application data was touched. The old migration files remain in
+git history if they are ever needed.
+
+**Verified** by creating a throwaway database, running `migrate deploy` into it,
+and diffing the result against `schema.prisma` — identical, with all Phase-5 tables
+present. From here on, use `migrate dev` normally; the drift is gone.
 
 ### Seed
 
