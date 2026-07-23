@@ -47,6 +47,13 @@ enum QualificationLevel {
   MASTERS
 }
 
+// How a qualification's score is recorded.
+enum MarkingType {
+  CGPA   // obtained/total CGPA (typically Bachelor/Masters)
+  MARKS  // obtained/total marks with percentage
+  TEXT   // legacy free-text (backward compat)
+}
+
 enum ChallanStatus {
   UNPAID
   PARTIAL
@@ -65,6 +72,14 @@ enum PaymentMethod {
 enum SalaryStatus {
   PENDING
   PAID
+}
+
+enum FeeItemType {
+  TUITION
+  TRANSPORT
+  ADMISSION
+  EXAM
+  OTHER
 }
 
 enum ExpenseCategory {
@@ -130,7 +145,9 @@ model User {
 
   // Reverse relations for actor references elsewhere
   feePaymentsReceived  FeePayment[]   @relation("FeePaymentReceivedBy")
+  feePaymentsReversed  FeePayment[]   @relation("FeePaymentReversedBy")
   expensesRecorded     Expense[]      @relation("ExpenseRecordedBy")
+  expensesFunded       ExpenseFunding[] @relation("ExpenseFundedBy")
   salarySlipsGenerated SalarySlip[]   @relation("SalarySlipGeneratedBy")
   notifications           Notification[]      @relation("NotificationTargetUser")
   auditLogs               AuditLog[]          @relation("AuditLogUser")
@@ -188,11 +205,16 @@ model TeacherProfile {
   userId        String     @unique
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   employeeId    String     @unique
+  gender        Gender
   qualification String?
   address       String?
   joiningDate   DateTime
   salary        Decimal    @db.Decimal(10, 2) // never returned to TEACHER role
   status        UserStatus @default(ACTIVE)
+
+  // Teacher's parent (father/mother) — required for Pakistani employment records.
+  fatherName    String     // e.g. "Muhammad Ali"
+  parentCnic    String?    // optional parent CNIC
 
   teachingAssignments  TeachingAssignment[]
   classTeacherSections Section[]            @relation("SectionClassTeacher")
@@ -201,6 +223,13 @@ model TeacherProfile {
   homework             Homework[]
   salarySlips          SalarySlip[]
   qualifications       TeacherQualification[]
+
+  // Students whose parent is this staff member (their fees bill to this salary).
+  staffChildren       Student[]    @relation("StaffChildren")
+  teacherBilledChallans FeeChallan[] @relation("TeacherBilledChallans")
+
+  // At most one transport route (own commute → salary deduction).
+  transportAssignment TransportAssignment?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -216,8 +245,13 @@ model TeacherQualification {
   level       QualificationLevel
   institution String // board (Matric/Inter) or university (Bachelor/Masters)
   passingYear Int
-  marks       String? // e.g. "850/1100" or a CGPA
+  marks       String? // legacy free-text (kept for backward compat)
   grade       String? // grade or division, e.g. "A+", "1st Division"
+
+  // Structured grading — CGPA (Bachelor/Masters) or total/obtained marks.
+  markingType   MarkingType @default(TEXT)
+  obtainedMarks Decimal?    @db.Decimal(7, 2) // e.g. 850.00 or 3.50
+  totalMarks    Decimal?    @db.Decimal(7, 2) // e.g. 1100.00 or 4.00
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -421,9 +455,22 @@ model Student {
   parentId  String
   parent    ParentProfile @relation(fields: [parentId], references: [id], onDelete: Restrict)
 
+  // Recurring monthly fee concession (sibling/staff/scholarship), applied at
+  // challan generation. discountNote records why it exists.
+  feeDiscount  Decimal @db.Decimal(10, 2) @default(0)
+  discountNote String?
+
+  // When this student's parent is a staff member, their challans (except
+  // admission) are billed to the teacher's salary rather than collected in cash.
+  teacherParentId String?
+  teacherParent   TeacherProfile? @relation("StaffChildren", fields: [teacherParentId], references: [id], onDelete: SetNull)
+
   attendance StudentAttendance[]
   challans   FeeChallan[]
   payments   FeePayment[]
+
+  // At most one transport route (see TransportAssignment).
+  transportAssignment TransportAssignment?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -431,6 +478,7 @@ model Student {
   @@unique([sectionId, rollNo]) // roll number unique within a section (nulls allowed)
   @@index([sectionId])
   @@index([parentId])
+  @@index([teacherParentId])
   @@index([status])
 }
 
@@ -507,27 +555,41 @@ model Homework {
 // ============================================================================
 
 model FeeStructure {
-  id         String  @id @default(cuid())
-  classId    String  @unique
-  class      Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
-  monthlyFee Decimal @db.Decimal(10, 2)
+  id           String  @id @default(cuid())
+  classId      String  @unique
+  class        Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  monthlyFee   Decimal @db.Decimal(10, 2)
+  admissionFee Decimal @db.Decimal(10, 2) @default(0) // one-time, added to a student's first challan
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-// One challan per student per month, system-generated.
+// One challan per student per month, system-generated. baseAmount/discount are
+// SNAPSHOTS taken at generation — later fee-structure changes never alter an
+// existing challan.
 model FeeChallan {
-  id        String        @id @default(cuid())
-  challanNo String        @unique // e.g. CH-2025-000123
-  studentId String
-  student   Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  year      Int
-  month     Int // 1..12
-  amount    Decimal       @db.Decimal(10, 2)
-  dueDate   DateTime
-  status    ChallanStatus @default(UNPAID)
+  id         String        @id @default(cuid())
+  challanNo  String        @unique // e.g. CH-2025-000123
+  studentId  String
+  student    Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  year       Int
+  month      Int // 1..12
+  baseAmount Decimal       @db.Decimal(10, 2) @default(0) // = sum(items) at generation
+  discount   Decimal       @db.Decimal(10, 2) @default(0) // snapshot (recurring + per-challan)
+  lateFee    Decimal       @db.Decimal(10, 2) @default(0)
+  amount     Decimal       @db.Decimal(10, 2) // payable = baseAmount − discount + lateFee
+  issueDate  DateTime      @default(now())
+  dueDate    DateTime
+  status     ChallanStatus @default(UNPAID)
 
+  // Staff-child billing: fees (minus admission) are absorbed by the teacher's
+  // salary. staffCovered is how much the salary has actually absorbed so far.
+  billedToTeacherId String?
+  billedToTeacher   TeacherProfile? @relation("TeacherBilledChallans", fields: [billedToTeacherId], references: [id], onDelete: SetNull)
+  staffCovered      Decimal         @db.Decimal(10, 2) @default(0)
+
+  items       FeeChallanItem[]
   allocations FeePaymentAllocation[]
 
   createdAt DateTime @default(now())
@@ -537,6 +599,30 @@ model FeeChallan {
   @@index([studentId])
   @@index([status])
   @@index([dueDate])
+  @@index([billedToTeacherId])
+}
+
+// A single line on a challan (Tuition, Transport, Admission, Exam, Other).
+model FeeChallanItem {
+  id        String      @id @default(cuid())
+  challanId String
+  challan   FeeChallan  @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  type      FeeItemType
+  label     String // display, e.g. "Monthly Tuition", "Route 1 Transport"
+  amount    Decimal     @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([challanId])
+}
+
+// Safe sequential challan numbers, per calendar year.
+model ChallanCounter {
+  year       Int @id
+  lastNumber Int @default(0)
+
+  updatedAt DateTime @updatedAt
 }
 
 // A single received transaction.
@@ -550,6 +636,13 @@ model FeePayment {
   receivedById String
   receivedBy   User          @relation("FeePaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
   note         String?
+
+  // Corrections are explicit, audited reversals — the row is retained forever.
+  isReversed     Boolean   @default(false)
+  reversedAt     DateTime?
+  reversedById   String?
+  reversedBy     User?     @relation("FeePaymentReversedBy", fields: [reversedById], references: [id], onDelete: SetNull)
+  reversalReason String?
 
   allocations FeePaymentAllocation[]
 
@@ -591,6 +684,11 @@ model SalarySlip {
   basicSalary   Decimal        @db.Decimal(10, 2)
   allowances    Decimal        @default(0) @db.Decimal(10, 2)
   deductions    Decimal        @default(0) @db.Decimal(10, 2)
+  // This month's teacher-child fees + own transport absorbed by the salary,
+  // capped so netSalary never goes below 0 (§7.3). Uncovered fee stays payable
+  // on the child's challan — there is NO cross-month salary carry.
+  staffFeeDeduction Decimal     @default(0) @db.Decimal(10, 2)
+  notes         String? // human explanation of the staff-fee deduction, shown on the slip
   netSalary     Decimal        @db.Decimal(10, 2)
   status        SalaryStatus   @default(PENDING)
   paidDate      DateTime?
@@ -616,12 +714,42 @@ model Expense {
   recordedById  String
   recordedBy    User            @relation("ExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
 
+  // Who actually paid for this expense (sum must equal `amount`).
+  funding ExpenseFunding[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([category])
   @@index([date])
   @@index([recordedById])
+}
+
+// One funding source for an expense (school cash/bank, someone's own pocket, …).
+// The rows for an expense always sum to the expense amount.
+model ExpenseFunding {
+  id        String    @id @default(cuid())
+  expenseId String
+  expense   Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  payerType PayerType
+  payerId   String? // → User, when a specific person paid from their own pocket
+  payer     User?     @relation("ExpenseFundedBy", fields: [payerId], references: [id], onDelete: SetNull)
+  amount    Decimal   @db.Decimal(10, 2)
+  remarks   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expenseId])
+  @@index([payerId])
+}
+
+enum PayerType {
+  SCHOOL_CASH
+  SCHOOL_BANK
+  ADMIN_PERSONAL
+  TEACHER_PERSONAL
+  OTHER
 }
 
 // ============================================================================
@@ -661,4 +789,45 @@ model AuditLog {
   @@index([userId])
   @@index([entity])
   @@index([createdAt])
+}
+
+// ---- Phase 5C: Transport ----
+
+// A transport route/van the school runs, with its flat monthly fee.
+model TransportRoute {
+  id          String  @id @default(cuid())
+  name        String // "Route 1 — Gulberg"
+  monthlyFee  Decimal @db.Decimal(10, 2)
+  vehicleInfo String? // "Hiace · LEB-1234"
+  driverName  String?
+  driverPhone String?
+  stops       String? // free text / comma list (optional)
+  active      Boolean @default(true)
+
+  assignments TransportAssignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+}
+
+// Links exactly ONE person (a student OR a teacher) to a route. The @unique on
+// each id enforces "at most one route per person". Student riders → a TRANSPORT
+// line on their challan (or their staff-parent's salary); teacher riders → their
+// own salary deduction (Phase 5B payroll).
+model TransportAssignment {
+  id      String         @id @default(cuid())
+  routeId String
+  route   TransportRoute @relation(fields: [routeId], references: [id], onDelete: Restrict)
+
+  studentId String?         @unique
+  student   Student?        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  teacherId String?         @unique
+  teacher   TeacherProfile? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([routeId])
 }

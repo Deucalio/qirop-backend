@@ -36,6 +36,16 @@ import {
   meTeacherHomeworkRouter,
   meChildHomeworkRouter,
 } from './modules/homework/homework.routes';
+import {
+  feeStructuresRouter,
+  feesRouter,
+  studentFeesRouter,
+  meChildFeesRouter,
+  meTeacherChildrenRouter,
+} from './modules/fees/fees.routes';
+import { transportRouter } from './modules/transport/transport.routes';
+import { salariesRouter } from './modules/salaries/salaries.routes';
+import { expensesRouter, financeRouter } from './modules/expenses/expenses.routes';
 import { requireAuth } from './middleware/requireAuth';
 import { requireRole } from './middleware/requireRole';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -87,6 +97,13 @@ export function createApp(): Express {
   app.use('/api/teachers', attendanceTeachersRouter); // admin set/correct teacher attendance
   app.use('/api/parents', parentsRouter);
   app.use('/api/students', studentsRouter);
+  app.use('/api/students', studentFeesRouter); // per-student discount + fee ledger (FEES)
+  app.use('/api/fee-structures', feeStructuresRouter);
+  app.use('/api/fees', feesRouter);
+  app.use('/api/transport', transportRouter);
+  app.use('/api/salaries', salariesRouter);
+  app.use('/api/expenses', expensesRouter);
+  app.use('/api/finance', financeRouter);
   app.use('/api/teaching-assignments', teachingAssignmentsRouter);
   app.use('/api/teacher-attendance', teacherAttendanceRouter);
   app.use('/api/attendance', attendanceRouter);
@@ -94,9 +111,11 @@ export function createApp(): Express {
   app.use('/api/me/teacher/attendance', meTeacherAttendanceRouter);
   app.use('/api/me/teacher/homework', meTeacherHomeworkRouter);
   app.use('/api/me/teacher/timetable', meTeacherTimetableRouter);
+  app.use('/api/me/teacher/children', meTeacherChildrenRouter); // staff-parent fee view (D4)
   app.use('/api/me/children', meChildrenRouter);
   app.use('/api/me/children', meChildHomeworkRouter);
   app.use('/api/me/children', meChildTimetableRouter);
+  app.use('/api/me/children', meChildFeesRouter);
   app.use('/api/me', meRouter);
 
   // Protected test route to verify RBAC.

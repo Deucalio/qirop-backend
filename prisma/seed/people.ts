@@ -16,8 +16,10 @@ interface TeacherDef {
   fullName: string;
   phone: string;
   employeeId: string;
+  gender: Gender;
   qualification: string;
   salary: string;
+  fatherName: string;
   qualifications: QualificationDef[];
 }
 interface ParentDef {
@@ -40,7 +42,7 @@ interface StudentDef {
 
 const TEACHERS: TeacherDef[] = [
   {
-    cnic: '35201-1000001-1', fullName: 'Ayesha Khan', phone: '0300-1000001', employeeId: 'EMP-101', qualification: 'M.Sc Mathematics', salary: '65000.00',
+    cnic: '35201-1000001-1', fullName: 'Ayesha Khan', phone: '0300-1000001', employeeId: 'EMP-101', gender: Gender.FEMALE, qualification: 'M.Sc Mathematics', salary: '65000.00', fatherName: 'Muhammad Khan',
     qualifications: [
       { level: 'MATRICULATION', institution: 'BISE Lahore', passingYear: 2008, marks: '890/1050', grade: 'A+' },
       { level: 'INTERMEDIATE', institution: 'BISE Lahore', passingYear: 2010, marks: '912/1100', grade: 'A+' },
@@ -49,7 +51,7 @@ const TEACHERS: TeacherDef[] = [
     ],
   },
   {
-    cnic: '35201-1000002-2', fullName: 'Bilal Ahmed', phone: '0300-1000002', employeeId: 'EMP-102', qualification: 'M.A English', salary: '60000.00',
+    cnic: '35201-1000002-2', fullName: 'Bilal Ahmed', phone: '0300-1000002', employeeId: 'EMP-102', gender: Gender.MALE, qualification: 'M.A English', salary: '60000.00', fatherName: 'Tariq Ahmed',
     qualifications: [
       { level: 'MATRICULATION', institution: 'BISE Gujranwala', passingYear: 2006, marks: '765/1050', grade: 'A' },
       { level: 'INTERMEDIATE', institution: 'BISE Gujranwala', passingYear: 2008, marks: '832/1100', grade: 'A' },
@@ -58,7 +60,7 @@ const TEACHERS: TeacherDef[] = [
     ],
   },
   {
-    cnic: '35201-1000003-3', fullName: 'Sana Malik', phone: '0300-1000003', employeeId: 'EMP-103', qualification: 'M.A Urdu', salary: '58000.00',
+    cnic: '35201-1000003-3', fullName: 'Sana Malik', phone: '0300-1000003', employeeId: 'EMP-103', gender: Gender.FEMALE, qualification: 'M.A Urdu', salary: '58000.00', fatherName: 'Rashid Malik',
     qualifications: [
       { level: 'MATRICULATION', institution: 'BISE Rawalpindi', passingYear: 2009, marks: '812/1050', grade: 'A' },
       { level: 'INTERMEDIATE', institution: 'BISE Rawalpindi', passingYear: 2011, marks: '858/1100', grade: 'A' },
@@ -68,7 +70,7 @@ const TEACHERS: TeacherDef[] = [
   },
   {
     // Deliberately missing Masters — exercises the "not on record" state in the UI.
-    cnic: '35201-1000004-4', fullName: 'Usman Tariq', phone: '0300-1000004', employeeId: 'EMP-104', qualification: 'B.Sc Computer Science', salary: '62000.00',
+    cnic: '35201-1000004-4', fullName: 'Usman Tariq', phone: '0300-1000004', employeeId: 'EMP-104', gender: Gender.MALE, qualification: 'B.Sc Computer Science', salary: '62000.00', fatherName: 'Tariq Mehmood',
     qualifications: [
       { level: 'MATRICULATION', institution: 'BISE Faisalabad', passingYear: 2011, marks: '901/1050', grade: 'A+' },
       { level: 'INTERMEDIATE', institution: 'BISE Faisalabad', passingYear: 2013, marks: '876/1100', grade: 'A' },
@@ -118,10 +120,12 @@ export async function seedPeople(prisma: PrismaClient, passwordHash: string) {
       create: {
         userId: user.id,
         employeeId: t.employeeId,
+        gender: t.gender,
         qualification: t.qualification,
         joiningDate: new Date('2023-01-15'),
         salary: new Prisma.Decimal(t.salary),
         status: UserStatus.ACTIVE,
+        fatherName: t.fatherName,
       },
     });
     for (const q of t.qualifications) {

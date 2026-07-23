@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { QualificationLevel, UserStatus } from '@prisma/client';
+import { Gender, MarkingType, QualificationLevel, UserStatus } from '@prisma/client';
 
 const cnicRegex = /^\d{5}-\d{7}-\d$/;
 
@@ -10,6 +10,10 @@ const qualificationSchema = z.object({
   passingYear: z.coerce.number().int().min(1950).max(2100),
   marks: z.string().max(50).nullable().optional(),
   grade: z.string().max(50).nullable().optional(),
+  // Structured grading
+  markingType: z.nativeEnum(MarkingType).default('TEXT'),
+  obtainedMarks: z.coerce.number().nonnegative().nullable().optional(),
+  totalMarks: z.coerce.number().positive().nullable().optional(),
 });
 
 const qualificationsArraySchema = z
@@ -25,11 +29,16 @@ export const createTeacherSchema = z.object({
   phone: z.string().max(50).nullable().optional(),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
   employeeId: z.string().min(1, 'Employee ID is required').max(50),
+  gender: z.nativeEnum(Gender),
   qualification: z.string().max(200).nullable().optional(),
   qualifications: qualificationsArraySchema.optional(),
   address: z.string().max(500).nullable().optional(),
   joiningDate: z.coerce.date(),
   salary: z.coerce.number().nonnegative('Salary must be zero or more'),
+  fatherName: z.string().min(1, 'Father / mother name is required').max(150),
+  parentCnic: z.string().regex(cnicRegex, 'Parent CNIC must be in the format XXXXX-XXXXXXX-X').optional().or(z.literal('')),
+  // Transport route this teacher commutes on (deducted from their salary).
+  transportRouteId: z.string().min(1).nullable().optional(),
 });
 
 export const updateTeacherSchema = z
@@ -37,11 +46,15 @@ export const updateTeacherSchema = z
     fullName: z.string().min(1).max(150).optional(),
     phone: z.string().max(50).nullable().optional(),
     employeeId: z.string().min(1).max(50).optional(),
+    gender: z.nativeEnum(Gender).optional(),
     qualification: z.string().max(200).nullable().optional(),
     qualifications: qualificationsArraySchema.optional(),
     address: z.string().max(500).nullable().optional(),
     joiningDate: z.coerce.date().optional(),
     salary: z.coerce.number().nonnegative().optional(),
+    fatherName: z.string().min(1).max(150).optional(),
+    parentCnic: z.string().regex(cnicRegex).nullable().optional().or(z.literal('')),
+    transportRouteId: z.string().min(1).nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 

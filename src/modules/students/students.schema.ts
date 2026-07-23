@@ -24,6 +24,10 @@ export const createStudentSchema = z
     sectionId: z.string().min(1, 'Section is required'),
     parentId: z.string().min(1).optional(),
     parent: inlineParentSchema.optional(),
+    // Staff child: the TeacherProfile whose salary this student's fees bill to.
+    teacherParentId: z.string().min(1).nullable().optional(),
+    // Transport route this student rides (null/absent = none).
+    transportRouteId: z.string().min(1).nullable().optional(),
   })
   .refine((v) => Boolean(v.parentId) || Boolean(v.parent), {
     message: 'Provide either parentId or inline parent details',
@@ -41,6 +45,8 @@ export const updateStudentSchema = z
     admissionDate: z.coerce.date().optional(),
     sectionId: z.string().min(1).optional(), // section transfer
     parentId: z.string().min(1).optional(),
+    teacherParentId: z.string().min(1).nullable().optional(),
+    transportRouteId: z.string().min(1).nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 

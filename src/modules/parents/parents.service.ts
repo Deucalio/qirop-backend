@@ -19,7 +19,10 @@ export async function listParents(query: ListParentsQuery) {
           : {}),
       },
     },
-    include: { user: true, _count: { select: { students: true } } },
+    include: {
+      user: { include: { teacherProfile: { select: { id: true } } } },
+      _count: { select: { students: true } },
+    },
     orderBy: { user: { fullName: 'asc' } },
   });
   return parents.map((p) => ({
@@ -31,6 +34,9 @@ export async function listParents(query: ListParentsQuery) {
     status: p.user.status,
     occupation: p.occupation,
     childrenCount: p._count.students,
+    // This parent is also a teacher → their children's fees bill to their salary.
+    isTeacher: p.user.teacherProfile !== null,
+    teacherId: p.user.teacherProfile?.id ?? null,
   }));
 }
 

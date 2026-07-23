@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import * as teachersService from './teachers.service';
-import { attendanceMonthQuerySchema, listTeachersQuerySchema } from './teachers.schema';
+import { attendanceMonthQuerySchema, createTeacherSchema, listTeachersQuerySchema } from './teachers.schema';
 import { AppError, Unauthorized } from '../../utils/apiResponse';
 
 export async function list(req: Request, res: Response): Promise<void> {
@@ -25,7 +25,30 @@ export async function attendance(req: Request, res: Response): Promise<void> {
 
 export async function create(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Unauthorized();
-  res.status(201).json(await teachersService.createTeacher(req.user.userId, req.body));
+
+  // When a photo is attached, the body fields arrive as multipart form-data
+  // strings. Parse the JSON-encoded fields back into proper types.
+  let body = req.body;
+  if (req.file) {
+    // Multipart: fields are strings; qualifications may be JSON-encoded.
+    if (typeof body.qualifications === 'string') {
+      try { body.qualifications = JSON.parse(body.qualifications); } catch { /* leave as-is; zod will reject */ }
+    }
+  }
+
+  const input = createTeacherSchema.parse(body);
+  const teacher = await teachersService.createTeacher(req.user.userId, input);
+
+  // Upload the optional photo now that the teacher exists.
+  if (req.file) {
+    const result = await teachersService.setPhoto(
+      teacher.id, req.file.buffer, req.file.originalname, req.file.mimetype,
+    );
+    res.status(201).json(result);
+    return;
+  }
+
+  res.status(201).json(teacher);
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
@@ -58,4 +81,9 @@ export async function linkStudent(req: Request, res: Response): Promise<void> {
     throw new AppError('studentId is required', 400, 'BAD_REQUEST');
   }
   res.json(await teachersService.linkStudentToTeacher(req.params.id, studentId));
+}
+
+export async function purge(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw Unauthorized();
+  res.json(await teachersService.purgeTeacher(req.user, req.params.id));
 }

@@ -40,3 +40,8 @@ export async function getAuditLogs(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Unauthorized();
   res.json(await studentsService.getStudentAuditLogs(req.params.id, req.user));
 }
+
+export async function purge(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw Unauthorized();
+  res.json(await studentsService.purgeStudent(req.user, req.params.id));
+}

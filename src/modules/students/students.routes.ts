@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { PermissionModule } from '@prisma/client';
+import { PermissionModule, Role } from '@prisma/client';
 import * as c from './students.controller';
 import { createStudentSchema, updateStudentSchema, studentStatusSchema } from './students.schema';
 import { requireAuth } from '../../middleware/requireAuth';
+import { requireRole } from '../../middleware/requireRole';
 import { requirePermission } from '../../middleware/requirePermission';
 import { validateBody } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -23,3 +24,5 @@ studentsRouter.put('/:id', edit, validateBody(updateStudentSchema), asyncHandler
 studentsRouter.patch('/:id/status', edit, validateBody(studentStatusSchema), asyncHandler(c.updateStatus));
 studentsRouter.post('/:id/photo', edit, imageUpload.single('photo'), asyncHandler(c.uploadPhoto));
 studentsRouter.get('/:id/audit-logs', view, asyncHandler(c.getAuditLogs));
+// Hard-delete (purge every record). ADMIN/SUPERADMIN only — beyond STUDENTS:edit.
+studentsRouter.delete('/:id', requireRole(Role.SUPERADMIN, Role.ADMIN), asyncHandler(c.purge));

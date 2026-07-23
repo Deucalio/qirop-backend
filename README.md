@@ -7,7 +7,12 @@ PostgreSQL.
 Phases 0–4 are built and verified: auth & RBAC, school setup, users/roles,
 classes/sections/subjects, people (teachers/parents/students), assignments,
 attendance (daily + per-period), weekly timetables, and homework with file
-attachments. Fees, salaries, expenses and reports are **not** built yet.
+attachments. **Phase 5 is complete** — [Fees](#fees--module-fees) (challans, FIFO
+payment ledger, discounts, PDFs, parent view), [Transport](#transport--module-fees)
+(routes + riders, billed onto challans/salaries), and
+[Salaries & Expenses](#salaries--module-salaries) (payroll with automatic staff-fee
+recovery, expenses with funding sources, finance summary). Reports are **not**
+built yet.
 
 ---
 
@@ -270,13 +275,30 @@ requires the auth cookie.
 - **Teachers** (`STAFF`): `GET|POST /teachers`, `GET|PUT /teachers/:id`,
   `PATCH /teachers/:id/status` (lists held assignments; `force` to proceed),
   `POST /teachers/:id/reset-password`, `POST /teachers/:id/photo`,
-  `GET /me/teacher` (**never includes salary**)
+  `GET /me/teacher` (**never includes salary**).
+  `POST /teachers` now accepts **multipart form data** with an optional `photo`
+  field alongside JSON body fields (qualifications are JSON-stringified). Each
+  teacher requires `gender` (`MALE`/`FEMALE`), `fatherName` (parent/guardian
+  name), and optionally `parentCnic`. Education qualifications support structured
+  grading via `markingType` (`CGPA`/`MARKS`/`TEXT`), `obtainedMarks`, and
+  `totalMarks`.
+  `DELETE /teachers/:id` — **hard purge, ADMIN/SUPERADMIN only** (`requireRole`,
+  not a STAFF permission). Removes the teacher's login and everything they own
+  (assignments, homework, own attendance, salary slips, qualifications).
+  Records that reference them only as an *actor* (attendance they marked,
+  payments they received) are **re-attributed to the deleting admin**; optional
+  links back to them (`Section.classTeacherId`, `Student.teacherParentId`,
+  `FeeChallan.billedToTeacherId`) are set null. Runs in one transaction.
 - **Parents** (`PARENTS`): `GET|POST /parents`, `GET|PUT /parents/:id`,
   `PATCH /parents/:id/status`, `POST /parents/:id/reset-password`
 - **Students** (`STUDENTS`): `GET /students?classId=&sectionId=&status=&search=`,
   `GET|PUT /students/:id` (incl. section transfer), `POST /students`
   (with optional inline parent creation), `PATCH /students/:id/status`,
-  `POST /students/:id/photo`, `GET /students/:id/attendance`
+  `POST /students/:id/photo`, `GET /students/:id/attendance`.
+  `DELETE /students/:id` — **hard purge, ADMIN/SUPERADMIN only**. Removes the
+  student plus their attendance, fee challans (+ items + allocations) and
+  payments (all `onDelete: Cascade`, deleted explicitly in one transaction). The
+  guardian's `ParentProfile` is kept — they may have other children.
 
 > Roll numbers are unique **within a section**, so a transfer usually needs a new
 > one — send `rollNo` alongside `sectionId`.
@@ -299,6 +321,136 @@ requires the auth cookie.
 
 Teachers may only post for a `(section, subject)` pair they actually teach.
 
+### Fees — module `FEES`
+Fee structures (per class):
+`GET /fee-structures` · `PUT /fee-structures/:classId` (monthly + admission; edit)
+
+Challans:
+`POST /fees/challans/generate` (edit — scope by class/section/studentIds; optional bulk `examFee`) ·
+`GET /fees/challans?classId=&sectionId=&year=&month=&status=&search=` ·
+`GET /fees/challans/:id` · `PATCH /fees/challans/:id` (edit — discount/lateFee/dueDate/addItem/removeItemId) ·
+`DELETE /fees/challans/:id` (manage — only when unpaid) ·
+`POST /fees/challans/mark-overdue` (edit) ·
+`POST /fees/challans/mark-paid` (edit — `{ challanIds[], paymentDate, method, note? }`) ·
+`GET /fees/challans/:id/pdf` (`?download=1` to attach) · `POST /fees/challans/print` (batch PDF, ≤200 ids)
+
+Payments (the ledger):
+`POST /fees/payments` (edit — auto-FIFO or explicit `allocations[]`) ·
+`GET /fees/payments?studentId=&from=&to=` ·
+`POST /fees/payments/:id/reverse` (manage — requires a reason; row is retained + flagged)
+
+Per-student & dashboard:
+`PUT /students/:id/discount` (recurring discount) · `GET /students/:id/fee-ledger` ·
+`GET /fees/summary?year=&month=` · `GET /fees/trend?months=` ·
+`GET /me/children/:studentId/fees` (PARENT — own child only, read-only) ·
+`GET /me/children/:studentId/challans/:challanId/pdf` (PARENT — the printable challan)
+
+**Staff-parent view (decision D4)** — `/api/me/teacher/children`, TEACHER role only:
+`GET /` (own children + arrears + latest challan + this month's attendance) ·
+`GET /:studentId/fees` · `GET /:studentId/challans/:challanId/pdf`. A teacher sees
+how much of their children's fees their salary absorbed and what is still payable
+— **never a salary figure**; `/api/salaries/*` stays 403 for them. Every guardian
+route re-checks ownership and 404s a challan belonging to a different student.
+
+**Money rules:** every amount is `Decimal(10,2)`; arithmetic uses `Prisma.Decimal`
+(`src/utils/money.ts`), and JSON serializes money as fixed-2dp strings. Challans
+snapshot `baseAmount`/`discount` at generation. Advance is a **derived** credit
+(paid − allocated), auto-applied oldest-month-first when new challans are generated.
+Payments run in a **serializable transaction with retry** for concurrent safety.
+A student whose parent is a teacher gets `FeeChallan.billedToTeacherId` set — those
+fees settle from the teacher's salary in Phase 5B (`staffCovered`), never a status.
+Challan PDFs render server-side with **pdfmake 0.2.x** (`fees.pdf.ts`, standard
+Helvetica — no font files).
+
+**A `PAID` challan is a closed record** — `PATCH /fees/challans/:id` rejects every edit
+with `CHALLAN_PAID` (409). Reverse one of its payments to reopen it.
+
+**`mark-paid` is not a status flip.** It records a real `FeePayment` for each challan's
+outstanding balance and allocates it, so the ledger, collection figures and the reversal
+path stay honest. Already-settled challans are skipped (safe to re-run), and a partly-paid
+challan is charged only its remainder. Used for "this whole class paid at the counter today".
+
+**Generation** (`POST /fees/challans/generate`) builds line items conditionally:
+`TUITION` only when the class's monthly fee > 0, `ADMISSION` on the first-ever
+challan, `TRANSPORT` for a rider (see below), plus optional bulk `examFee`/`otherFee`
+and a `staffChildDiscountPercent`. A student with **no billable items is skipped**
+(so a class with no fee structure and no extras produces no challan).
+`GET /fees/challans/generate-preview?year=&month=&classId=&sectionId=` returns the
+per-class breakdown (students, already-billed, will-generate, fee structure,
+staff-child & transport-rider counts, estimated total) that powers the modal.
+
+### Transport — module `FEES`
+`GET /transport/routes` · `POST /transport/routes` (edit) ·
+`GET /transport/routes/:id` (route + its student & teacher riders + monthly total) ·
+`PUT /transport/routes/:id` (edit) · `DELETE /transport/routes/:id` (manage — blocked
+while it has riders) · `PUT /transport/assign` (edit — `{ routeId, studentId | teacherId }`,
+upserts so it moves a rider between routes) · `DELETE /transport/assign` (edit) ·
+`GET /transport/summary`.
+
+`TransportRoute` carries a flat `monthlyFee`; `TransportAssignment` links **exactly
+one** of a student or a teacher (`@unique` on each ⇒ one route per person). A student
+rider's fee becomes a `TRANSPORT` challan line at generation (and rides to the
+teacher-parent's salary if it's a staff child, via `billedToTeacherId`); a teacher
+rider's fee is a salary deduction handled at payroll (see Salaries). Deleting a
+student/teacher also removes their assignment.
+
+**Linking from the people forms:** `POST|PUT /students/:id` and
+`POST|PUT /teachers/:id` accept **`transportRouteId`** (`null` clears it), and both
+detail responses return `transport { routeId, name, monthlyFee, active }` — so a
+route can be chosen while enrolling a student or hiring a teacher, not only from
+the Transport tab.
+
+**The staff-child link is derived, not typed.** `Student.teacherParentId` is set
+automatically when the student's parent is also a teacher (on enrolment, and
+re-derived whenever the parent changes) — one parent ⇒ one teacher, so the two can
+never drift apart. An explicit `teacherParentId` is still accepted for the case
+where the registered parent isn't the teacher. `GET /parents` reports `isTeacher`
+and `teacherId` so the UI can warn that fees will come out of that salary.
+
+### Salaries — module `SALARIES`
+**Admin-only by construction**: teachers are never granted the `SALARIES`
+permission, so every route here 403s for them — including their own slip.
+
+`POST /salaries/generate` (edit — `{ year, month, teacherIds? }`, idempotent: skips
+teachers who already have a slip) · `GET /salaries?year=&month=&status=` ·
+`GET /salaries/:id` (slip **+ deduction breakdown**) · `PUT /salaries/:id` (edit —
+allowances/deductions; rejected once PAID) · `PATCH /salaries/:id/status` ·
+`GET /salaries/:id/pdf` · `GET /salaries/summary?year=&month=`.
+
+**Staff-fee settlement** (the part worth understanding): a teacher whose children
+study here — or who rides a school route — has those fees taken out of their pay
+instead of collected in cash.
+- Per staff-billed challan, the salary-billable amount is
+  `amount − admission items − cash already paid`. **Admission is never billed to a
+  salary**; it stays payable by the parent.
+- Desired deduction = the teacher's own transport fee + Σ billable across their children.
+- `staffFeeDeduction` is **capped so net pay can never go below 0**, then allocated
+  **own transport first, then children oldest-first**. Each challan's `staffCovered`
+  records what the salary absorbed and its status is recomputed — a partly-covered
+  challan becomes `PARTIAL` and the uncovered remainder stays a normal payable
+  balance (there is **no** cross-month salary carry).
+- `SalarySlip.notes` gets a plain-language explanation, and the slip PDF prints an
+  amber callout plus a child-by-child table (fee / from salary / still payable).
+- `staffCovered` is a payroll offset and is **never** counted as cash in `/fees/summary`.
+
+**Ordering matters:** generate challans for a month *before* generating salaries —
+the settlement only sees challans that exist at generation time, and slips are idempotent.
+
+### Expenses & finance — module `EXPENSES`
+`GET /expenses?from=&to=&category=&search=` (list + range total) ·
+`POST /expenses` (edit) · `GET /expenses/:id` · `PUT /expenses/:id` (edit) ·
+`DELETE /expenses/:id` (manage) · `POST /expenses/:id/receipt` (edit, multipart
+field `receipt`) · `GET /expenses/:id/receipt` (authenticated proxy) ·
+`GET /expenses/summary?from=&to=` or `?year=&month=` (totals by category) ·
+`GET /finance/summary?year=` (month-by-month fees collected vs expenses vs salaries).
+
+Every expense carries **funding rows** recording who actually paid
+(`SCHOOL_CASH | SCHOOL_BANK | ADMIN_PERSONAL | TEACHER_PERSONAL | OTHER`, with an
+optional `payerId` → User). The rows **must sum exactly to the expense amount** or
+the write is rejected (`FUNDING_MISMATCH`); omitting funding auto-inserts a single
+`SCHOOL_CASH` row for the full amount, so an expense is never left inconsistent.
+Changing the amount revalidates the funding.
+
 ---
 
 ## Data model
@@ -317,7 +469,17 @@ Teachers may only post for a `(section, subject)` pair they actually teach.
   all keyed on the canonical PKT day; per-period rows denormalize section and
   subject so history survives timetable edits.
 - **Homework** — section + subject + teacher, optional FileStore attachment.
-- Fees/salary/expense models exist in the schema but have **no API yet** (Phase 5).
+- **FeeStructure** (per class: monthly + admission) · **FeeChallan** (snapshotted
+  `baseAmount`/`discount`/`amount`, `@@unique([studentId, year, month])`,
+  optional `billedToTeacherId` + `staffCovered`) · **FeeChallanItem** (typed line
+  items) · **FeePayment** → **FeePaymentAllocation** (FIFO ledger; reversal keeps
+  the payment row flagged) · **ChallanCounter** (per-year sequential challan no.).
+  `Student.feeDiscount`/`teacherParentId` carry recurring discount + staff-child link.
+- **TransportRoute** (flat `monthlyFee`) → **TransportAssignment** (exactly one of
+  `studentId`/`teacherId`, each `@unique` ⇒ one route per person).
+- **SalarySlip** (`@@unique([teacherId, year, month])`, `staffFeeDeduction` + `notes`
+  carry the staff-fee settlement) · **Expense** → **ExpenseFunding** (who paid; rows
+  always sum to the expense amount).
 
 Money columns are `Decimal(10,2)`, never floats.
 
@@ -334,6 +496,7 @@ Money columns are `Decimal(10,2)`, never floats.
 | `timetable_combined_classes` | `TimetableSlot.groupId` |
 | `subject_color` → `subject_color_hex` | Subject colour (index, then hex) |
 | `section_is_default` | `Section.isDefault` |
+| `teacher_parent_gender_grading` | `TeacherProfile.gender`, `fatherName`, `parentCnic`; `MarkingType` enum; `TeacherQualification.markingType`, `obtainedMarks`, `totalMarks` |
 
 ### Seed
 

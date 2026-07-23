@@ -1,7 +1,7 @@
 import { AttendanceStatus, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
-import { publicUrl, replaceFile } from '../../services/storage';
+import { publicUrl, replaceFile, deleteFile } from '../../services/storage';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
 import { summarize, type AttendanceSummary } from '../../utils/attendanceMetrics';
@@ -23,6 +23,9 @@ interface AttendanceSnapshot {
 const studentInclude = {
   section: { include: { class: true } },
   parent: { include: { user: true } },
+  // Staff-child link (fees bill to this teacher's salary) + transport route.
+  teacherParent: { include: { user: true } },
+  transportAssignment: { include: { route: true } },
 } satisfies Prisma.StudentInclude;
 
 type StudentWithRels = Prisma.StudentGetPayload<{ include: typeof studentInclude }>;
@@ -43,7 +46,88 @@ function shapeListItem(s: StudentWithRels) {
     section: { id: s.section.id, name: s.section.name },
     class: { id: s.section.class.id, name: s.section.class.name },
     parent: { id: s.parent.id, name: s.parent.user.fullName, phone: s.parent.user.phone },
+    // Staff child: their fees are billed to this teacher's salary.
+    teacherParent: s.teacherParent
+      ? { id: s.teacherParent.id, name: s.teacherParent.user.fullName }
+      : null,
+    transport: s.transportAssignment
+      ? {
+          routeId: s.transportAssignment.routeId,
+          name: s.transportAssignment.route.name,
+          monthlyFee: s.transportAssignment.route.monthlyFee.toFixed(2),
+          active: s.transportAssignment.route.active,
+        }
+      : null,
   };
+}
+
+/**
+ * Apply the two optional links a student can carry: the staff-parent (whose
+ * salary their fees bill to) and their transport route. Both are `undefined` =
+ * leave alone, `null` = clear. Returns human-readable timeline entries.
+ *
+ * The staff-parent link is normally **derived**: if the student's own parent is
+ * also a teacher, their fees bill to that teacher's salary — no separate data
+ * entry, and the two can never drift apart. An explicit `teacherParentId` is
+ * still honoured for the case where the registered parent isn't the teacher.
+ */
+async function applyStudentLinks(
+  studentId: string,
+  input: { teacherParentId?: string | null; transportRouteId?: string | null },
+  opts: { deriveStaffParent?: boolean } = {},
+): Promise<string[]> {
+  const changes: string[] = [];
+
+  if (input.teacherParentId !== undefined) {
+    if (input.teacherParentId) {
+      const t = await prisma.teacherProfile.findUnique({
+        where: { id: input.teacherParentId },
+        include: { user: true },
+      });
+      if (!t) throw NotFound('Teacher not found');
+      await prisma.student.update({ where: { id: studentId }, data: { teacherParentId: t.id } });
+      changes.push(`Marked as staff child of ${t.user.fullName} — fees bill to their salary`);
+    } else {
+      await prisma.student.update({ where: { id: studentId }, data: { teacherParentId: null } });
+      changes.push('Staff-child link removed');
+    }
+  } else if (opts.deriveStaffParent) {
+    // Derive from the parent: is this student's parent also a teacher?
+    const s = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: {
+        teacherParentId: true,
+        parent: { select: { user: { select: { fullName: true, teacherProfile: { select: { id: true } } } } } },
+      },
+    });
+    const derived = s?.parent.user.teacherProfile?.id ?? null;
+    if (s && (s.teacherParentId ?? null) !== derived) {
+      await prisma.student.update({ where: { id: studentId }, data: { teacherParentId: derived } });
+      changes.push(
+        derived
+          ? `Parent ${s.parent.user.fullName} is a teacher — this child's fees will bill to their salary`
+          : 'Staff-child link removed (parent is no longer a teacher)',
+      );
+    }
+  }
+
+  if (input.transportRouteId !== undefined) {
+    if (input.transportRouteId) {
+      const r = await prisma.transportRoute.findUnique({ where: { id: input.transportRouteId } });
+      if (!r) throw NotFound('Transport route not found');
+      await prisma.transportAssignment.upsert({
+        where: { studentId },
+        create: { studentId, routeId: r.id },
+        update: { routeId: r.id },
+      });
+      changes.push(`Transport route set to ${r.name} (Rs ${r.monthlyFee.toFixed(2)}/month)`);
+    } else {
+      await prisma.transportAssignment.deleteMany({ where: { studentId } });
+      changes.push('Transport route removed');
+    }
+  }
+
+  return changes;
 }
 
 function shapeDetail(s: StudentWithRels) {
@@ -229,6 +313,11 @@ export async function createStudent(actor: Actor, input: CreateStudentInput) {
   const classDisplay = section ? `${section.class.name} (Section ${section.name})` : '';
   await logStudentEvent(createdStudent.id, actor.userId, 'ENROLLED', `Student enrolled in ${classDisplay}`);
 
+  const linkChanges = await applyStudentLinks(createdStudent.id, input, { deriveStaffParent: true });
+  if (linkChanges.length > 0) {
+    await logStudentEvent(createdStudent.id, actor.userId, 'UPDATED', linkChanges.join(', '));
+  }
+
   return getStudent(createdStudent.id, actor);
 }
 
@@ -337,6 +426,13 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     },
   });
 
+  // Re-derive the staff-parent link whenever the parent changed.
+  changes.push(
+    ...(await applyStudentLinks(id, data, {
+      deriveStaffParent: Boolean(resolvedParentId && resolvedParentId !== student.parentId),
+    })),
+  );
+
   if (actor && changes.length > 0) {
     await logStudentEvent(id, actor.userId, actionType, changes.join(', '));
   }
@@ -397,4 +493,55 @@ export async function getStudentAuditLogs(studentId: string, actor: Actor) {
       actorRole: log.user.role,
     };
   });
+}
+
+/**
+ * Hard-delete a student and **every record tied to them** — attendance, fee
+ * challans (+ line items + payment allocations) and payments. ADMIN-only,
+ * irreversible. A student is never an "actor" anywhere, so nothing else in the
+ * system references them; all the FKs above are `onDelete: Cascade`, but we
+ * delete explicitly (inside one transaction) so the outcome is deterministic
+ * and independent of the DB's cascade configuration.
+ */
+export async function purgeStudent(actor: Actor, id: string) {
+  const student = await prisma.student.findUnique({
+    where: { id },
+    include: { section: { include: { class: true } } },
+  });
+  if (!student) throw NotFound('Student not found');
+
+  const name = `${student.firstName} ${student.lastName}`;
+
+  await prisma.$transaction(async (tx) => {
+    // Fee ledger: allocations → items → payments → challans.
+    await tx.feePaymentAllocation.deleteMany({ where: { challan: { studentId: id } } });
+    await tx.feeChallanItem.deleteMany({ where: { challan: { studentId: id } } });
+    await tx.feePayment.deleteMany({ where: { studentId: id } });
+    await tx.feeChallan.deleteMany({ where: { studentId: id } });
+    // Attendance history + transport assignment.
+    await tx.studentAttendance.deleteMany({ where: { studentId: id } });
+    await tx.transportAssignment.deleteMany({ where: { studentId: id } });
+    // The student themselves.
+    await tx.student.delete({ where: { id } });
+    await tx.auditLog.create({
+      data: {
+        userId: actor.userId,
+        action: 'STUDENT_PURGED',
+        entity: 'Student',
+        entityId: id,
+        metadata: {
+          name,
+          admissionNo: student.admissionNo,
+          className: student.section.class.name,
+          sectionName: student.section.name,
+        },
+      },
+    });
+    // Several sequential deletes against a remote DB — allow ample time.
+  }, { timeout: 60_000, maxWait: 20_000 });
+
+  // Best-effort: remove the profile photo from file storage.
+  if (student.photoUrl) await deleteFile(student.photoUrl).catch(() => undefined);
+
+  return { id, name, deleted: true };
 }

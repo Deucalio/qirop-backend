@@ -20,12 +20,14 @@ teachersRouter.get('/', view, asyncHandler(c.list));
 teachersRouter.get('/:id', view, asyncHandler(c.detail));
 teachersRouter.get('/:id/assignments', view, asyncHandler(c.assignments));
 teachersRouter.get('/:id/attendance', view, asyncHandler(c.attendance));
-teachersRouter.post('/', manage, validateBody(createTeacherSchema), asyncHandler(c.create));
+teachersRouter.post('/', manage, imageUpload.single('photo'), asyncHandler(c.create));
 teachersRouter.put('/:id', manage, validateBody(updateTeacherSchema), asyncHandler(c.update));
 teachersRouter.patch('/:id/status', manage, validateBody(teacherStatusSchema), asyncHandler(c.updateStatus));
 teachersRouter.post('/:id/reset-password', manage, validateBody(resetPasswordSchema), asyncHandler(c.resetPassword));
 teachersRouter.post('/:id/photo', manage, imageUpload.single('photo'), asyncHandler(c.uploadPhoto));
 teachersRouter.post('/:id/students', manage, asyncHandler(c.linkStudent));
+// Hard-delete (purge every record). ADMIN/SUPERADMIN only — beyond STAFF:manage.
+teachersRouter.delete('/:id', requireRole(Role.SUPERADMIN, Role.ADMIN), asyncHandler(c.purge));
 
 // Teacher self-view: GET /api/me/teacher (TEACHER role only, no salary).
 export const meRouter = Router();

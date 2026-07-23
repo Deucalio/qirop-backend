@@ -1,7 +1,7 @@
-import { AttendanceStatus, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
+import { AttendanceStatus, MarkingType, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
-import { publicUrl, replaceFile } from '../../services/storage';
+import { publicUrl, replaceFile, deleteFile } from '../../services/storage';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
 import { summarize } from '../../utils/attendanceMetrics';
@@ -34,6 +34,8 @@ const teacherInclude = {
   teachingAssignments: { include: { section: { include: { class: true } }, subject: true } },
   classTeacherSections: { include: { class: true } },
   qualifications: { orderBy: { level: 'asc' } },
+  // Own commute route — its fee is deducted from this teacher's salary.
+  transportAssignment: { include: { route: true } },
 } satisfies Prisma.TeacherProfileInclude;
 
 type TeacherWithRels = Prisma.TeacherProfileGetPayload<{ include: typeof teacherInclude }>;
@@ -72,10 +74,13 @@ function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
     phone: profile.user.phone,
     avatarUrl: publicUrl(profile.user.avatarUrl),
     employeeId: profile.employeeId,
+    gender: profile.gender,
     qualification: profile.qualification,
     address: profile.address,
     joiningDate: profile.joiningDate,
     status: profile.status,
+    fatherName: profile.fatherName,
+    parentCnic: profile.parentCnic,
     ...(includeSalary ? { salary: profile.salary.toString() } : {}),
     qualifications: profile.qualifications.map((q) => ({
       level: q.level,
@@ -83,11 +88,38 @@ function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
       passingYear: q.passingYear,
       marks: q.marks,
       grade: q.grade,
+      markingType: q.markingType,
+      obtainedMarks: q.obtainedMarks !== null ? Number(q.obtainedMarks) : null,
+      totalMarks: q.totalMarks !== null ? Number(q.totalMarks) : null,
     })),
     teachingAssignments: profile.teachingAssignments.map(shapeTeaching),
     classTeacherSections: profile.classTeacherSections.map(shapeClassTeacherSection),
     children,
+    transport: profile.transportAssignment
+      ? {
+          routeId: profile.transportAssignment.routeId,
+          name: profile.transportAssignment.route.name,
+          monthlyFee: profile.transportAssignment.route.monthlyFee.toFixed(2),
+          active: profile.transportAssignment.route.active,
+        }
+      : null,
   };
+}
+
+/** Set/clear a teacher's own commute route. `undefined` = leave alone, `null` = clear. */
+async function applyTeacherTransport(teacherId: string, routeId: string | null | undefined): Promise<void> {
+  if (routeId === undefined) return;
+  if (routeId) {
+    const r = await prisma.transportRoute.findUnique({ where: { id: routeId } });
+    if (!r) throw NotFound('Transport route not found');
+    await prisma.transportAssignment.upsert({
+      where: { teacherId },
+      create: { teacherId, routeId: r.id },
+      update: { routeId: r.id },
+    });
+  } else {
+    await prisma.transportAssignment.deleteMany({ where: { teacherId } });
+  }
 }
 
 async function loadTeacherOr404(id: string): Promise<TeacherWithRels> {
@@ -152,6 +184,19 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
   if (empTaken) throw new AppError('A teacher with this employee ID already exists', 409, 'EMPLOYEE_ID_TAKEN');
 
   const passwordHash = await hashPassword(input.password);
+
+  // Shape qualification rows for Prisma create
+  const qualRows = (input.qualifications ?? []).map((q) => ({
+    level: q.level,
+    institution: q.institution,
+    passingYear: q.passingYear,
+    marks: q.marks ?? null,
+    grade: q.grade ?? null,
+    markingType: q.markingType ?? MarkingType.TEXT,
+    obtainedMarks: q.obtainedMarks != null ? new Prisma.Decimal(q.obtainedMarks) : null,
+    totalMarks: q.totalMarks != null ? new Prisma.Decimal(q.totalMarks) : null,
+  }));
+
   const user = await prisma.user.create({
     data: {
       cnic: input.cnic,
@@ -163,19 +208,21 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
       teacherProfile: {
         create: {
           employeeId: input.employeeId,
+          gender: input.gender,
           qualification: input.qualification ?? null,
           address: input.address ?? null,
           joiningDate: input.joiningDate,
           salary: new Prisma.Decimal(input.salary),
           status: UserStatus.ACTIVE,
-          ...(input.qualifications && input.qualifications.length > 0
-            ? { qualifications: { create: input.qualifications } }
-            : {}),
+          fatherName: input.fatherName,
+          parentCnic: input.parentCnic || null,
+          ...(qualRows.length > 0 ? { qualifications: { create: qualRows } } : {}),
         },
       },
     },
     include: { teacherProfile: true },
   });
+  await applyTeacherTransport(user.teacherProfile!.id, input.transportRouteId);
   return getTeacher(user.teacherProfile!.id, true);
 }
 
@@ -188,17 +235,32 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput) {
     if (clash) throw new AppError('A teacher with this employee ID already exists', 409, 'EMPLOYEE_ID_TAKEN');
   }
 
+  // Shape qualification rows for Prisma create (replace-all)
+  const qualRows = data.qualifications?.map((q) => ({
+    level: q.level,
+    institution: q.institution,
+    passingYear: q.passingYear,
+    marks: q.marks ?? null,
+    grade: q.grade ?? null,
+    markingType: q.markingType ?? MarkingType.TEXT,
+    obtainedMarks: q.obtainedMarks != null ? new Prisma.Decimal(q.obtainedMarks) : null,
+    totalMarks: q.totalMarks != null ? new Prisma.Decimal(q.totalMarks) : null,
+  }));
+
   await prisma.teacherProfile.update({
     where: { id },
     data: {
       employeeId: data.employeeId ?? undefined,
+      gender: data.gender ?? undefined,
       qualification: data.qualification === undefined ? undefined : data.qualification,
       address: data.address === undefined ? undefined : data.address,
       joiningDate: data.joiningDate ?? undefined,
       salary: data.salary === undefined ? undefined : new Prisma.Decimal(data.salary),
+      fatherName: data.fatherName ?? undefined,
+      parentCnic: data.parentCnic === undefined ? undefined : (data.parentCnic || null),
       // Omitted = untouched; sent = the full new set (replace-all).
-      ...(data.qualifications !== undefined
-        ? { qualifications: { deleteMany: {}, create: data.qualifications } }
+      ...(qualRows !== undefined
+        ? { qualifications: { deleteMany: {}, create: qualRows } }
         : {}),
       user: {
         update: {
@@ -208,6 +270,7 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput) {
       },
     },
   });
+  await applyTeacherTransport(id, data.transportRouteId);
   return getTeacher(id, true);
 }
 
@@ -372,4 +435,75 @@ export async function linkStudentToTeacher(teacherId: string, studentId: string)
   });
 
   return getTeacher(teacherId, true);
+}
+
+/**
+ * Hard-delete a teacher and **every record tied to them** — their login,
+ * teaching assignments, homework, their own attendance & per-period marks,
+ * salary slips and qualifications. ADMIN-only, irreversible.
+ *
+ * Records that merely *reference the teacher as an actor* (student attendance
+ * they marked, payments they received) belong to other people, so those are
+ * **re-attributed to the deleting admin** rather than destroyed. Links that can
+ * simply drop (class-teacher of a section, staff-parent of a student, staff-billed
+ * challans) are set to null.
+ */
+export async function purgeTeacher(actor: Actor, id: string) {
+  const teacher = await prisma.teacherProfile.findUnique({
+    where: { id },
+    include: { user: true, homework: { select: { attachmentUrl: true } } },
+  });
+  if (!teacher) throw NotFound('Teacher not found');
+
+  const userId = teacher.userId;
+  const name = teacher.user.fullName;
+  const attachments = teacher.homework.map((h) => h.attachmentUrl).filter((u): u is string => !!u);
+  const avatarUrl = teacher.user.avatarUrl;
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Re-attribute actor references (Restrict FKs) to the acting admin so the
+    //    other party's record survives.
+    await tx.studentAttendance.updateMany({ where: { markedById: userId }, data: { markedById: actor.userId } });
+    await tx.teacherPeriodAttendance.updateMany({ where: { markedById: userId }, data: { markedById: actor.userId } });
+    await tx.feePayment.updateMany({ where: { receivedById: userId }, data: { receivedById: actor.userId } });
+    await tx.salarySlip.updateMany({ where: { generatedById: userId }, data: { generatedById: actor.userId } });
+    await tx.expense.updateMany({ where: { recordedById: userId }, data: { recordedById: actor.userId } });
+
+    // 2. Drop optional links back to this teacher.
+    await tx.section.updateMany({ where: { classTeacherId: id }, data: { classTeacherId: null } });
+    await tx.student.updateMany({ where: { teacherParentId: id }, data: { teacherParentId: null } });
+    await tx.feeChallan.updateMany({ where: { billedToTeacherId: id }, data: { billedToTeacherId: null } });
+
+    // 3. Delete everything owned by the teacher.
+    await tx.homework.deleteMany({ where: { teacherId: id } });
+    await tx.teachingAssignment.deleteMany({ where: { teacherId: id } });
+    await tx.teacherAttendance.deleteMany({ where: { teacherId: id } });
+    await tx.teacherPeriodAttendance.deleteMany({ where: { teacherId: id } });
+    await tx.salarySlip.deleteMany({ where: { teacherId: id } });
+    await tx.teacherQualification.deleteMany({ where: { teacherId: id } });
+    await tx.transportAssignment.deleteMany({ where: { teacherId: id } });
+    await tx.teacherProfile.delete({ where: { id } });
+
+    // 4. Remove the login itself (cascades AdminPermission, notifications, and
+    //    the teacher's own audit logs).
+    await tx.user.delete({ where: { id: userId } });
+
+    // The purge log belongs to the admin, so it survives the user delete.
+    await tx.auditLog.create({
+      data: {
+        userId: actor.userId,
+        action: 'TEACHER_PURGED',
+        entity: 'TeacherProfile',
+        entityId: id,
+        metadata: { name, employeeId: teacher.employeeId },
+      },
+    });
+    // Many sequential deletes against a remote DB — allow ample time.
+  }, { timeout: 60_000, maxWait: 20_000 });
+
+  // Best-effort file cleanup (outside the transaction).
+  if (avatarUrl) await deleteFile(avatarUrl).catch(() => undefined);
+  for (const url of attachments) await deleteFile(url).catch(() => undefined);
+
+  return { id, name, deleted: true };
 }
