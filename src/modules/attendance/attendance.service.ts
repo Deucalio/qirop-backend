@@ -312,7 +312,6 @@ export async function getTeachersMonthlyAttendance(yearNum?: number, monthNum?: 
         id: t.id,
         name: t.user.fullName,
         employeeId: t.employeeId,
-        designation: t.designation,
         days,
         summary: {
           present: presentCount,
