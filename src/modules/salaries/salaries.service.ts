@@ -111,13 +111,18 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
         totalStaffDeduction = totalStaffDeduction.plus(staffFee);
       }
 
+      const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
       await tx.auditLog.create({
         data: {
-          userId: actor.userId,
-          action: 'SALARIES_GENERATED',
-          entity: 'SalarySlip',
-          entityId: `${year}-${month}`,
-          metadata: { year, month, created, skipped, totalStaffDeduction: toMoneyString(totalStaffDeduction) },
+          actorId: actor.userId,
+          actorName: actorUser?.fullName ?? 'Admin',
+          actorRole: actor.role,
+          action: 'CREATE',
+          module: 'SALARIES',
+          targetType: 'SalarySlip',
+          targetId: `${year}-${month}`,
+          targetLabel: `Monthly Salary Slips (${year}-${String(month).padStart(2, '0')})`,
+          details: `Admin batch generated ${created} salary slips for term ${year}-${String(month).padStart(2, '0')}`,
         },
       });
 
@@ -260,14 +265,29 @@ export async function updateSalary(actor: Actor, id: string, input: UpdateSalary
     },
     include: { teacher: { include: { user: true } } },
   });
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
   await prisma.auditLog.create({
-    data: { userId: actor.userId, action: 'SALARY_UPDATED', entity: 'SalarySlip', entityId: id, metadata: { allowances: allowances.toString(), deductions: deductions.toString() } },
+    data: {
+      actorId: actor.userId,
+      actorName: actorUser?.fullName ?? 'Admin',
+      actorRole: actor.role,
+      action: 'UPDATE',
+      module: 'SALARIES',
+      targetType: 'SalarySlip',
+      targetId: id,
+      targetLabel: `Salary Slip for ${updated.teacher.user.fullName}`,
+      details: `Admin updated allowances/deductions for ${updated.teacher.user.fullName}'s salary slip`,
+      changes: {
+        allowances: { before: s.allowances.toString(), after: allowances.toString() },
+        deductions: { before: s.deductions.toString(), after: deductions.toString() },
+      },
+    },
   });
   return shapeSlip(updated);
 }
 
 export async function setSalaryStatus(actor: Actor, id: string, status: 'PENDING' | 'PAID', paidDate?: string) {
-  const s = await prisma.salarySlip.findUnique({ where: { id } });
+  const s = await prisma.salarySlip.findUnique({ where: { id }, include: { teacher: { include: { user: true } } } });
   if (!s) throw NotFound('Salary slip not found');
   const updated = await prisma.salarySlip.update({
     where: { id },
@@ -277,8 +297,22 @@ export async function setSalaryStatus(actor: Actor, id: string, status: 'PENDING
     },
     include: { teacher: { include: { user: true } } },
   });
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
   await prisma.auditLog.create({
-    data: { userId: actor.userId, action: 'SALARY_STATUS_SET', entity: 'SalarySlip', entityId: id, metadata: { status } },
+    data: {
+      actorId: actor.userId,
+      actorName: actorUser?.fullName ?? 'Admin',
+      actorRole: actor.role,
+      action: 'UPDATE',
+      module: 'SALARIES',
+      targetType: 'SalarySlip',
+      targetId: id,
+      targetLabel: `Salary Slip for ${updated.teacher.user.fullName}`,
+      details: `Admin marked ${updated.teacher.user.fullName}'s salary slip as ${status}`,
+      changes: {
+        status: { before: s.status, after: status },
+      },
+    },
   });
   return shapeSlip(updated);
 }

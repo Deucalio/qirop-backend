@@ -11,8 +11,20 @@ export interface Actor {
 
 async function audit(userId: string, action: string, entityId: string, metadata: Record<string, unknown>) {
   try {
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true, role: true } });
     await prisma.auditLog.create({
-      data: { userId, action, entity: 'TransportRoute', entityId, metadata: metadata as Prisma.InputJsonValue },
+      data: {
+        actorId: userId,
+        actorName: u?.fullName ?? 'Admin',
+        actorRole: u?.role ?? 'ADMIN',
+        action,
+        module: 'FEES',
+        targetType: 'TransportRoute',
+        targetId: entityId,
+        targetLabel: (metadata.name as string) || `Transport Route #${entityId.slice(0, 8)}`,
+        details: (metadata.details as string) || `Transport route action ${action}`,
+        changes: metadata.changes ? (metadata.changes as any) : undefined,
+      },
     });
   } catch {
     /* audit is best-effort */

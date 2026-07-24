@@ -8,6 +8,7 @@ import { money, round2, toMoneyString, ZERO } from '../../utils/money';
 import { summarize, type AttendanceSummary } from '../../utils/attendanceMetrics';
 import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateStudentInput, ListStudentsQuery, UpdateStudentInput } from './students.schema';
+import { logAudit } from '../audit/audit.service';
 
 export interface Actor {
   userId: string;
@@ -258,20 +259,33 @@ export async function getStudentAttendance(id: string, actor: Actor, year?: numb
   return attendanceSnapshot(id, year, month);
 }
 
-async function logStudentEvent(studentId: string, actorId: string, action: string, description: string) {
-  try {
-    await prisma.auditLog.create({
-      data: {
-        userId: actorId,
-        action,
-        entity: 'Student',
-        entityId: studentId,
-        metadata: { description },
-      },
-    });
-  } catch (err) {
-    console.error('Failed to write student audit log:', err);
-  }
+async function logStudentEvent(
+  studentId: string,
+  actorOrUserId: Actor | string,
+  action: string,
+  description: string,
+  targetLabel?: string,
+  changes?: Record<string, { before: unknown; after: unknown }> | null
+) {
+  const actorId = typeof actorOrUserId === 'string' ? actorOrUserId : actorOrUserId.userId;
+  const actorRole = typeof actorOrUserId === 'string' ? 'ADMIN' : actorOrUserId.role;
+  
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { firstName: true, lastName: true, admissionNo: true } });
+  const label = targetLabel || (student ? `${student.firstName} ${student.lastName} (${student.admissionNo})` : `Student #${studentId}`);
+
+  const user = await prisma.user.findUnique({ where: { id: actorId }, select: { fullName: true } });
+  await logAudit(null, {
+    actorId,
+    actorName: user?.fullName ?? 'Admin',
+    actorRole,
+    action,
+    module: 'STUDENTS',
+    targetType: 'Student',
+    targetId: studentId,
+    targetLabel: label,
+    details: description,
+    changes,
+  });
 }
 
 export async function createStudent(actor: Actor, input: CreateStudentInput) {
@@ -503,31 +517,23 @@ export async function getStudentAuditLogs(studentId: string, actor: Actor) {
   await loadStudentOr404(studentId);
   const logs = await prisma.auditLog.findMany({
     where: {
-      entity: 'Student',
-      entityId: studentId,
-    },
-    include: {
-      user: {
-        select: {
-          fullName: true,
-          role: true,
-        },
-      },
+      targetType: 'Student',
+      targetId: studentId,
     },
     orderBy: {
-      createdAt: 'desc',
+      timestamp: 'desc',
     },
   });
 
   return logs.map((log) => {
-    const meta: any = log.metadata;
     return {
       id: log.id,
       action: log.action,
-      description: meta?.description ?? '',
-      createdAt: log.createdAt,
-      actorName: log.user.fullName,
-      actorRole: log.user.role,
+      description: log.details,
+      createdAt: log.timestamp,
+      actorName: log.actorName,
+      actorRole: log.actorRole,
+      changes: log.changes,
     };
   });
 }
@@ -560,18 +566,18 @@ export async function purgeStudent(actor: Actor, id: string) {
     await tx.transportAssignment.deleteMany({ where: { studentId: id } });
     // The student themselves.
     await tx.student.delete({ where: { id } });
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
     await tx.auditLog.create({
       data: {
-        userId: actor.userId,
-        action: 'STUDENT_PURGED',
-        entity: 'Student',
-        entityId: id,
-        metadata: {
-          name,
-          admissionNo: student.admissionNo,
-          className: student.section.class.name,
-          sectionName: student.section.name,
-        },
+        actorId: actor.userId,
+        actorName: actorUser?.fullName ?? 'Admin',
+        actorRole: actor.role,
+        action: 'DELETE',
+        module: 'STUDENTS',
+        targetType: 'Student',
+        targetId: id,
+        targetLabel: `${name} (${student.admissionNo})`,
+        details: `Admin purged student record for ${name} (${student.admissionNo}) from Class ${student.section.class.name}-${student.section.name}`,
       },
     });
     // Several sequential deletes against a remote DB — allow ample time.

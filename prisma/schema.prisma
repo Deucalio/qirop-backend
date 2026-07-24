@@ -150,7 +150,6 @@ model User {
   expensesFunded       ExpenseFunding[] @relation("ExpenseFundedBy")
   salarySlipsGenerated SalarySlip[]   @relation("SalarySlipGeneratedBy")
   notifications           Notification[]      @relation("NotificationTargetUser")
-  auditLogs               AuditLog[]          @relation("AuditLogUser")
   markedStudentAttendance StudentAttendance[] @relation("StudentAttendanceMarkedBy")
   markedTeacherPeriodAttendance TeacherPeriodAttendance[] @relation("TeacherPeriodAttendanceMarkedBy")
 
@@ -775,20 +774,38 @@ model Notification {
 }
 
 model AuditLog {
-  id       String  @id @default(cuid())
-  userId   String
-  user     User    @relation("AuditLogUser", fields: [userId], references: [id], onDelete: Cascade)
-  action   String
-  entity   String
-  entityId String?
-  metadata Json?
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // Actor Info
+  actorId     String?
+  actorName   String   @default("System Admin")
+  actorRole   Role     @default(ADMIN)
 
-  @@index([userId])
-  @@index([entity])
-  @@index([createdAt])
+  // Action Classification
+  action      String   // CREATE, UPDATE, DELETE, ATTENDANCE, PAYMENT, DISCOUNT, REVERSAL, RESET, LOGIN
+  module      String   @default("GENERAL") // STUDENTS, STAFF, ATTENDANCE, TIMETABLE, FEES, SALARIES, EXPENSES, USERS, SCHOOL
+
+  // Target Entity Info
+  targetType  String   @default("System") // Student, Teacher, ClassSection, FeeChallan, SalarySlip, Expense, User, SchoolSetting
+  targetId    String?
+  targetLabel String   @default("System Record") // e.g. "Ali Ahmed (STD-101)"
+
+  // Detailed Summary & Snapshot Diffs
+  details     String   @default("Action recorded in system history") // Human-readable summary
+  changes     Json?    // { before: { phone: "..." }, after: { phone: "..." } }
+
+  // Metadata
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([module])
+  @@index([action])
+  @@index([actorId])
+  @@index([actorRole])
+  @@index([timestamp])
 }
 
 // ---- Phase 5C: Transport ----
@@ -831,3 +848,4 @@ model TransportAssignment {
 
   @@index([routeId])
 }
+

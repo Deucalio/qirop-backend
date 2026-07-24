@@ -489,13 +489,18 @@ export async function purgeTeacher(actor: Actor, id: string) {
     await tx.user.delete({ where: { id: userId } });
 
     // The purge log belongs to the admin, so it survives the user delete.
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
     await tx.auditLog.create({
       data: {
-        userId: actor.userId,
-        action: 'TEACHER_PURGED',
-        entity: 'TeacherProfile',
-        entityId: id,
-        metadata: { name, employeeId: teacher.employeeId },
+        actorId: actor.userId,
+        actorName: actorUser?.fullName ?? 'Admin',
+        actorRole: actor.role,
+        action: 'DELETE',
+        module: 'STAFF',
+        targetType: 'Teacher',
+        targetId: id,
+        targetLabel: `${name} (${teacher.employeeId})`,
+        details: `Admin purged teacher record for ${name} (${teacher.employeeId})`,
       },
     });
     // Many sequential deletes against a remote DB — allow ample time.

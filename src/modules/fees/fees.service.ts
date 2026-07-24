@@ -12,8 +12,26 @@ type Tx = Prisma.TransactionClient;
 // Small helpers
 // ---------------------------------------------------------------------------
 
-async function audit(tx: Tx, userId: string, action: string, entity: string, entityId: string, metadata: object) {
-  await tx.auditLog.create({ data: { userId, action, entity, entityId, metadata: metadata as Prisma.InputJsonValue } });
+async function audit(tx: Tx, userId: string, action: string, entity: string, entityId: string, metadata: any) {
+  try {
+    const u = await tx.user.findUnique({ where: { id: userId }, select: { fullName: true, role: true } });
+    await tx.auditLog.create({
+      data: {
+        actorId: userId,
+        actorName: u?.fullName ?? 'Admin',
+        actorRole: u?.role ?? 'ADMIN',
+        action,
+        module: 'FEES',
+        targetType: entity,
+        targetId: entityId,
+        targetLabel: metadata?.targetLabel || `${entity} #${entityId.slice(0, 8)}`,
+        details: metadata?.description || metadata?.details || `${action} on ${entity}`,
+        changes: metadata?.changes ? (metadata.changes as any) : undefined,
+      },
+    });
+  } catch {
+    /* best-effort */
+  }
 }
 
 /** Retry a serializable transaction on serialization failure (concurrent payments). */

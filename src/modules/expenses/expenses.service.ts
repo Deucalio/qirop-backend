@@ -30,7 +30,21 @@ function resolveFunding(amount: string, funding: FundingInput | undefined): Fund
 
 async function audit(userId: string, action: string, entityId: string, metadata: Record<string, unknown>) {
   try {
-    await prisma.auditLog.create({ data: { userId, action, entity: 'Expense', entityId, metadata: metadata as Prisma.InputJsonValue } });
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true, role: true } });
+    await prisma.auditLog.create({
+      data: {
+        actorId: userId,
+        actorName: u?.fullName ?? 'Admin',
+        actorRole: u?.role ?? 'ADMIN',
+        action,
+        module: 'EXPENSES',
+        targetType: 'Expense',
+        targetId: entityId,
+        targetLabel: (metadata.description as string) || `Voucher #${metadata.voucherNo || entityId}`,
+        details: (metadata.description as string) || `Expense action ${action}`,
+        changes: metadata.changes ? (metadata.changes as any) : undefined,
+      },
+    });
   } catch {
     /* best-effort */
   }
