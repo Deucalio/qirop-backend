@@ -4,6 +4,7 @@ import { AppError, NotFound } from '../../utils/apiResponse';
 import { money, sum, round2, toMoneyString, ZERO, Decimal, type Money } from '../../utils/money';
 import { pktDay, pktDayString, parsePktDay } from '../../utils/pktDate';
 import { recomputeChallan } from '../fees/fees.service';
+import { logAudit } from '../audit/audit.service';
 import type { GenerateSalariesInput, UpdateSalaryInput, ListSalariesQuery } from './salaries.schema';
 
 export interface Actor {

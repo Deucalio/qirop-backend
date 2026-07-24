@@ -15,6 +15,9 @@ type Tx = Prisma.TransactionClient;
 async function audit(tx: Tx, userId: string, action: string, entity: string, entityId: string, metadata: any) {
   try {
     const u = await tx.user.findUnique({ where: { id: userId }, select: { fullName: true, role: true } });
+    const targetLabel = metadata?.targetLabel || `${entity} #${entityId.slice(0, 8)}`;
+    const details = metadata?.details || metadata?.description || `${u?.fullName ?? 'Admin'} recorded ${action.replace(/_/g, ' ').toLowerCase()} on ${targetLabel}`;
+
     await tx.auditLog.create({
       data: {
         actorId: userId,
@@ -24,8 +27,8 @@ async function audit(tx: Tx, userId: string, action: string, entity: string, ent
         module: 'FEES',
         targetType: entity,
         targetId: entityId,
-        targetLabel: metadata?.targetLabel || `${entity} #${entityId.slice(0, 8)}`,
-        details: metadata?.description || metadata?.details || `${action} on ${entity}`,
+        targetLabel,
+        details,
         changes: metadata?.changes ? (metadata.changes as any) : undefined,
       },
     });
@@ -161,16 +164,36 @@ export async function listFeeStructures() {
 }
 
 export async function setFeeStructure(actor: Actor, classId: string, monthlyFee: string, admissionFee?: string) {
-  const cls = await prisma.class.findUnique({ where: { id: classId } });
+  const cls = await prisma.class.findUnique({ where: { id: classId }, include: { feeStructure: true } });
   if (!cls) throw NotFound('Class not found');
+  const existingStructure = cls.feeStructure;
+
+  const rawName = cls.name.trim();
+  const classLabel = rawName.toLowerCase().startsWith('class') ? rawName : `Class ${rawName}`;
+
   const result = await prisma.$transaction(async (tx) => {
     const s = await tx.feeStructure.upsert({
       where: { classId },
       create: { classId, monthlyFee, admissionFee: admissionFee ?? '0' },
       update: { monthlyFee, ...(admissionFee !== undefined ? { admissionFee } : {}) },
     });
-    await audit(tx, actor.userId, 'FEE_STRUCTURE_SET', 'Class', classId, {
-      monthlyFee, admissionFee: s.admissionFee.toString(),
+
+    const prevMonthly = existingStructure ? toMoneyString(existingStructure.monthlyFee) : '0.00';
+    const prevAdmission = existingStructure ? toMoneyString(existingStructure.admissionFee) : '0.00';
+    const newMonthly = toMoneyString(s.monthlyFee);
+    const newAdmission = toMoneyString(s.admissionFee);
+
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+    if (prevMonthly !== newMonthly) changes.monthlyFee = { before: prevMonthly, after: newMonthly };
+    if (prevAdmission !== newAdmission) changes.admissionFee = { before: prevAdmission, after: newAdmission };
+
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    const actorName = actorUser?.fullName ?? 'Super Admin';
+
+    await audit(tx, actor.userId, 'UPDATE', 'Class', classId, {
+      targetLabel: `${classLabel} Fee Structure`,
+      details: `${actorName} updated fee structure for ${classLabel} (Monthly: Rs ${newMonthly}, Admission: Rs ${newAdmission})`,
+      changes,
     });
     return s;
   });
@@ -185,10 +208,21 @@ export async function setFeeStructure(actor: Actor, classId: string, monthlyFee:
 export async function setStudentDiscount(actor: Actor, studentId: string, feeDiscount: string, discountNote?: string | null) {
   const student = await prisma.student.findUnique({ where: { id: studentId } });
   if (!student) throw NotFound('Student not found');
+
+  const oldDiscount = toMoneyString(student.feeDiscount);
+  const newDiscount = toMoneyString(feeDiscount);
+
   await prisma.$transaction(async (tx) => {
     await tx.student.update({ where: { id: studentId }, data: { feeDiscount, discountNote: discountNote ?? null } });
-    await audit(tx, actor.userId, 'STUDENT_DISCOUNT_SET', 'Student', studentId, {
-      before: student.feeDiscount.toString(), after: feeDiscount, note: discountNote ?? null,
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+
+    await audit(tx, actor.userId, 'DISCOUNT', 'Student', studentId, {
+      targetLabel: `${student.firstName} ${student.lastName} (Roll ${student.rollNo})`,
+      details: `${actorUser?.fullName ?? 'Admin'} set Rs ${newDiscount} monthly fee discount for ${student.firstName} ${student.lastName}`,
+      changes: {
+        feeDiscount: { before: oldDiscount, after: newDiscount },
+        discountNote: { before: student.discountNote ?? '—', after: discountNote ?? '—' },
+      },
     });
   });
   return { studentId, feeDiscount: toMoneyString(feeDiscount), discountNote: discountNote ?? null };
@@ -309,9 +343,14 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       await recomputeChallan(tx, challan.id);
     }
 
-    await audit(tx, actor.userId, 'CHALLANS_GENERATED', 'FeeChallan', `${year}-${month}`, {
-      year, month, scope: { classId: input.classId, sectionId: input.sectionId, studentIds: input.studentIds?.length },
-      created, skipped, staffBilled, transportBilled, total: toMoneyString(total),
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    await audit(tx, actor.userId, 'CREATE', 'FeeChallan', `${year}-${month}`, {
+      targetLabel: `Monthly Fee Challans (${year}-${String(month).padStart(2, '0')})`,
+      details: `${actorUser?.fullName ?? 'Admin'} generated ${created} fee challans totaling Rs ${toMoneyString(total)} for term ${year}-${String(month).padStart(2, '0')}`,
+      changes: {
+        challansCreated: { before: 0, after: created },
+        totalAmount: { before: '0.00', after: toMoneyString(total) },
+      },
     });
 
     return { created, skipped, staffBilled, transportBilled, totalAmount: toMoneyString(total) };
@@ -346,7 +385,6 @@ export async function recordPayment(actor: Actor, input: RecordPaymentInput) {
     });
 
     if (input.allocations && input.allocations.length > 0) {
-      // Explicit allocation — direct money at specific challans. Validate each.
       let allocated = ZERO;
       for (const a of input.allocations) {
         const c = await tx.feeChallan.findFirst({
@@ -372,15 +410,18 @@ export async function recordPayment(actor: Actor, input: RecordPaymentInput) {
       if (round2(allocated).greaterThan(round2(amount))) {
         throw new AppError('Allocations exceed the payment amount', 400, 'OVER_ALLOCATED');
       }
-      // Leftover stays as credit — do not auto-spend it (respect the operator's intent).
     } else {
-      // Auto FIFO: fill the oldest unpaid challans; remainder becomes credit.
       await allocateAvailable(tx, input.studentId);
     }
 
-    await audit(tx, actor.userId, 'PAYMENT_RECORDED', 'FeePayment', payment.id, {
-      studentId: input.studentId, amount: toMoneyString(amount), method: input.method,
-      mode: input.allocations ? 'explicit' : 'auto',
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    await audit(tx, actor.userId, 'PAYMENT', 'FeePayment', payment.id, {
+      targetLabel: `${student.firstName} ${student.lastName} (Receipt #${payment.id.slice(0, 8)})`,
+      details: `${actorUser?.fullName ?? 'Admin'} recorded Rs ${toMoneyString(amount)} fee payment for ${student.firstName} ${student.lastName} via ${input.method}`,
+      changes: {
+        amountPaid: { before: '0.00', after: toMoneyString(amount) },
+        paymentMethod: { before: null, after: input.method },
+      },
     });
 
     return getStudentLedgerTx(tx, input.studentId, payment.id);
@@ -389,12 +430,11 @@ export async function recordPayment(actor: Actor, input: RecordPaymentInput) {
 
 export async function reversePayment(actor: Actor, paymentId: string, reason: string) {
   return prisma.$transaction(async (tx) => {
-    const payment = await tx.feePayment.findUnique({ where: { id: paymentId }, include: { allocations: true } });
+    const payment = await tx.feePayment.findUnique({ where: { id: paymentId }, include: { allocations: true, student: true } });
     if (!payment) throw NotFound('Payment not found');
     if (payment.isReversed) throw new AppError('This payment is already reversed', 409, 'ALREADY_REVERSED');
 
     const affectedChallanIds = payment.allocations.map((a) => a.challanId);
-    // Remove the allocations, then flag the payment (retained forever).
     await tx.feePaymentAllocation.deleteMany({ where: { paymentId } });
     await tx.feePayment.update({
       where: { id: paymentId },
@@ -402,8 +442,14 @@ export async function reversePayment(actor: Actor, paymentId: string, reason: st
     });
     for (const id of affectedChallanIds) await recomputeChallan(tx, id);
 
-    await audit(tx, actor.userId, 'PAYMENT_REVERSED', 'FeePayment', paymentId, {
-      reason, amount: payment.amount.toString(), affectedChallans: affectedChallanIds.length,
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    await audit(tx, actor.userId, 'REVERSE', 'FeePayment', paymentId, {
+      targetLabel: `${payment.student.firstName} ${payment.student.lastName} (Receipt #${payment.id.slice(0, 8)})`,
+      details: `${actorUser?.fullName ?? 'Admin'} reversed Rs ${payment.amount} payment for ${payment.student.firstName} ${payment.student.lastName} (Reason: ${reason})`,
+      changes: {
+        isReversed: { before: false, after: true },
+        reversalReason: { before: null, after: reason },
+      },
     });
 
     return getStudentLedgerTx(tx, payment.studentId);

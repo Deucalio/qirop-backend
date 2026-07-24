@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import type { CreateAdminInput, ListAdminsQuery, PermissionEntry } from './admins.schema';
+import { logAudit } from '../audit/audit.service';
 
 const ALL_MODULES = Object.values(PermissionModule);
 const ADMIN_TIER: Role[] = [Role.SUPERADMIN, Role.ADMIN];
@@ -185,6 +186,21 @@ export async function createAdmin(actor: Actor, input: CreateAdminInput) {
     include: { adminPermissions: true },
   });
 
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'CREATE',
+    module: 'USERS',
+    targetType: 'User',
+    targetId: created.id,
+    targetLabel: `${created.fullName} (${created.cnic})`,
+    details: `Created new Admin user account for ${created.fullName}`,
+    changes: {
+      fullName: { before: null, after: created.fullName },
+      cnic: { before: null, after: created.cnic },
+      role: { before: null, after: created.role },
+    },
+  });
+
   return toDetail(created);
 }
 
@@ -206,6 +222,24 @@ export async function updateAdmin(
     },
     include: { adminPermissions: true },
   });
+
+  const changes: Record<string, { before: unknown; after: unknown }> = {};
+  if (data.fullName && data.fullName !== target.fullName) changes.fullName = { before: target.fullName, after: data.fullName };
+  if (data.phone !== undefined && data.phone !== target.phone) changes.phone = { before: target.phone, after: data.phone };
+
+  if (Object.keys(changes).length > 0) {
+    await logAudit(null, {
+      actorId: actor.userId,
+      action: 'UPDATE',
+      module: 'USERS',
+      targetType: 'User',
+      targetId: target.id,
+      targetLabel: `${updated.fullName}`,
+      details: `Updated Admin profile info for ${updated.fullName}`,
+      changes,
+    });
+  }
+
   return toDetail(updated);
 }
 
@@ -245,6 +279,16 @@ export async function replacePermissions(actor: Actor, id: string, entries: Perm
     });
   });
 
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'UPDATE',
+    module: 'USERS',
+    targetType: 'User',
+    targetId: target.id,
+    targetLabel: `${target.fullName}`,
+    details: `Updated permissions matrix for Admin ${target.fullName} (${permissions.length} module permissions active)`,
+  });
+
   return toDetail(updated);
 }
 
@@ -255,6 +299,16 @@ export async function resetPassword(actor: Actor, id: string, newPassword: strin
   }
   const passwordHash = await hashPassword(newPassword);
   await prisma.user.update({ where: { id: target.id }, data: { passwordHash } });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'RESET',
+    module: 'USERS',
+    targetType: 'User',
+    targetId: target.id,
+    targetLabel: `${target.fullName}`,
+    details: `Reset password for Admin account ${target.fullName}`,
+  });
 }
 
 export async function updateStatus(actor: Actor, id: string, status: UserStatus) {
@@ -272,5 +326,19 @@ export async function updateStatus(actor: Actor, id: string, status: UserStatus)
     data: { status },
     include: { adminPermissions: true },
   });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'UPDATE',
+    module: 'USERS',
+    targetType: 'User',
+    targetId: target.id,
+    targetLabel: `${target.fullName}`,
+    details: `Changed status of Admin account ${target.fullName} from ${target.status} to ${status}`,
+    changes: {
+      status: { before: target.status, after: status },
+    },
+  });
+
   return toListItem(updated);
 }

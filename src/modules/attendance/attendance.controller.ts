@@ -21,7 +21,7 @@ export async function myTeacherAttendance(req: Request, res: Response): Promise<
 // ---- admin: teacher attendance ----
 export async function setTeacherAttendance(req: Request, res: Response): Promise<void> {
   const { date, status, checkInTime } = req.body;
-  res.json(await svc.setTeacherAttendance(req.params.id, date, status, checkInTime));
+  res.json(await svc.setTeacherAttendance(req.params.id, date, status, checkInTime, actor(req).userId));
 }
 export async function listTeacherAttendance(req: Request, res: Response): Promise<void> {
   const { date } = dateQuerySchema.parse(req.query);

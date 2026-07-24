@@ -2,6 +2,7 @@ import { AttendanceStatus, MarkingType, PermissionModule, Prisma, Role, UserStat
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
 import { publicUrl, replaceFile, deleteFile } from '../../services/storage';
+import { logAudit } from '../audit/audit.service';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
 import { summarize } from '../../utils/attendanceMetrics';
@@ -223,16 +224,64 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
     include: { teacherProfile: true },
   });
   await applyTeacherTransport(user.teacherProfile!.id, input.transportRouteId);
-  return getTeacher(user.teacherProfile!.id, true);
+  const teacherObj = await getTeacher(user.teacherProfile!.id, true);
+
+  await logAudit(null, {
+    actorId,
+    action: 'CREATE',
+    module: 'STAFF',
+    targetType: 'Teacher',
+    targetId: user.teacherProfile!.id,
+    targetLabel: `${input.fullName} (${input.employeeId})`,
+    details: `Added new teacher ${input.fullName} (${input.employeeId}) - ${input.qualification || 'Staff Member'}`,
+    changes: {
+      _meta: {
+        photoUrl: teacherObj.avatarUrl,
+        phone: input.phone,
+        cnic: input.cnic,
+        fatherName: input.fatherName,
+        qualification: input.qualification,
+      },
+    },
+  });
+
+  return teacherObj;
 }
 
-export async function updateTeacher(id: string, data: UpdateTeacherInput) {
-  const profile = await prisma.teacherProfile.findUnique({ where: { id } });
+export async function updateTeacher(id: string, data: UpdateTeacherInput, actorId?: string) {
+  const profile = await prisma.teacherProfile.findUnique({
+    where: { id },
+    include: { user: true },
+  });
   if (!profile) throw NotFound('Teacher not found');
 
   if (data.employeeId && data.employeeId !== profile.employeeId) {
     const clash = await prisma.teacherProfile.findUnique({ where: { employeeId: data.employeeId } });
     if (clash) throw new AppError('A teacher with this employee ID already exists', 409, 'EMPLOYEE_ID_TAKEN');
+  }
+
+  const changes: Record<string, any> = {};
+  const changedLabels: string[] = [];
+
+  if (data.fullName && data.fullName !== profile.user.fullName) {
+    changes.fullName = { before: profile.user.fullName, after: data.fullName };
+    changedLabels.push('Full Name');
+  }
+  if (data.phone !== undefined && (data.phone || null) !== profile.user.phone) {
+    changes.phone = { before: profile.user.phone ?? 'None', after: data.phone ?? 'None' };
+    changedLabels.push('Phone Number');
+  }
+  if (data.qualification !== undefined && (data.qualification || null) !== profile.qualification) {
+    changes.qualification = { before: profile.qualification ?? 'None', after: data.qualification ?? 'None' };
+    changedLabels.push('Qualification');
+  }
+  if (data.salary !== undefined && Number(data.salary) !== Number(profile.salary)) {
+    changes.salary = { before: profile.salary.toString(), after: String(data.salary) };
+    changedLabels.push('Base Salary');
+  }
+  if (data.fatherName && data.fatherName !== profile.fatherName) {
+    changes.fatherName = { before: profile.fatherName, after: data.fatherName };
+    changedLabels.push('Father/Husband Name');
   }
 
   // Shape qualification rows for Prisma create (replace-all)
@@ -258,7 +307,6 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput) {
       salary: data.salary === undefined ? undefined : new Prisma.Decimal(data.salary),
       fatherName: data.fatherName ?? undefined,
       parentCnic: data.parentCnic === undefined ? undefined : (data.parentCnic || null),
-      // Omitted = untouched; sent = the full new set (replace-all).
       ...(qualRows !== undefined
         ? { qualifications: { deleteMany: {}, create: qualRows } }
         : {}),
@@ -271,7 +319,31 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput) {
     },
   });
   await applyTeacherTransport(id, data.transportRouteId);
-  return getTeacher(id, true);
+  const updatedTeacher = await getTeacher(id, true);
+
+  if (changedLabels.length > 0) {
+    const name = updatedTeacher.fullName;
+    changes._meta = {
+      photoUrl: updatedTeacher.avatarUrl,
+      phone: updatedTeacher.phone,
+      cnic: updatedTeacher.cnic,
+      fatherName: updatedTeacher.fatherName,
+      qualification: updatedTeacher.qualification,
+    };
+
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'UPDATE',
+      module: 'STAFF',
+      targetType: 'Teacher',
+      targetId: id,
+      targetLabel: `${name} (${updatedTeacher.employeeId})`,
+      details: `Updated ${changedLabels.length} field${changedLabels.length > 1 ? 's' : ''} (${changedLabels.join(', ')}) for teacher ${name}`,
+      changes,
+    });
+  }
+
+  return updatedTeacher;
 }
 
 export async function setTeacherStatus(id: string, status: UserStatus, force: boolean) {

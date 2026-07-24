@@ -8,6 +8,7 @@ import {
   type TimetableStatus,
 } from '../timetable/timetable.service';
 import { BUILT_IN_COLORS, normalizeHex } from './subjectColors';
+import { logAudit } from '../audit/audit.service';
 
 const conflict = (message: string) => new AppError(message, 409, 'CONFLICT');
 
@@ -120,15 +121,14 @@ export async function createClass(
   name: string,
   sectionNames: string[] = [],
   fees?: { monthlyFee?: string; admissionFee?: string },
+  actorId?: string,
 ) {
   await assertClassNameFree(name);
 
   const cleaned = [...new Set(sectionNames.map((s) => s.trim()).filter(Boolean))];
-  // Set the fee structure inline so the admin doesn't have to detour to School
-  // Setup after creating a class. Only created when a monthly fee is given.
   const monthly = fees?.monthlyFee != null ? new Prisma.Decimal(fees.monthlyFee) : null;
   const admission = fees?.admissionFee != null ? new Prisma.Decimal(fees.admissionFee) : new Prisma.Decimal(0);
-  return prisma.class.create({
+  const cls = await prisma.class.create({
     data: {
       name,
       order: classOrderFromName(name),
@@ -142,29 +142,63 @@ export async function createClass(
         : {}),
     },
   });
+
+  const classLabel = cls.name.trim().toLowerCase().startsWith('class') ? cls.name.trim() : `Class ${cls.name.trim()}`;
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'CREATE',
+    module: 'TIMETABLE',
+    targetType: 'Class',
+    targetId: cls.id,
+    targetLabel: classLabel,
+    details: `Created new ${classLabel} with ${cleaned.length || 1} section(s)`,
+    changes: {
+      name: { before: null, after: cls.name },
+      monthlyFee: { before: null, after: fees?.monthlyFee ?? '0.00' },
+    },
+  });
+
+  return cls;
 }
 
-export async function updateClass(id: string, data: { name: string }) {
+export async function updateClass(id: string, data: { name: string }, actorId?: string) {
   const cls = await prisma.class.findUnique({ where: { id } });
   if (!cls) throw NotFound('Class not found');
   if (data.name !== cls.name) {
     await assertClassNameFree(data.name, id);
   }
-  return prisma.class.update({
+  const updated = await prisma.class.update({
     where: { id },
     data: { name: data.name, order: classOrderFromName(data.name) },
   });
+
+  if (cls.name !== data.name) {
+    const oldLabel = cls.name.trim().toLowerCase().startsWith('class') ? cls.name.trim() : `Class ${cls.name.trim()}`;
+    const newLabel = data.name.trim().toLowerCase().startsWith('class') ? data.name.trim() : `Class ${data.name.trim()}`;
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'UPDATE',
+      module: 'TIMETABLE',
+      targetType: 'Class',
+      targetId: id,
+      targetLabel: newLabel,
+      details: `Renamed ${oldLabel} to ${newLabel}`,
+      changes: {
+        name: { before: cls.name, after: data.name },
+      },
+    });
+  }
+
+  return updated;
 }
 
-export async function deleteClass(id: string) {
+export async function deleteClass(id: string, actorId?: string) {
   const cls = await prisma.class.findUnique({
     where: { id },
     include: { sections: { select: { id: true, isDefault: true } } },
   });
   if (!cls) throw NotFound('Class not found');
 
-  // The implicit section isn't something the admin created, so it shouldn't
-  // block deletion — only real, named sections do.
   const namedSections = cls.sections.filter((s) => !s.isDefault);
   if (namedSections.length > 0) {
     throw conflict('Cannot delete a class that still has sections. Remove its sections first.');
@@ -174,11 +208,21 @@ export async function deleteClass(id: string) {
     throw conflict('Cannot delete a class that still has students.');
   }
 
-  // Cascade the implicit section away with the class.
   await prisma.$transaction([
     prisma.section.deleteMany({ where: { classId: id } }),
     prisma.class.delete({ where: { id } }),
   ]);
+
+  const classLabel = cls.name.trim().toLowerCase().startsWith('class') ? cls.name.trim() : `Class ${cls.name.trim()}`;
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'DELETE',
+    module: 'TIMETABLE',
+    targetType: 'Class',
+    targetId: id,
+    targetLabel: classLabel,
+    details: `Deleted ${classLabel}`,
+  });
 }
 
 // ===========================================================================

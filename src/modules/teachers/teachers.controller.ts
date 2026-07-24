@@ -52,7 +52,7 @@ export async function create(req: Request, res: Response): Promise<void> {
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
-  res.json(await teachersService.updateTeacher(req.params.id, req.body));
+  res.json(await teachersService.updateTeacher(req.params.id, req.body, req.user?.userId));
 }
 
 export async function updateStatus(req: Request, res: Response): Promise<void> {

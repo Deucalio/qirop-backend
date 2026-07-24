@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { pktDay, pktDayString, parsePktDay, isFuturePktDay } from '../../utils/pktDate';
 import { subjectColorMap, BUILT_IN_COLORS } from '../academics/subjectColors';
+import { logAudit } from '../audit/audit.service';
 
 export interface Actor {
   userId: string;
@@ -715,6 +716,22 @@ export async function setSlot(
       },
     });
   }
+
+  const rawClassName = section.class.name.trim();
+  const cleanClassName = rawClassName.toLowerCase().startsWith('class') ? rawClassName : `Class ${rawClassName}`;
+  const sectionLabel = section.name ? `${cleanClassName}-${section.name}` : cleanClassName;
+
+  await logAudit(null, {
+    actorId: null,
+    action: 'UPDATE',
+    module: 'TIMETABLE',
+    targetType: 'ClassSection',
+    targetId: sectionId,
+    targetLabel: `${sectionLabel} Timetable`,
+    details: subject
+      ? `Assigned Period ${periodIndex} (${day}) to ${subject.name} (Teacher: ${teacherName})`
+      : `Cleared Period ${periodIndex} (${day}) on ${sectionLabel} timetable`,
+  });
 
   return getSectionTimetable(sectionId);
 }

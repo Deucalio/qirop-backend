@@ -9,7 +9,7 @@ export interface AuditLogParams {
   targetId?: string | null;
   targetLabel: string;
   details: string;
-  changes?: Record<string, { before: unknown; after: unknown }> | null;
+  changes?: Record<string, any> | null;
   actorId?: string | null;
   actorName?: string;
   actorRole?: Role;
@@ -141,15 +141,18 @@ export async function listAuditLogs(params: {
  * Seed historical audit logs for initial demo.
  */
 export async function seedAuditLogsIfEmpty(force = false) {
-  const stubCount = await prisma.auditLog.count({
-    where: { details: 'Action recorded in system history' },
-  });
-
-  if (force || stubCount > 0) {
-    // Delete legacy placeholder rows
-    await prisma.auditLog.deleteMany({
+  if (force) {
+    // Delete all previous logs to ensure a clean slate
+    await prisma.auditLog.deleteMany({});
+  } else {
+    const stubCount = await prisma.auditLog.count({
       where: { details: 'Action recorded in system history' },
     });
+    if (stubCount > 0) {
+      await prisma.auditLog.deleteMany({
+        where: { details: 'Action recorded in system history' },
+      });
+    }
   }
 
   const count = await prisma.auditLog.count();
@@ -201,9 +204,14 @@ export async function seedAuditLogsIfEmpty(force = false) {
       module: 'STUDENTS',
       targetType: 'Student',
       targetLabel: 'Fatima Noor (STD-102)',
-      details: "Admin updated Fatima Noor's parent contact phone number from 0300-1234567 to 0311-9876543",
+      details: "Updated 1 field (Parent Phone) for student Fatima Noor",
       changes: {
         parentPhone: { before: '0300-1234567', after: '0311-9876543' },
+        _meta: {
+          guardianName: 'Muhammad Noor',
+          guardianPhone: '0311-9876543',
+          classSection: 'Class 5-A',
+        },
       },
       ipAddress: '192.168.1.10',
       userAgent: 'Chrome 126.0 (Windows 11)',
@@ -220,6 +228,11 @@ export async function seedAuditLogsIfEmpty(force = false) {
       changes: {
         paidAmount: { before: '0.00', after: '5000.00' },
         status: { before: 'UNPAID', after: 'PAID' },
+        _meta: {
+          guardianName: 'Raza Ali',
+          guardianPhone: '0321-4455667',
+          classSection: 'Class 4-B',
+        },
       },
       ipAddress: '192.168.1.10',
       userAgent: 'Chrome 126.0 (Windows 11)',

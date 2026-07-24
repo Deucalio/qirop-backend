@@ -6,6 +6,7 @@ import * as storage from '../../services/storage';
 import { parsePktDay } from '../../utils/pktDate';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import type { CreateHomeworkInput, UpdateHomeworkInput } from './homework.schema';
+import { logAudit } from '../audit/audit.service';
 
 const HOMEWORK = PermissionModule.HOMEWORK;
 
@@ -148,7 +149,30 @@ export async function createHomework(
     const path = await storage.uploadFile(file.buffer, file.originalname, `/homework/${hw.id}`, file.mimetype);
     await prisma.homework.update({ where: { id: hw.id }, data: { attachmentUrl: path } });
   }
-  return shape(await loadHomework(hw.id));
+
+  const loaded = await loadHomework(hw.id);
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+
+  const rawClassName = loaded.section.class.name.trim();
+  const cleanClassName = rawClassName.toLowerCase().startsWith('class') ? rawClassName : `Class ${rawClassName}`;
+  const sectionLabel = loaded.section.name ? `${cleanClassName}-${loaded.section.name}` : cleanClassName;
+  await logAudit(null, {
+    actorId: actor.userId,
+    actorName: actorUser?.fullName ?? 'Teacher',
+    actorRole: actor.role,
+    action: 'CREATE',
+    module: 'TIMETABLE',
+    targetType: 'Homework',
+    targetId: hw.id,
+    targetLabel: `${loaded.subject.name} Homework: "${loaded.title}"`,
+    details: `Posted homework for ${loaded.subject.name} in ${sectionLabel}`,
+    changes: {
+      title: { before: null, after: input.title },
+      dueDate: { before: null, after: input.dueDate },
+    },
+  });
+
+  return shape(loaded);
 }
 
 export async function updateHomework(
@@ -177,7 +201,26 @@ export async function updateHomework(
       attachmentUrl: attachmentUrl === undefined ? undefined : attachmentUrl,
     },
   });
-  return shape(await loadHomework(id));
+
+  const updated = await loadHomework(id);
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  const rawUpdatedClass = updated.section.class.name.trim();
+  const cleanUpdatedClass = rawUpdatedClass.toLowerCase().startsWith('class') ? rawUpdatedClass : `Class ${rawUpdatedClass}`;
+  const updatedSectionLabel = updated.section.name ? `${cleanUpdatedClass}-${updated.section.name}` : cleanUpdatedClass;
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    actorName: actorUser?.fullName ?? 'Teacher',
+    actorRole: actor.role,
+    action: 'UPDATE',
+    module: 'TIMETABLE',
+    targetType: 'Homework',
+    targetId: id,
+    targetLabel: `${updated.subject.name} Homework: "${updated.title}"`,
+    details: `Updated homework "${updated.title}" for ${updatedSectionLabel}`,
+  });
+
+  return shape(updated);
 }
 
 export async function deleteHomework(actor: Actor, id: string) {
@@ -185,6 +228,19 @@ export async function deleteHomework(actor: Actor, id: string) {
   await assertCanManage(actor, hw);
   if (hw.attachmentUrl) await storage.deleteFile(hw.attachmentUrl);
   await prisma.homework.delete({ where: { id } });
+
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  await logAudit(null, {
+    actorId: actor.userId,
+    actorName: actorUser?.fullName ?? 'Teacher',
+    actorRole: actor.role,
+    action: 'DELETE',
+    module: 'TIMETABLE',
+    targetType: 'Homework',
+    targetId: id,
+    targetLabel: `${hw.subject.name} Homework: "${hw.title}"`,
+    details: `Deleted homework "${hw.title}"`,
+  });
 }
 
 export async function getHomework(actor: Actor, id: string) {

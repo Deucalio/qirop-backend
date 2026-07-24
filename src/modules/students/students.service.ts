@@ -265,7 +265,7 @@ async function logStudentEvent(
   action: string,
   description: string,
   targetLabel?: string,
-  changes?: Record<string, { before: unknown; after: unknown }> | null
+  changes?: Record<string, any> | null
 ) {
   const actorId = typeof actorOrUserId === 'string' ? actorOrUserId : actorOrUserId.userId;
   const actorRole = typeof actorOrUserId === 'string' ? 'ADMIN' : actorOrUserId.role;
@@ -415,8 +415,9 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     await assertRollNoFree(targetSectionId, nextRollNo, id);
   }
 
-  const changes: string[] = [];
-  let actionType = 'UPDATED';
+  const changes: Record<string, any> = {};
+  const changedLabels: string[] = [];
+  let actionType = 'UPDATE';
 
   if (data.sectionId && data.sectionId !== student.sectionId) {
     const newSection = await prisma.section.findUnique({
@@ -425,41 +426,46 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     });
     if (newSection) {
       const oldSection = student.section;
+      const oldLabel = `${oldSection.class.name}-${oldSection.name}`;
+      const newLabel = `${newSection.class.name}-${newSection.name}`;
       if (newSection.class.id !== oldSection.class.id) {
-        if (newSection.class.order > oldSection.class.order) {
-          actionType = 'PROMOTED';
-          changes.push(`Promoted from ${oldSection.class.name} to ${newSection.class.name} (Section ${newSection.name})`);
-        } else {
-          actionType = 'TRANSFERRED';
-          changes.push(`Transferred from ${oldSection.class.name} to ${newSection.class.name} (Section ${newSection.name})`);
-        }
+        actionType = newSection.class.order > oldSection.class.order ? 'PROMOTED' : 'TRANSFERRED';
       } else {
         actionType = 'TRANSFERRED';
-        changes.push(`Moved from Section ${oldSection.name} to Section ${newSection.name} in ${oldSection.class.name}`);
       }
+      changes.classSection = { before: oldLabel, after: newLabel };
+      changedLabels.push('Class Section');
     }
   }
 
   if (data.firstName && data.firstName !== student.firstName) {
-    changes.push(`First name changed from '${student.firstName}' to '${data.firstName}'`);
+    changes.firstName = { before: student.firstName, after: data.firstName };
+    changedLabels.push('First Name');
   }
   if (data.lastName && data.lastName !== student.lastName) {
-    changes.push(`Last name changed from '${student.lastName}' to '${data.lastName}'`);
+    changes.lastName = { before: student.lastName, after: data.lastName };
+    changedLabels.push('Last Name');
   }
-  if (data.rollNo !== undefined && data.rollNo !== student.rollNo) {
-    changes.push(`Roll number changed from ${student.rollNo ?? 'none'} to ${data.rollNo ?? 'none'}`);
+  if (data.rollNo !== undefined && (data.rollNo ?? null) !== (student.rollNo ?? null)) {
+    changes.rollNo = { before: student.rollNo ?? 'None', after: data.rollNo ?? 'None' };
+    changedLabels.push('Roll Number');
   }
   if (data.admissionNo && data.admissionNo !== student.admissionNo) {
-    changes.push(`Admission number changed from ${student.admissionNo} to ${data.admissionNo}`);
+    changes.admissionNo = { before: student.admissionNo, after: data.admissionNo };
+    changedLabels.push('Admission Number');
   }
-  if (data.dob !== undefined && data.dob !== student.dob) {
-    changes.push(`Date of birth changed`);
+
+  // Strict Date comparison (YYYY-MM-DD) to prevent false positive "Date of birth changed"
+  const oldDobStr = student.dob ? new Date(student.dob).toISOString().split('T')[0] : null;
+  const newDobStr = data.dob ? new Date(data.dob).toISOString().split('T')[0] : null;
+  if (data.dob !== undefined && oldDobStr !== newDobStr) {
+    changes.dateOfBirth = { before: oldDobStr ?? 'None', after: newDobStr ?? 'None' };
+    changedLabels.push('Date of Birth');
   }
+
   if (data.gender && data.gender !== student.gender) {
-    changes.push(`Gender changed from ${student.gender} to ${data.gender}`);
-  }
-  if (resolvedParentId && resolvedParentId !== student.parentId) {
-    changes.push(`Parent link updated`);
+    changes.gender = { before: student.gender, after: data.gender };
+    changedLabels.push('Gender');
   }
 
   await prisma.student.update({
@@ -477,15 +483,34 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     },
   });
 
-  // Re-derive the staff-parent link whenever the parent changed.
-  changes.push(
-    ...(await applyStudentLinks(id, data, {
-      deriveStaffParent: Boolean(resolvedParentId && resolvedParentId !== student.parentId),
-    })),
-  );
+  const updatedStudent = await prisma.student.findUnique({
+    where: { id },
+    include: {
+      section: { include: { class: true } },
+      parent: { include: { user: true } },
+    },
+  });
 
-  if (actor && changes.length > 0) {
-    await logStudentEvent(id, actor.userId, actionType, changes.join(', '));
+  if (actor && changedLabels.length > 0) {
+    const studentName = `${updatedStudent?.firstName ?? student.firstName} ${updatedStudent?.lastName ?? student.lastName}`;
+    const desc = `Updated ${changedLabels.length} field${changedLabels.length > 1 ? 's' : ''} (${changedLabels.join(', ')}) for student ${studentName}`;
+    
+    // Attach guardian metadata for rich UI display
+    changes._meta = {
+      photoUrl: publicUrl(updatedStudent?.photoUrl),
+      guardianName: updatedStudent?.parent?.user.fullName,
+      guardianPhone: updatedStudent?.parent?.user.phone,
+      classSection: updatedStudent ? `${updatedStudent.section.class.name}-${updatedStudent.section.name}` : undefined,
+    };
+
+    await logStudentEvent(
+      id,
+      actor,
+      actionType,
+      desc,
+      `${studentName} (${updatedStudent?.rollNo || updatedStudent?.admissionNo})`,
+      changes
+    );
   }
 
   return getStudent(id, actor);
@@ -567,6 +592,9 @@ export async function purgeStudent(actor: Actor, id: string) {
     // The student themselves.
     await tx.student.delete({ where: { id } });
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    const rawClassName = student.section.class.name.trim();
+    const cleanClassName = rawClassName.toLowerCase().startsWith('class') ? rawClassName : `Class ${rawClassName}`;
+    const sectionLabel = student.section.name ? `${cleanClassName}-${student.section.name}` : cleanClassName;
     await tx.auditLog.create({
       data: {
         actorId: actor.userId,
@@ -577,7 +605,7 @@ export async function purgeStudent(actor: Actor, id: string) {
         targetType: 'Student',
         targetId: id,
         targetLabel: `${name} (${student.admissionNo})`,
-        details: `Admin purged student record for ${name} (${student.admissionNo}) from Class ${student.section.class.name}-${student.section.name}`,
+        details: `Admin purged student record for ${name} (${student.admissionNo}) from ${sectionLabel}`,
       },
     });
     // Several sequential deletes against a remote DB — allow ample time.

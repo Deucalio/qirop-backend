@@ -4,6 +4,7 @@ import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
 import { publicUrl } from '../../services/storage';
 import { summarize } from '../../utils/attendanceMetrics';
+import { logAudit } from '../audit/audit.service';
 import {
   pktDay,
   pktDayString,
@@ -31,7 +32,11 @@ async function teacherProfileByUser(userId: string) {
 }
 
 export async function checkIn(userId: string) {
-  const profile = await teacherProfileByUser(userId);
+  const profile = await prisma.teacherProfile.findUnique({
+    where: { userId },
+    include: { user: true },
+  });
+  if (!profile) throw NotFound('Teacher profile not found');
   const date = pktDay();
   const existing = await prisma.teacherAttendance.findUnique({
     where: { teacherId_date: { teacherId: profile.id, date } },
@@ -43,6 +48,19 @@ export async function checkIn(userId: string) {
     update: { status: AttendanceStatus.PRESENT, checkInTime },
     create: { teacherId: profile.id, date, status: AttendanceStatus.PRESENT, checkInTime },
   });
+
+  await logAudit(null, {
+    actorId: userId,
+    actorName: profile.user.fullName,
+    actorRole: profile.user.role,
+    action: 'CHECKIN',
+    module: 'ATTENDANCE',
+    targetType: 'TeacherProfile',
+    targetId: profile.id,
+    targetLabel: `${profile.user.fullName} Self Check-In`,
+    details: `${profile.user.fullName} recorded teacher self check-in for ${pktDayString(date)}`,
+  });
+
   return { date: pktDayString(date), status: record.status, checkInTime: record.checkInTime };
 }
 
@@ -83,17 +101,44 @@ export async function setTeacherAttendance(
   dateStr: string,
   status: AttendanceStatus,
   checkInTime?: string | null,
+  actorId?: string,
 ) {
-  const teacher = await prisma.teacherProfile.findUnique({ where: { id: teacherId } });
+  const teacher = await prisma.teacherProfile.findUnique({
+    where: { id: teacherId },
+    include: { user: true },
+  });
   if (!teacher) throw NotFound('Teacher not found');
   const date = parsePktDay(dateStr);
   if (isFuturePktDay(date)) throw new AppError('Cannot mark attendance for a future date', 400, 'FUTURE_DATE');
+
+  const existing = await prisma.teacherAttendance.findUnique({
+    where: { teacherId_date: { teacherId, date } },
+  });
 
   const record = await prisma.teacherAttendance.upsert({
     where: { teacherId_date: { teacherId, date } },
     update: { status, checkInTime: checkInTime ? new Date(checkInTime) : null },
     create: { teacherId, date, status, checkInTime: checkInTime ? new Date(checkInTime) : null },
   });
+
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'UPDATE',
+    module: 'ATTENDANCE',
+    targetType: 'Teacher',
+    targetId: teacherId,
+    targetLabel: `${teacher.user.fullName}`,
+    details: `Updated teacher attendance for ${teacher.user.fullName} to ${status} on ${dateStr}`,
+    changes: {
+      status: { before: existing?.status ?? 'UNMARKED', after: status },
+      _meta: {
+        photoUrl: teacher.user.avatarUrl,
+        teacherName: teacher.user.fullName,
+        date: dateStr,
+      },
+    },
+  });
+
   return { teacherId, date: pktDayString(date), status: record.status, checkInTime: record.checkInTime };
 }
 
@@ -350,16 +395,23 @@ export async function markSection(
   const date = parsePktDay(dateStr);
   if (isFuturePktDay(date)) throw new AppError('Cannot mark attendance for a future date', 400, 'FUTURE_DATE');
 
-  // Every studentId must be an ACTIVE student of this section.
+  // Fetch active students with full names to log human readable diffs
   const activeStudents = await prisma.student.findMany({
     where: { sectionId, status: UserStatus.ACTIVE },
-    select: { id: true },
+    select: { id: true, firstName: true, lastName: true, rollNo: true },
   });
+  const studentMap = new Map(activeStudents.map((s) => [s.id, s]));
   const validIds = new Set(activeStudents.map((s) => s.id));
   const stray = records.map((r) => r.studentId).filter((id) => !validIds.has(id));
   if (stray.length > 0) {
     throw new AppError('Some students do not belong to this section (or are inactive)', 400, 'INVALID_STUDENT', { stray });
   }
+
+  // Fetch previous attendance status for before/after diff tracking
+  const previousRecords = await prisma.studentAttendance.findMany({
+    where: { sectionId, date, studentId: { in: records.map((r) => r.studentId) } },
+  });
+  const prevStatusMap = new Map(previousRecords.map((r) => [r.studentId, r.status]));
 
   await prisma.$transaction(
     records.map((r) =>
@@ -370,6 +422,54 @@ export async function markSection(
       }),
     ),
   );
+
+  // Compile summary stats & diffs
+  let present = 0, absent = 0, late = 0, leave = 0;
+  const changes: Record<string, any> = {};
+
+  for (const r of records) {
+    if (r.status === AttendanceStatus.PRESENT) present++;
+    else if (r.status === AttendanceStatus.ABSENT) absent++;
+    else if (r.status === AttendanceStatus.LATE) late++;
+    else if (r.status === AttendanceStatus.LEAVE) leave++;
+
+    const prevStatus = prevStatusMap.get(r.studentId);
+    if (prevStatus && prevStatus !== r.status) {
+      const student = studentMap.get(r.studentId);
+      const studentLabel = student ? `${student.firstName} ${student.lastName}` : `Student #${r.studentId.slice(0, 6)}`;
+      changes[studentLabel] = { before: prevStatus, after: r.status };
+    }
+  }
+
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  const rawClassName = section.class.name.trim();
+  const cleanClassName = rawClassName.toLowerCase().startsWith('class') ? rawClassName : `Class ${rawClassName}`;
+  const sectionLabel = section.name ? `${cleanClassName}-${section.name}` : cleanClassName;
+  const details = `${actorUser?.fullName ?? 'Teacher'} marked attendance for ${sectionLabel} (${present} Present, ${absent} Absent, ${late} Late, ${leave} Leave)`;
+
+  changes._meta = {
+    className: section.class.name,
+    sectionName: section.name,
+    date: dateStr,
+    totalStudents: records.length,
+    present,
+    absent,
+  };
+
+  const actionVerb = previousRecords.length > 0 ? 'UPDATE' : 'CREATE';
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    actorName: actorUser?.fullName ?? 'Teacher',
+    actorRole: actor.role,
+    action: actionVerb,
+    module: 'ATTENDANCE',
+    targetType: 'ClassSection',
+    targetId: sectionId,
+    targetLabel: `${sectionLabel} Roster`,
+    details,
+    changes,
+  });
 
   return getSectionRoster(actor, sectionId, dateStr);
 }

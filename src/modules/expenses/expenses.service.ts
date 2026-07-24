@@ -28,22 +28,22 @@ function resolveFunding(amount: string, funding: FundingInput | undefined): Fund
   return rows;
 }
 
+import { logAudit } from '../audit/audit.service';
+
 async function audit(userId: string, action: string, entityId: string, metadata: Record<string, unknown>) {
   try {
     const u = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true, role: true } });
-    await prisma.auditLog.create({
-      data: {
-        actorId: userId,
-        actorName: u?.fullName ?? 'Admin',
-        actorRole: u?.role ?? 'ADMIN',
-        action,
-        module: 'EXPENSES',
-        targetType: 'Expense',
-        targetId: entityId,
-        targetLabel: (metadata.description as string) || `Voucher #${metadata.voucherNo || entityId}`,
-        details: (metadata.description as string) || `Expense action ${action}`,
-        changes: metadata.changes ? (metadata.changes as any) : undefined,
-      },
+    await logAudit(null, {
+      actorId: userId,
+      actorName: u?.fullName ?? 'Admin',
+      actorRole: u?.role ?? 'ADMIN',
+      action,
+      module: 'EXPENSES',
+      targetType: 'Expense',
+      targetId: entityId,
+      targetLabel: (metadata.title as string) || `Expense Voucher #${entityId.slice(0, 6)}`,
+      details: (metadata.details as string) || `Expense voucher action ${action}`,
+      changes: metadata.changes ? (metadata.changes as any) : undefined,
     });
   } catch {
     /* best-effort */
@@ -123,7 +123,16 @@ export async function createExpense(actor: Actor, input: CreateExpenseInput) {
     });
     return e;
   });
-  await audit(actor.userId, 'EXPENSE_CREATED', created.id, { title: created.title, amount: created.amount.toString() });
+  const u = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  await audit(actor.userId, 'CREATE', created.id, {
+    title: created.title,
+    details: `${u?.fullName ?? 'Admin'} recorded expense voucher: ${created.title} (Rs ${toMoneyString(created.amount)})`,
+    changes: {
+      title: { before: null, after: created.title },
+      amount: { before: '0.00', after: toMoneyString(created.amount) },
+      category: { before: null, after: created.category },
+    },
+  });
   return shape(created);
 }
 
@@ -131,7 +140,6 @@ export async function updateExpense(actor: Actor, id: string, input: UpdateExpen
   const existing = await prisma.expense.findUnique({ where: { id } });
   if (!existing) throw NotFound('Expense not found');
   const newAmount = input.amount ?? toMoneyString(existing.amount);
-  // If funding is provided, or the amount changed, revalidate/replace funding.
   const fundingChanging = input.funding !== undefined || input.amount !== undefined;
   const funding = fundingChanging ? resolveFunding(newAmount, input.funding ?? undefined) : undefined;
   if (funding) await validatePayers(funding);
@@ -155,7 +163,17 @@ export async function updateExpense(actor: Actor, id: string, input: UpdateExpen
     }
     return tx.expense.findUniqueOrThrow({ where: { id }, include: expenseInclude });
   });
-  await audit(actor.userId, 'EXPENSE_UPDATED', id, { title: updated.title });
+
+  const u = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  const changes: Record<string, { before: unknown; after: unknown }> = {};
+  if (existing.title !== updated.title) changes.title = { before: existing.title, after: updated.title };
+  if (!existing.amount.equals(updated.amount)) changes.amount = { before: toMoneyString(existing.amount), after: toMoneyString(updated.amount) };
+
+  await audit(actor.userId, 'UPDATE', id, {
+    title: updated.title,
+    details: `${u?.fullName ?? 'Admin'} updated expense voucher: ${updated.title}`,
+    changes,
+  });
   return shape(updated);
 }
 
@@ -164,7 +182,11 @@ export async function deleteExpense(actor: Actor, id: string) {
   if (!e) throw NotFound('Expense not found');
   await prisma.expense.delete({ where: { id } }); // funding cascades
   if (e.attachmentUrl) await deleteFile(e.attachmentUrl).catch(() => undefined);
-  await audit(actor.userId, 'EXPENSE_DELETED', id, { title: e.title });
+  const u = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  await audit(actor.userId, 'DELETE', id, {
+    title: e.title,
+    details: `${u?.fullName ?? 'Admin'} deleted expense voucher: ${e.title} (Rs ${toMoneyString(e.amount)})`,
+  });
   return { id, deleted: true };
 }
 
