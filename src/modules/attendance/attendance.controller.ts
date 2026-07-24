@@ -27,11 +27,23 @@ export async function listTeacherAttendance(req: Request, res: Response): Promis
   const { date } = dateQuerySchema.parse(req.query);
   res.json(await svc.listTeacherAttendance(date));
 }
+export async function listTeachersMonthly(req: Request, res: Response): Promise<void> {
+  const { year, month } = monthQuerySchema.parse(req.query);
+  res.json(await svc.getTeachersMonthlyAttendance(year, month));
+}
+export async function markTeachersBatch(req: Request, res: Response): Promise<void> {
+  const { records } = req.body;
+  res.json(await svc.markTeachersBatch(records));
+}
 
 // ---- student attendance (section) ----
 export async function sectionRoster(req: Request, res: Response): Promise<void> {
   const { date } = dateQuerySchema.parse(req.query);
   res.json(await svc.getSectionRoster(actor(req), req.params.sectionId, date));
+}
+export async function sectionMonthly(req: Request, res: Response): Promise<void> {
+  const { year, month } = monthQuerySchema.parse(req.query);
+  res.json(await svc.getSectionMonthlyAttendance(actor(req), req.params.sectionId, year, month));
 }
 export async function markSection(req: Request, res: Response): Promise<void> {
   const { date, records } = req.body;

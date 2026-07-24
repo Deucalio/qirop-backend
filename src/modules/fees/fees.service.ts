@@ -662,12 +662,14 @@ export async function generatePreview(query: {
   month: number;
   classId?: string;
   sectionId?: string;
+  studentId?: string;
 }) {
   const { year, month } = query;
   const scope = {
     status: UserStatus.ACTIVE,
     ...(query.sectionId ? { sectionId: query.sectionId } : {}),
     ...(query.classId ? { section: { classId: query.classId } } : {}),
+    ...(query.studentId ? { id: query.studentId } : {}),
   };
 
   const students = await prisma.student.findMany({

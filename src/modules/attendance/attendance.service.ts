@@ -192,6 +192,153 @@ export async function getSectionRoster(actor: Actor, sectionId: string, dateStr?
   };
 }
 
+export async function getSectionMonthlyAttendance(actor: Actor, sectionId: string, yearNum?: number, monthNum?: number) {
+  const section = await loadSection(sectionId);
+  const canEdit = await authorizeSection(actor, section, 'view');
+
+  const now = pktDay();
+  const y = yearNum ?? now.getUTCFullYear();
+  const m = monthNum ?? now.getUTCMonth() + 1;
+  const { start, endExclusive } = pktMonthRange(y, m);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+
+  const students = await prisma.student.findMany({
+    where: { sectionId, status: UserStatus.ACTIVE },
+    orderBy: [{ rollNo: 'asc' }, { firstName: 'asc' }],
+  });
+
+  const marks = await prisma.studentAttendance.findMany({
+    where: { sectionId, date: { gte: start, lt: endExclusive } },
+  });
+
+  const byStudent = new Map<string, Record<string, AttendanceStatus>>();
+  for (const mark of marks) {
+    const dateKey = pktDayString(mark.date);
+    const studentMap = byStudent.get(mark.studentId) ?? {};
+    studentMap[dateKey] = mark.status;
+    byStudent.set(mark.studentId, studentMap);
+  }
+
+  let sundayCount = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayOfWeek = new Date(y, m - 1, day).getDay();
+    if (dayOfWeek === 0) sundayCount++;
+  }
+
+  return {
+    sectionId: section.id,
+    sectionName: section.name,
+    classId: section.classId,
+    className: section.class.name,
+    year: y,
+    month: m,
+    daysInMonth,
+    canEdit,
+    classTeacher: section.classTeacher
+      ? { id: section.classTeacher.id, fullName: section.classTeacher.user.fullName }
+      : null,
+    students: students.map((s) => {
+      const days = byStudent.get(s.id) ?? {};
+      let presentCount = 0;
+      let absentCount = 0;
+
+      Object.values(days).forEach((st) => {
+        if (st === 'PRESENT' || st === 'LATE') presentCount++;
+        else if (st === 'ABSENT' || st === 'LEAVE') absentCount++;
+      });
+
+      return {
+        id: s.id,
+        name: `${s.firstName} ${s.lastName}`,
+        rollNo: s.rollNo,
+        photoUrl: publicUrl(s.photoUrl),
+        days,
+        summary: {
+          present: presentCount,
+          absent: absentCount,
+          holiday: sundayCount,
+          totalMarked: Object.keys(days).length,
+        },
+      };
+    }),
+  };
+}
+
+export async function getTeachersMonthlyAttendance(yearNum?: number, monthNum?: number) {
+  const now = pktDay();
+  const y = yearNum ?? now.getUTCFullYear();
+  const m = monthNum ?? now.getUTCMonth() + 1;
+  const { start, endExclusive } = pktMonthRange(y, m);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+
+  const teachers = await prisma.teacherProfile.findMany({
+    include: { user: true },
+    orderBy: { user: { fullName: 'asc' } },
+  });
+
+  const marks = await prisma.teacherAttendance.findMany({
+    where: { date: { gte: start, lt: endExclusive } },
+  });
+
+  const byTeacher = new Map<string, Record<string, AttendanceStatus>>();
+  for (const mark of marks) {
+    const dateKey = pktDayString(mark.date);
+    const teacherMap = byTeacher.get(mark.teacherId) ?? {};
+    teacherMap[dateKey] = mark.status;
+    byTeacher.set(mark.teacherId, teacherMap);
+  }
+
+  let sundayCount = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayOfWeek = new Date(y, m - 1, day).getDay();
+    if (dayOfWeek === 0) sundayCount++;
+  }
+
+  return {
+    year: y,
+    month: m,
+    daysInMonth,
+    teachers: teachers.map((t) => {
+      const days = byTeacher.get(t.id) ?? {};
+      let presentCount = 0;
+      let absentCount = 0;
+
+      Object.values(days).forEach((st) => {
+        if (st === 'PRESENT' || st === 'LATE') presentCount++;
+        else if (st === 'ABSENT' || st === 'LEAVE') absentCount++;
+      });
+
+      return {
+        id: t.id,
+        name: t.user.fullName,
+        employeeId: t.employeeId,
+        designation: t.designation,
+        days,
+        summary: {
+          present: presentCount,
+          absent: absentCount,
+          holiday: sundayCount,
+          totalMarked: Object.keys(days).length,
+        },
+      };
+    }),
+  };
+}
+
+export async function markTeachersBatch(records: { teacherId: string; date: string; status: AttendanceStatus }[]) {
+  await prisma.$transaction(
+    records.map((r) => {
+      const d = parsePktDay(r.date);
+      return prisma.teacherAttendance.upsert({
+        where: { teacherId_date: { teacherId: r.teacherId, date: d } },
+        update: { status: r.status },
+        create: { teacherId: r.teacherId, date: d, status: r.status },
+      });
+    })
+  );
+  return { success: true };
+}
+
 export async function markSection(
   actor: Actor,
   sectionId: string,

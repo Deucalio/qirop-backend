@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import * as svc from './salaries.service';
 import { renderSalarySlipPdf } from './salaries.pdf';
+import { listSalariesQuerySchema } from './salaries.schema';
 import { Unauthorized } from '../../utils/apiResponse';
 
 const actor = (req: Request) => {
@@ -12,7 +13,9 @@ export async function generate(req: Request, res: Response) {
   res.json(await svc.generateSalaries(actor(req), req.body));
 }
 export async function list(req: Request, res: Response) {
-  res.json(await svc.listSalaries(req.query as never));
+  // Parse through the schema so `year`/`month` are coerced to numbers before
+  // they reach Prisma (raw req.query values are strings).
+  res.json(await svc.listSalaries(listSalariesQuerySchema.parse(req.query)));
 }
 export async function detail(req: Request, res: Response) {
   res.json(await svc.getSalary(req.params.id));
@@ -32,4 +35,12 @@ export async function pdf(req: Request, res: Response) {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${filename}"`);
   res.send(buffer);
+}
+
+export async function listMySlips(req: Request, res: Response) {
+  res.json(await svc.listMySlips(actor(req).userId));
+}
+
+export async function getMySlipDetail(req: Request, res: Response) {
+  res.json(await svc.getMySlipDetail(actor(req).userId, req.params.id));
 }

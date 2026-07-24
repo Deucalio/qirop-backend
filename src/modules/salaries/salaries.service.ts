@@ -184,10 +184,14 @@ function shapeSlip(s: {
 }
 
 export async function listSalaries(query: ListSalariesQuery) {
+  // Coerce defensively: even if a caller bypasses the schema, year/month must be
+  // numbers for Prisma's Int filter (they arrive as strings from req.query).
+  const year = query.year != null ? Number(query.year) : undefined;
+  const month = query.month != null ? Number(query.month) : undefined;
   const slips = await prisma.salarySlip.findMany({
     where: {
-      ...(query.year ? { year: query.year } : {}),
-      ...(query.month ? { month: query.month } : {}),
+      ...(year ? { year } : {}),
+      ...(month ? { month } : {}),
       ...(query.status ? { status: query.status } : {}),
     },
     include: { teacher: { include: { user: true } } },
@@ -296,4 +300,28 @@ export async function salariesSummary(year: number, month: number) {
     totalStaffDeduction: toMoneyString(totalStaffDeduction),
     paidNet: toMoneyString(sum(paid.map((s) => s.netSalary))),
   };
+}
+
+export async function listMySlips(userId: string) {
+  const profile = await prisma.teacherProfile.findUnique({ where: { userId } });
+  if (!profile) return [];
+
+  const slips = await prisma.salarySlip.findMany({
+    where: { teacherId: profile.id },
+    include: { teacher: { include: { user: true } } },
+    orderBy: [{ year: 'desc' }, { month: 'desc' }],
+  });
+  return slips.map(shapeSlip);
+}
+
+export async function getMySlipDetail(userId: string, id: string) {
+  const profile = await prisma.teacherProfile.findUnique({ where: { userId } });
+  if (!profile) throw NotFound('Teacher profile not found');
+
+  const slip = await prisma.salarySlip.findFirst({
+    where: { id, teacherId: profile.id },
+  });
+  if (!slip) throw NotFound('Salary slip not found');
+
+  return getSalary(id);
 }

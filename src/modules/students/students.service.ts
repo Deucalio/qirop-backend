@@ -4,6 +4,7 @@ import { hashPassword } from '../../utils/password';
 import { publicUrl, replaceFile, deleteFile } from '../../services/storage';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
+import { money, round2, toMoneyString, ZERO } from '../../utils/money';
 import { summarize, type AttendanceSummary } from '../../utils/attendanceMetrics';
 import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateStudentInput, ListStudentsQuery, UpdateStudentInput } from './students.schema';
@@ -182,7 +183,7 @@ async function assertRollNoFree(sectionId: string, rollNo: string, exceptId?: st
   }
 }
 
-export async function listStudents(query: ListStudentsQuery) {
+export async function listStudents(query: ListStudentsQuery, actor?: Actor) {
   const students = await prisma.student.findMany({
     where: {
       status: query.status,
@@ -201,7 +202,43 @@ export async function listStudents(query: ListStudentsQuery) {
     include: studentInclude,
     orderBy: [{ section: { class: { order: 'asc' } } }, { firstName: 'asc' }],
   });
-  return students.map(shapeListItem);
+
+  // Attach per-student fee dues — only for callers who may view FEES.
+  const canViewFees = actor ? await userHasPermission(actor.userId, actor.role, PermissionModule.FEES, 'view') : false;
+  const dues = canViewFees ? await studentDues(students.map((s) => s.id)) : null;
+
+  return students.map((s) => ({
+    ...shapeListItem(s),
+    fees: dues ? (dues.get(s.id) ?? { outstanding: '0.00', unpaidCount: 0 }) : null,
+  }));
+}
+
+/** Outstanding balance + count of unsettled challans, per student id. */
+async function studentDues(ids: string[]): Promise<Map<string, { outstanding: string; unpaidCount: number }>> {
+  const map = new Map<string, { outstanding: string; unpaidCount: number }>();
+  if (ids.length === 0) return map;
+  const challans = await prisma.feeChallan.findMany({
+    where: { studentId: { in: ids } },
+    select: {
+      studentId: true,
+      amount: true,
+      staffCovered: true,
+      allocations: { where: { payment: { isReversed: false } }, select: { amountApplied: true } },
+    },
+  });
+  const acc = new Map<string, { outstanding: ReturnType<typeof money>; unpaidCount: number }>();
+  for (const c of challans) {
+    const cash = c.allocations.reduce((sum, a) => sum.plus(a.amountApplied), ZERO);
+    const balance = round2(money(c.amount).minus(c.staffCovered).minus(cash));
+    if (balance.greaterThan(0)) {
+      const cur = acc.get(c.studentId) ?? { outstanding: ZERO, unpaidCount: 0 };
+      cur.outstanding = cur.outstanding.plus(balance);
+      cur.unpaidCount += 1;
+      acc.set(c.studentId, cur);
+    }
+  }
+  for (const [id, v] of acc) map.set(id, { outstanding: toMoneyString(v.outstanding), unpaidCount: v.unpaidCount });
+  return map;
 }
 
 export async function getStudent(id: string, actor?: Actor) {

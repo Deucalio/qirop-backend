@@ -483,34 +483,32 @@ Changing the amount revalidates the funding.
 
 Money columns are `Decimal(10,2)`, never floats.
 
-### Migrations
+### Schema changes — `db push`, no migrations
 
-There is a **single baseline migration**, `0_init`, holding the complete current
-schema. It was squashed on 2026-07-23 (see below) and is verified to reproduce
-`schema.prisma` exactly on an empty database.
+This project uses **`prisma db push`**, not migrations. There is no
+`prisma/migrations/` folder and no `_prisma_migrations` table — the schema is the
+single source of truth.
 
 ```bash
-npx prisma migrate deploy   # production / CI — applies the baseline
-npx prisma migrate dev      # local — creates a new migration from schema changes
+npx prisma db push     # sync the database to schema.prisma (dev, and on deploy)
+npx prisma generate    # regenerate the client (db push runs this for you)
 ```
 
-**Why it was squashed.** Phases 0–4 had eleven migrations, but the history had
-drifted: `_prisma_migrations` carried a duplicate row for
-`teacher_parent_gender_grading` left over from a failed attempt
-(`finished_at = NULL`), which made `migrate dev` demand a destructive reset. To
-avoid losing data, all of Phase 5's schema went in with `prisma db push` — so the
-database was correct but **no migration file described Fees, Transport, Salaries
-or Expenses**, and a fresh deploy would have built a database missing them entirely.
+`db push` applies **additive** changes (new tables/columns/indexes) silently. If a
+change would **lose data** (dropping a column, an incompatible type change, making a
+column required on populated rows) it **stops and warns first** — declining, or a
+non-interactive shell, aborts it without touching data. It never drops data on its
+own; only `--accept-data-loss` would, and we deliberately don't use that flag.
 
-The fix was to baseline: generate one migration from the live schema
-(`migrate diff --from-empty --to-schema-datamodel`), replace the eleven drifted
-files with it, clear the stale bookkeeping rows, and `migrate resolve --applied 0_init`.
-No table or row of application data was touched. The old migration files remain in
-git history if they are ever needed.
+**Why no migrations.** For a single-developer project against one database, the
+migration ceremony added friction without payoff, and the history had already
+drifted into a state that made `migrate dev` demand a destructive reset. `db push`
+plus a seed script covers everything this project needs. If a formal migration
+history is ever wanted again, `prisma migrate diff --from-empty --to-schema-datamodel`
+regenerates a baseline from the current schema in one command.
 
-**Verified** by creating a throwaway database, running `migrate deploy` into it,
-and diffing the result against `schema.prisma` — identical, with all Phase-5 tables
-present. From here on, use `migrate dev` normally; the drift is gone.
+**Deploy** is therefore: `git pull → npm install → npx prisma db push` (which also
+regenerates the client) → restart the service. Data is preserved.
 
 ### Seed
 

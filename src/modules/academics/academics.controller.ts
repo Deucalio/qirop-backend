@@ -8,7 +8,12 @@ export async function listClasses(_req: Request, res: Response): Promise<void> {
   res.json(await svc.listClasses());
 }
 export async function createClass(req: Request, res: Response): Promise<void> {
-  res.status(201).json(await svc.createClass(req.body.name, req.body.sections));
+  res.status(201).json(
+    await svc.createClass(req.body.name, req.body.sections, {
+      monthlyFee: req.body.monthlyFee,
+      admissionFee: req.body.admissionFee,
+    }),
+  );
 }
 export async function updateClass(req: Request, res: Response): Promise<void> {
   res.json(await svc.updateClass(req.params.id, req.body));

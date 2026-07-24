@@ -27,11 +27,14 @@ attendanceTeachersRouter.post('/:id/attendance', canEdit, validateBody(setTeache
 export const teacherAttendanceRouter = Router();
 teacherAttendanceRouter.use(requireAuth, canView);
 teacherAttendanceRouter.get('/', asyncHandler(c.listTeacherAttendance));
+teacherAttendanceRouter.get('/monthly', asyncHandler(c.listTeachersMonthly));
+teacherAttendanceRouter.post('/mark', canEdit, asyncHandler(c.markTeachersBatch));
 
 // ---- /api/sections/:sectionId/attendance (class teacher or admin) ----
 export const sectionAttendanceRouter = Router();
 sectionAttendanceRouter.use(requireAuth);
 sectionAttendanceRouter.get('/:sectionId/attendance', asyncHandler(c.sectionRoster));
+sectionAttendanceRouter.get('/:sectionId/monthly-attendance', asyncHandler(c.sectionMonthly));
 sectionAttendanceRouter.post('/:sectionId/attendance', validateBody(markSectionSchema), asyncHandler(c.markSection));
 
 // ---- /api/attendance (admin views + dashboard stats) ----

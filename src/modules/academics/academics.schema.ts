@@ -1,5 +1,17 @@
 import { z } from 'zod';
 
+// A money input: number|string → canonical 2dp string; rejects negatives/NaN/>2dp.
+const MAX_MONEY = 99_999_999.99;
+const moneyInput = () =>
+  z.union([z.number(), z.string()]).transform((v, ctx) => {
+    const n = typeof v === 'number' ? v : Number(String(v).trim());
+    if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY || Math.round(n * 100) / 100 !== n) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter a valid amount (max 2 decimals)' });
+      return z.NEVER;
+    }
+    return n.toFixed(2);
+  });
+
 // ---- Classes ----
 // `order` is derived automatically from the number in the class name.
 export const createClassSchema = z.object({
@@ -15,6 +27,9 @@ export const createClassSchema = z.object({
     )
     .max(26)
     .optional(),
+  // Optional fee structure set inline at creation (skips the School Setup detour).
+  monthlyFee: moneyInput().optional(),
+  admissionFee: moneyInput().optional(),
 });
 
 export const updateClassSchema = z.object({

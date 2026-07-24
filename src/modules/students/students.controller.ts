@@ -5,7 +5,7 @@ import { AppError, Unauthorized } from '../../utils/apiResponse';
 
 export async function list(req: Request, res: Response): Promise<void> {
   const query = listStudentsQuerySchema.parse(req.query);
-  res.json(await studentsService.listStudents(query));
+  res.json(await studentsService.listStudents(query, req.user));
 }
 
 export async function detail(req: Request, res: Response): Promise<void> {

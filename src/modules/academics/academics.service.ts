@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import {
@@ -40,6 +41,7 @@ export async function listClasses() {
     prisma.class.findMany({
       include: {
         _count: { select: { sections: true, classSubjects: true } },
+        feeStructure: true,
         sections: {
           orderBy: { name: 'asc' },
           select: {
@@ -79,6 +81,11 @@ export async function listClasses() {
       sectionCount: c.sections.filter((s) => !s.isDefault).length,
       subjectCount: c._count.classSubjects,
       studentCount: c.sections.reduce((n, s) => n + s._count.students, 0),
+      // Fee structure — `hasStructure` is false when no monthly fee is set, so
+      // the UI can flag the class (no challans generate for a zero-fee class).
+      monthlyFee: (c.feeStructure?.monthlyFee ?? new Prisma.Decimal(0)).toFixed(2),
+      admissionFee: (c.feeStructure?.admissionFee ?? new Prisma.Decimal(0)).toFixed(2),
+      hasStructure: !!c.feeStructure && c.feeStructure.monthlyFee.greaterThan(0),
       timetableStatus: aggregateTimetableStatus(
         c.sections.map((s) => buildValidity(s, s._count.timetableSlots, weeklySlots).status),
       ),
@@ -109,10 +116,18 @@ export const DEFAULT_SECTION_NAME = 'Main';
  * no names are given we add one flagged `isDefault`, which the UI presents as
  * "no sections" rather than inventing a letter the school doesn't use.
  */
-export async function createClass(name: string, sectionNames: string[] = []) {
+export async function createClass(
+  name: string,
+  sectionNames: string[] = [],
+  fees?: { monthlyFee?: string; admissionFee?: string },
+) {
   await assertClassNameFree(name);
 
   const cleaned = [...new Set(sectionNames.map((s) => s.trim()).filter(Boolean))];
+  // Set the fee structure inline so the admin doesn't have to detour to School
+  // Setup after creating a class. Only created when a monthly fee is given.
+  const monthly = fees?.monthlyFee != null ? new Prisma.Decimal(fees.monthlyFee) : null;
+  const admission = fees?.admissionFee != null ? new Prisma.Decimal(fees.admissionFee) : new Prisma.Decimal(0);
   return prisma.class.create({
     data: {
       name,
@@ -122,6 +137,9 @@ export async function createClass(name: string, sectionNames: string[] = []) {
           ? cleaned.map((n) => ({ name: n }))
           : [{ name: DEFAULT_SECTION_NAME, isDefault: true }],
       },
+      ...(monthly && monthly.greaterThan(0)
+        ? { feeStructure: { create: { monthlyFee: monthly, admissionFee: admission } } }
+        : {}),
     },
   });
 }

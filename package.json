@@ -10,8 +10,7 @@
     "start": "node -r tsx/cjs src/server.ts",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
-    "prisma:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
     "prisma:seed": "prisma db seed",
     "prisma:studio": "prisma studio"
   },

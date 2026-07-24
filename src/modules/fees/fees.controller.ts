@@ -34,6 +34,7 @@ export async function generatePreview(req: Request, res: Response) {
       month: Number(req.query.month) || now.getMonth() + 1,
       classId: (req.query.classId as string) || undefined,
       sectionId: (req.query.sectionId as string) || undefined,
+      studentId: (req.query.studentId as string) || undefined,
     }),
   );
 }

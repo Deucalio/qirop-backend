@@ -17,6 +17,9 @@ const edit = requirePermission(SALARIES, 'edit');
 export const salariesRouter = Router();
 salariesRouter.use(requireAuth);
 
+salariesRouter.get('/my-slips', asyncHandler(c.listMySlips));
+salariesRouter.get('/my-slips/:id', asyncHandler(c.getMySlipDetail));
+
 salariesRouter.post('/generate', edit, validateBody(generateSalariesSchema), asyncHandler(c.generate));
 salariesRouter.get('/summary', view, asyncHandler(c.summary));
 salariesRouter.get('/', view, asyncHandler(c.list));
