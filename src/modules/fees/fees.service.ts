@@ -248,8 +248,9 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
   });
 
   const due = parsePktDay(dueDate);
-  const examFee = input.examFee ? money(input.examFee) : ZERO;
-  const otherFee = input.otherFee ? money(input.otherFee) : ZERO;
+  // Normalise the admin's ad-hoc extra charges once for the whole batch.
+  const extraFees = (input.extraFees ?? []).filter((e) => money(e.amount).greaterThan(0));
+  const extrasTotal = sum(extraFees.map((e) => e.amount));
   const staffPct = input.staffChildDiscountPercent ?? 0;
 
   const result = await prisma.$transaction(async (tx) => {
@@ -290,11 +291,9 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       if (transport.greaterThan(0)) {
         items.push({ type: FeeItemType.TRANSPORT, label: route!.name || 'Transport', amount: toMoneyString(transport) });
       }
-      if (examFee.greaterThan(0)) {
-        items.push({ type: FeeItemType.EXAM, label: input.examLabel?.trim() || 'Exam Fee', amount: toMoneyString(examFee) });
-      }
-      if (otherFee.greaterThan(0)) {
-        items.push({ type: FeeItemType.OTHER, label: input.otherLabel?.trim() || 'Other Fee', amount: toMoneyString(otherFee) });
+      // Ad-hoc extra charges — each becomes its own labelled OTHER line item.
+      for (const e of extraFees) {
+        items.push({ type: FeeItemType.OTHER, label: e.label.trim(), amount: toMoneyString(money(e.amount)) });
       }
 
       // Nothing to bill (e.g. a class with no fee structure and no extras) → skip.
@@ -848,8 +847,49 @@ export async function getChallan(id: string) {
     },
   });
   if (!c) throw NotFound('Challan not found');
+
+  const shaped = shapeChallan(c);
+
+  // All the student's OTHER challans, so we can both show "previous dues"
+  // (unpaid months BEFORE this one) and detect newer unpaid months AFTER it.
+  // Live, not snapshotted, and display-only — the debt still lives on each
+  // challan, so nothing is double-counted.
+  const others = await prisma.feeChallan.findMany({
+    where: { studentId: c.studentId, id: { not: c.id } },
+    include: { items: true, allocations: { include: { payment: true } } },
+    orderBy: [{ year: 'asc' }, { month: 'asc' }],
+  });
+  const isBefore = (o: { year: number; month: number }) =>
+    o.year < c.year || (o.year === c.year && o.month < c.month);
+
+  const previousDues = others
+    .map((o) => ({ challan: o, bal: paidBreakdown(o).balance }))
+    .filter((x) => isBefore(x.challan) && x.bal.greaterThan(0))
+    .map((x) => ({
+      id: x.challan.id,
+      challanNo: x.challan.challanNo,
+      year: x.challan.year,
+      month: x.challan.month,
+      balance: toMoneyString(x.bal),
+      // A staff-billed challan's leftover is a salary shortfall, not the parent
+      // ignoring a bill — the UI labels it so.
+      staffBilled: !!x.challan.billedToTeacherId,
+    }));
+  const laterUnpaid = sum(
+    others.filter((o) => !isBefore(o)).map((o) => Prisma.Decimal.max(0, paidBreakdown(o).balance)),
+  );
+
+  const previousBalance = sum(previousDues.map((p) => p.balance));
+  const advanceCredit = await studentCredit(c.studentId);
+  const thisBalance = money(shaped.balance);
+  // Total owed up to and including this month (what this slip is for).
+  const totalPayable = round2(Prisma.Decimal.max(0, previousBalance.plus(thisBalance).minus(advanceCredit)));
+  // The student's ENTIRE current net balance across every month — this is the
+  // figure the guardian dashboards show, so screen == latest slip.
+  const studentTotalDue = round2(Prisma.Decimal.max(0, previousBalance.plus(thisBalance).plus(laterUnpaid).minus(advanceCredit)));
+
   return {
-    ...shapeChallan(c),
+    ...shaped,
     student: {
       id: c.student.id,
       name: `${c.student.firstName} ${c.student.lastName}`,
@@ -860,7 +900,25 @@ export async function getChallan(id: string) {
       parentName: c.student.parent.user.fullName,
       parentPhone: c.student.parent.user.phone,
     },
+    previousDues,
+    previousBalance: toMoneyString(previousBalance),
+    advanceCredit: toMoneyString(advanceCredit),
+    totalPayable: toMoneyString(totalPayable),
+    // Newer unpaid months exist → this slip is not the current full picture.
+    hasLaterDues: laterUnpaid.greaterThan(0),
+    studentTotalDue: toMoneyString(studentTotalDue),
   };
+}
+
+/** Advance credit outside a transaction (paid − allocated, non-reversed). */
+async function studentCredit(studentId: string): Promise<Money> {
+  const payments = await prisma.feePayment.findMany({
+    where: { studentId, isReversed: false },
+    include: { allocations: true },
+  });
+  const paid = sum(payments.map((p) => p.amount));
+  const allocated = sum(payments.flatMap((p) => p.allocations.map((a) => a.amountApplied)));
+  return round2(paid.minus(allocated));
 }
 
 export async function patchChallan(actor: Actor, id: string, input: PatchChallanInput) {
@@ -967,6 +1025,8 @@ export async function markChallansPaid(
       let skipped = 0;
       let total = ZERO;
 
+      // Resolve the outstanding balance of each requested challan first.
+      const payable: { challan: { id: string; studentId: string }; balance: Money }[] = [];
       for (const id of input.challanIds) {
         const c = await tx.feeChallan.findUnique({
           where: { id },
@@ -981,34 +1041,50 @@ export async function markChallansPaid(
           skipped++; // already settled (cash and/or salary)
           continue;
         }
+        payable.push({ challan: { id: c.id, studentId: c.studentId }, balance });
+      }
 
+      // One receipt per student (a parent paying several months hands over one
+      // lump sum), allocated across that student's selected challans.
+      const byStudent = new Map<string, typeof payable>();
+      for (const p of payable) {
+        const list = byStudent.get(p.challan.studentId) ?? [];
+        list.push(p);
+        byStudent.set(p.challan.studentId, list);
+      }
+
+      for (const [studentId, rows] of byStudent) {
+        const studentTotal = sum(rows.map((r) => r.balance));
         const payment = await tx.feePayment.create({
           data: {
-            studentId: c.studentId,
-            amount: toMoneyString(balance),
+            studentId,
+            amount: toMoneyString(studentTotal),
             paymentDate,
             method: input.method,
             receivedById: actor.userId,
             note: input.note ?? null,
           },
         });
-        await tx.feePaymentAllocation.create({
-          data: { paymentId: payment.id, challanId: id, amountApplied: toMoneyString(balance) },
-        });
-        await recomputeChallan(tx, id);
-        paid++;
-        total = total.plus(balance);
+        for (const r of rows) {
+          await tx.feePaymentAllocation.create({
+            data: { paymentId: payment.id, challanId: r.challan.id, amountApplied: toMoneyString(r.balance) },
+          });
+          await recomputeChallan(tx, r.challan.id);
+          paid++;
+        }
+        total = total.plus(studentTotal);
       }
 
       await audit(tx, actor.userId, 'CHALLANS_MARKED_PAID', 'FeeChallan', `${paid} challans`, {
         requested: input.challanIds.length,
         paid,
         skipped,
+        receipts: byStudent.size,
         method: input.method,
         total: toMoneyString(total),
       });
 
-      return { paid, skipped, totalCollected: toMoneyString(total) };
+      return { paid, skipped, receipts: byStudent.size, totalCollected: toMoneyString(total) };
     },
     { timeout: 120_000, maxWait: 20_000 },
   );

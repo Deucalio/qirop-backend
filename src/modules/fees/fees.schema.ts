@@ -57,12 +57,17 @@ export const generateChallansSchema = z.object({
   classId: z.string().min(1).optional(),
   sectionId: z.string().min(1).optional(),
   studentIds: z.array(z.string().min(1)).max(2000).optional(),
-  // Bulk exam fee: charged once to every student in the batch.
-  examFee: moneyInput({ min: 0 }).optional(),
-  examLabel: z.string().trim().max(80).optional(),
-  // Bulk "other" fee (e.g. annual charges, stationery): charged once to everyone.
-  otherFee: moneyInput({ min: 0 }).optional(),
-  otherLabel: z.string().trim().max(80).optional(),
+  // Bulk extra charges (exam, annual, stationery, …): each is charged once to
+  // every student in the batch as its own labelled line item.
+  extraFees: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1, 'Label is required').max(80),
+        amount: moneyInput({ min: 0.01 }),
+      }),
+    )
+    .max(15)
+    .optional(),
   // Extra discount % applied to students whose parent is a teacher (staff perk).
   staffChildDiscountPercent: z.coerce.number().min(0).max(100).optional(),
 });

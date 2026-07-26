@@ -11,6 +11,7 @@ const PdfPrinter = PdfPrinterModule as unknown as {
 import { prisma } from '../../config/prisma';
 import { getChallan } from './fees.service';
 import { formatPKR } from '../../utils/money';
+import { pktDayString } from '../../utils/pktDate';
 
 /**
  * Server-side challan PDF rendering.
@@ -57,8 +58,15 @@ const MONTHS = [
 type ChallanData = Awaited<ReturnType<typeof getChallan>>;
 type SchoolInfo = { name: string; address: string | null; phone: string | null; email: string | null };
 
+/** Whole days a YYYY-MM-DD due date is in the past (0 if not yet due). */
+function daysOverdue(dueDate: string): number {
+  const diff = Math.floor((Date.parse(`${pktDayString()}T00:00:00Z`) - Date.parse(`${dueDate}T00:00:00Z`)) / 86_400_000);
+  return diff > 0 ? diff : 0;
+}
+
 /** Build the printable content block for a single challan. */
 function challanContent(c: ChallanData, school: SchoolInfo): { stack: Content[] } {
+  const overdueDays = Number(c.balance) > 0 ? daysOverdue(c.dueDate) : 0;
   const status = STATUS_STYLE[c.status] ?? STATUS_STYLE.UNPAID;
   const contactBits = [school.phone, school.email].filter(Boolean).join('  •  ');
 
@@ -83,15 +91,64 @@ function challanContent(c: ChallanData, school: SchoolInfo): { stack: Content[] 
   if (Number(c.discount) > 0) pushTotal('Discount', `− ${formatPKR(c.discount)}`, { color: '#16a34a' });
   if (Number(c.lateFee) > 0) pushTotal('Late fee', `+ ${formatPKR(c.lateFee)}`, { color: '#dc2626' });
   totalsRows.push({ canvas: [{ type: 'line', x1: 0, y1: 2, x2: 200, y2: 2, lineWidth: 1, lineColor: LINE }] });
-  pushTotal('Total payable', formatPKR(c.amount), { strong: true, color: INK });
+  pushTotal("This month's charges", formatPKR(c.amount), { strong: true, color: INK });
   if (Number(c.cashPaid) > 0) pushTotal('Received (cash/bank)', `− ${formatPKR(c.cashPaid)}`, { color: MUTED });
   if (Number(c.staffCovered) > 0)
     pushTotal('Covered from salary', `− ${formatPKR(c.staffCovered)}`, { color: '#7c3aed' });
+
+  const hasPrevious = Number(c.previousBalance) > 0;
+  const hasCredit = Number(c.advanceCredit) > 0;
   totalsRows.push({ canvas: [{ type: 'line', x1: 0, y1: 2, x2: 200, y2: 2, lineWidth: 1, lineColor: LINE }] });
-  pushTotal('Balance due', formatPKR(c.balance), {
-    strong: true,
+  pushTotal("This month's balance", formatPKR(c.balance), {
+    strong: !hasPrevious && !hasCredit,
     color: Number(c.balance) > 0 ? '#dc2626' : '#16a34a',
   });
+  if (hasPrevious) pushTotal('Previous dues (unpaid)', `+ ${formatPKR(c.previousBalance)}`, { color: '#dc2626' });
+  if (hasCredit) pushTotal('Advance on file', `− ${formatPKR(c.advanceCredit)}`, { color: '#2563eb' });
+  if (hasPrevious || hasCredit) {
+    totalsRows.push({ canvas: [{ type: 'line', x1: 0, y1: 2, x2: 200, y2: 2, lineWidth: 1.5, lineColor: INK }] });
+    pushTotal('TOTAL PAYABLE NOW', formatPKR(c.totalPayable), {
+      strong: true,
+      color: Number(c.totalPayable) > 0 ? '#dc2626' : '#16a34a',
+    });
+  }
+
+  // Previous-dues table (earlier unpaid months, brought forward).
+  const previousDuesSection: Content | null =
+    c.previousDues.length > 0
+      ? {
+          table: {
+            widths: ['*', 'auto', 'auto'],
+            body: [
+              [
+                { text: 'PREVIOUS DUES', style: 'th', colSpan: 3, fillColor: '#fffbeb' },
+                {},
+                {},
+              ],
+              ...c.previousDues.map((d) => [
+                { text: `${MONTHS[d.month]} ${d.year}${d.staffBilled ? '  (salary shortfall)' : ''}`, style: 'cell' },
+                { text: d.challanNo, style: 'cellMuted' },
+                { text: formatPKR(d.balance), style: 'cellNum', color: '#dc2626' },
+              ]),
+              [
+                { text: 'Total previous dues', style: 'cell', bold: true, colSpan: 2 },
+                {},
+                { text: formatPKR(c.previousBalance), style: 'cellNum', bold: true, color: '#dc2626' },
+              ],
+            ],
+          },
+          layout: {
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0,
+            hLineColor: () => '#f59e0b',
+            paddingTop: () => 5,
+            paddingBottom: () => 5,
+            paddingLeft: () => 8,
+            paddingRight: () => 8,
+          },
+          margin: [0, 0, 0, 10],
+        }
+      : null;
 
   const block: Content[] = [
     // Header band
@@ -138,13 +195,20 @@ function challanContent(c: ChallanData, school: SchoolInfo): { stack: Content[] 
             { text: `${MONTHS[c.month]} ${c.year}`, style: 'value', alignment: 'right' },
             { text: `Issued: ${c.issueDate}`, style: 'metaSm', alignment: 'right' },
             { text: `Due: ${c.dueDate}`, style: 'metaSm', alignment: 'right' },
+            ...(overdueDays > 0
+              ? [{ text: `OVERDUE by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`, fontSize: 8.5, bold: true, color: '#dc2626', alignment: 'right' as const, margin: [0, 1, 0, 0] as [number, number, number, number] }]
+              : []),
           ],
         },
       ],
       margin: [0, 0, 0, 12],
     },
 
-    // Items table
+    // Previous dues (only present when there are earlier unpaid months).
+    ...(previousDuesSection ? [previousDuesSection] : []),
+
+    // This month's charges
+    { text: `CHARGES FOR ${MONTHS[c.month].toUpperCase()} ${c.year}`, style: 'sectionLabel' },
     {
       table: {
         headerRows: 1,
@@ -207,11 +271,40 @@ function challanContent(c: ChallanData, school: SchoolInfo): { stack: Content[] 
     });
   }
 
+  // Older challan whose student has newer unpaid months — say so, so this slip
+  // is never mistaken for the current balance.
+  if (c.hasLaterDues) {
+    block.push({
+      text: `Note: later months are also unpaid. This slip shows the balance as of ${MONTHS[c.month]} ${c.year}. Current total due across all months: ${formatPKR(c.studentTotalDue)}.`,
+      style: 'laterNote',
+      margin: [0, 12, 0, 0],
+    });
+  }
+
+  // PAID stamp when nothing is owed up to this month.
+  if (Number(c.totalPayable) <= 0 && !c.hasLaterDues) {
+    block.push({
+      table: { body: [[{ text: '✓  PAID IN FULL', style: 'paidStamp' }]] },
+      layout: {
+        hLineWidth: () => 1.5,
+        vLineWidth: () => 1.5,
+        hLineColor: () => '#16a34a',
+        vLineColor: () => '#16a34a',
+      },
+      alignment: 'center',
+      margin: [0, 16, 0, 0],
+    });
+  }
+
   // Footer
   block.push({
     text: 'Please pay before the due date to avoid a late fee. Keep this challan as your receipt.',
     style: 'footer',
-    margin: [0, 18, 0, 0],
+    margin: [0, 18, 0, 4],
+  });
+  block.push({
+    text: `Statement as of ${pktDayString()}. Amounts brought forward reflect balances at print time.`,
+    style: 'footerSmall',
   });
 
   return { stack: block };
@@ -234,7 +327,11 @@ const DOC_STYLES: TDocumentDefinitions['styles'] = {
   totVal: { fontSize: 9, color: INK, alignment: 'right' },
   calloutTitle: { fontSize: 10, bold: true, color: '#b45309', margin: [0, 0, 0, 3] },
   calloutBody: { fontSize: 8.5, color: '#78350f', lineHeight: 1.3 },
+  sectionLabel: { fontSize: 8, bold: true, color: BRAND, characterSpacing: 0.5, margin: [0, 0, 0, 4] },
+  paidStamp: { fontSize: 13, bold: true, color: '#16a34a', margin: [16, 6, 16, 6] },
+  laterNote: { fontSize: 8.5, color: '#b45309', italics: true },
   footer: { fontSize: 8, color: MUTED, italics: true, alignment: 'center' },
+  footerSmall: { fontSize: 7, color: MUTED, italics: true, alignment: 'center' },
 };
 
 async function loadSchool(): Promise<SchoolInfo> {
