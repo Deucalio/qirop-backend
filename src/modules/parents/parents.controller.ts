@@ -18,14 +18,14 @@ export async function create(req: Request, res: Response): Promise<void> {
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
-  res.json(await parentsService.updateParent(req.params.id, req.body));
+  res.json(await parentsService.updateParent(req.params.id, req.body, req.user?.userId));
 }
 
 export async function updateStatus(req: Request, res: Response): Promise<void> {
-  res.json(await parentsService.setStatus(req.params.id, req.body.status));
+  res.json(await parentsService.setStatus(req.params.id, req.body.status, req.user?.userId));
 }
 
 export async function resetPassword(req: Request, res: Response): Promise<void> {
-  await parentsService.resetPassword(req.params.id, req.body.newPassword);
+  await parentsService.resetPassword(req.params.id, req.body.newPassword, req.user?.userId);
   res.json({ message: 'Password reset successfully' });
 }

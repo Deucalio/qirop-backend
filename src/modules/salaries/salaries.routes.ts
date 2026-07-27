@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { PermissionModule } from '@prisma/client';
 import * as c from './salaries.controller';
-import { generateSalariesSchema, updateSalarySchema, salaryStatusSchema } from './salaries.schema';
+import { generateSalariesSchema, updateSalarySchema, salaryStatusSchema, setSalaryStructureSchema, markSalariesPaidSchema } from './salaries.schema';
 import { requireAuth } from '../../middleware/requireAuth';
 import { requirePermission } from '../../middleware/requirePermission';
 import { validateBody } from '../../middleware/validate';
@@ -21,7 +21,12 @@ salariesRouter.get('/my-slips', asyncHandler(c.listMySlips));
 salariesRouter.get('/my-slips/:id', asyncHandler(c.getMySlipDetail));
 
 salariesRouter.post('/generate', edit, validateBody(generateSalariesSchema), asyncHandler(c.generate));
+salariesRouter.post('/mark-paid', edit, validateBody(markSalariesPaidSchema), asyncHandler(c.markPaid));
 salariesRouter.get('/summary', view, asyncHandler(c.summary));
+salariesRouter.get('/preflight', view, asyncHandler(c.preflight));
+// Salary structure — literal path, registered before '/:id' so it isn't captured.
+salariesRouter.get('/structure', view, asyncHandler(c.structure));
+salariesRouter.patch('/structure/:teacherId', edit, validateBody(setSalaryStructureSchema), asyncHandler(c.setStructure));
 salariesRouter.get('/', view, asyncHandler(c.list));
 salariesRouter.get('/:id', view, asyncHandler(c.detail));
 salariesRouter.get('/:id/pdf', view, asyncHandler(c.pdf));

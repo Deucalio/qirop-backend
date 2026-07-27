@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import * as svc from './assignments.service';
 
 export async function setClassTeacher(req: Request, res: Response): Promise<void> {
-  res.json(await svc.setClassTeacher(req.params.id, req.body.teacherId));
+  res.json(await svc.setClassTeacher(req.params.id, req.body.teacherId, req.user?.userId));
 }
 
 export async function getSectionAssignments(req: Request, res: Response): Promise<void> {
@@ -11,10 +11,10 @@ export async function getSectionAssignments(req: Request, res: Response): Promis
 
 export async function upsertTeachingAssignment(req: Request, res: Response): Promise<void> {
   const { sectionId, subjectId, teacherId } = req.body;
-  res.json(await svc.upsertTeachingAssignment(sectionId, subjectId, teacherId));
+  res.json(await svc.upsertTeachingAssignment(sectionId, subjectId, teacherId, req.user?.userId));
 }
 
 export async function deleteTeachingAssignment(req: Request, res: Response): Promise<void> {
   const { sectionId, subjectId } = req.body;
-  res.json(await svc.deleteTeachingAssignment(sectionId, subjectId));
+  res.json(await svc.deleteTeachingAssignment(sectionId, subjectId, req.user?.userId));
 }

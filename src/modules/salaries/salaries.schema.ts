@@ -41,6 +41,15 @@ export const updateSalarySchema = z
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 
+export const setSalaryStructureSchema = z.object({
+  salary: moneyInput({ min: 0 }),
+});
+
+export const markSalariesPaidSchema = z.object({
+  slipIds: z.array(z.string().min(1)).min(1, 'Select at least one slip').max(1000),
+  paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').optional(),
+});
+
 export const salaryStatusSchema = z.object({
   status: z.enum(['PENDING', 'PAID']),
   paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').optional(),
@@ -50,6 +59,7 @@ export const listSalariesQuerySchema = z.object({
   year: z.coerce.number().int().optional(),
   month: z.coerce.number().int().optional(),
   status: z.enum(['PENDING', 'PAID']).optional(),
+  teacherId: z.string().optional(),
 });
 
 export type GenerateSalariesInput = z.infer<typeof generateSalariesSchema>;

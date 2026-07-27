@@ -20,15 +20,28 @@ export async function list(req: Request, res: Response) {
 export async function detail(req: Request, res: Response) {
   res.json(await svc.getSalary(req.params.id));
 }
+export async function structure(_req: Request, res: Response) {
+  res.json(await svc.listSalaryStructure());
+}
+export async function setStructure(req: Request, res: Response) {
+  res.json(await svc.setTeacherSalary(actor(req), req.params.teacherId, req.body.salary));
+}
 export async function update(req: Request, res: Response) {
   res.json(await svc.updateSalary(actor(req), req.params.id, req.body));
 }
 export async function setStatus(req: Request, res: Response) {
   res.json(await svc.setSalaryStatus(actor(req), req.params.id, req.body.status, req.body.paidDate));
 }
+export async function markPaid(req: Request, res: Response) {
+  res.json(await svc.markSalariesPaid(actor(req), req.body.slipIds, req.body.paidDate));
+}
 export async function summary(req: Request, res: Response) {
   const now = new Date();
   res.json(await svc.salariesSummary(Number(req.query.year) || now.getFullYear(), Number(req.query.month) || now.getMonth() + 1));
+}
+export async function preflight(req: Request, res: Response) {
+  const now = new Date();
+  res.json(await svc.salaryGenerationPreflight(Number(req.query.year) || now.getFullYear(), Number(req.query.month) || now.getMonth() + 1));
 }
 export async function pdf(req: Request, res: Response) {
   const { buffer, filename } = await renderSalarySlipPdf(req.params.id);

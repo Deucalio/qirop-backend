@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import { money, sum, round2, toMoneyString, ZERO, Decimal, type Money } from '../../utils/money';
 import { pktDay, pktDayString, parsePktDay } from '../../utils/pktDate';
+import { publicUrl } from '../../services/storage';
 import { recomputeChallan } from '../fees/fees.service';
 import { logAudit } from '../audit/audit.service';
 import type { GenerateSalariesInput, UpdateSalaryInput, ListSalariesQuery } from './salaries.schema';
@@ -169,12 +170,13 @@ function shapeSlip(s: {
   notes: string | null;
   status: string;
   paidDate: Date | null;
-  teacher: { employeeId: string; user: { fullName: string } };
+  teacher: { employeeId: string; user: { fullName: string; avatarUrl: string | null } };
 }) {
   return {
     id: s.id,
     teacherId: s.teacherId,
     teacherName: s.teacher.user.fullName,
+    avatarUrl: publicUrl(s.teacher.user.avatarUrl),
     employeeId: s.teacher.employeeId,
     year: s.year,
     month: s.month,
@@ -189,6 +191,51 @@ function shapeSlip(s: {
   };
 }
 
+/**
+ * Preflight for the Generate Salaries flow. A staff child's fee is only pulled
+ * from their teacher-parent's salary if a challan for the month already exists
+ * and is billed to that teacher. This reports the staff children for whom that
+ * isn't true yet, so the UI can warn "generate challans first" before the admin
+ * generates salaries and silently misses the deduction.
+ */
+export async function salaryGenerationPreflight(year: number, month: number) {
+  const staffChildren = await prisma.student.findMany({
+    where: { status: UserStatus.ACTIVE, teacherParentId: { not: null } },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      teacherParentId: true,
+      section: { select: { name: true, class: { select: { name: true } } } },
+      teacherParent: { select: { status: true, user: { select: { fullName: true } } } },
+      challans: { where: { year, month }, select: { billedToTeacherId: true } },
+    },
+  });
+
+  // Only active teacher-parents get a slip — those are the children whose fees
+  // this run could deduct.
+  const eligible = staffChildren.filter((s) => s.teacherParent?.status === UserStatus.ACTIVE);
+  // Missing = no challan for the month billed to that teacher (absent OR a stale
+  // billedToTeacherId === null), so the fee won't be deducted this run.
+  const missing = eligible.filter(
+    (s) => !s.challans.some((c) => c.billedToTeacherId === s.teacherParentId),
+  );
+
+  const teacherIds = new Set(missing.map((s) => s.teacherParentId));
+  return {
+    year,
+    month,
+    staffChildrenTotal: eligible.length,
+    staffChildrenMissing: missing.length,
+    teachersAffected: teacherIds.size,
+    students: missing.slice(0, 15).map((s) => ({
+      name: `${s.firstName} ${s.lastName}`,
+      className: `${s.section.class.name}-${s.section.name}`,
+      teacherName: s.teacherParent?.user.fullName ?? '',
+    })),
+  };
+}
+
 export async function listSalaries(query: ListSalariesQuery) {
   // Coerce defensively: even if a caller bypasses the schema, year/month must be
   // numbers for Prisma's Int filter (they arrive as strings from req.query).
@@ -199,6 +246,7 @@ export async function listSalaries(query: ListSalariesQuery) {
       ...(year ? { year } : {}),
       ...(month ? { month } : {}),
       ...(query.status ? { status: query.status } : {}),
+      ...(query.teacherId ? { teacherId: query.teacherId } : {}),
     },
     include: { teacher: { include: { user: true } } },
     orderBy: [{ year: 'desc' }, { month: 'desc' }, { teacher: { user: { fullName: 'asc' } } }],
@@ -211,7 +259,15 @@ export async function listSalaries(query: ListSalariesQuery) {
 export async function getSalary(id: string) {
   const s = await prisma.salarySlip.findUnique({
     where: { id },
-    include: { teacher: { include: { user: true, transportAssignment: { include: { route: true } } } } },
+    include: {
+      teacher: {
+        include: {
+          user: true,
+          transportAssignment: { include: { route: true } },
+          _count: { select: { staffChildren: true } },
+        },
+      },
+    },
   });
   if (!s) throw NotFound('Salary slip not found');
 
@@ -221,29 +277,118 @@ export async function getSalary(id: string) {
     orderBy: { createdAt: 'asc' },
   });
 
+  // Each child's earlier unpaid months (dues carried from before this slip's month),
+  // so the slip can show what still stands against the child besides this month.
+  const studentIds = [...new Set(childChallans.map((c) => c.studentId))];
+  const priorChallans = studentIds.length
+    ? await prisma.feeChallan.findMany({
+        where: {
+          studentId: { in: studentIds },
+          OR: [{ year: { lt: s.year } }, { year: s.year, month: { lt: s.month } }],
+        },
+        select: {
+          studentId: true,
+          year: true,
+          month: true,
+          amount: true,
+          staffCovered: true,
+          allocations: { where: { payment: { isReversed: false } }, select: { amountApplied: true } },
+        },
+        orderBy: [{ year: 'asc' }, { month: 'asc' }],
+      })
+    : [];
+  const duesByStudent = new Map<string, { year: number; month: number; balance: string }[]>();
+  for (const p of priorChallans) {
+    const cash = sum(p.allocations.map((a) => a.amountApplied));
+    const balance = round2(money(p.amount).minus(p.staffCovered).minus(cash));
+    if (balance.greaterThan(0)) {
+      const list = duesByStudent.get(p.studentId) ?? [];
+      list.push({ year: p.year, month: p.month, balance: toMoneyString(balance) });
+      duesByStudent.set(p.studentId, list);
+    }
+  }
+
   const children = childChallans.map((c) => ({
     challanId: c.id,
     challanNo: c.challanNo,
     studentName: `${c.student.firstName} ${c.student.lastName}`,
+    period: { year: c.year, month: c.month },
     billable: toMoneyString(billableOf(c)),
     covered: toMoneyString(c.staffCovered),
     payable: toMoneyString(round2(Decimal.max(0, billableOf(c).minus(money(c.staffCovered))))),
+    previousDues: duesByStudent.get(c.studentId) ?? [],
   }));
 
   const childrenCovered = sum(childChallans.map((c) => c.staffCovered));
   const transportCovered = round2(Decimal.max(0, money(s.staffFeeDeduction).minus(childrenCovered)));
   const totalPayable = round2(sum(children.map((c) => c.payable)));
 
+  const ownRoute = s.teacher.transportAssignment?.route;
   return {
     ...shapeSlip(s),
     breakdown: {
-      transportRoute: s.teacher.transportAssignment?.route?.name ?? null,
+      transportRoute: ownRoute?.name ?? null,
+      // The teacher's own commute fee (shown even if the salary didn't cover it).
+      transportFee: toMoneyString(ownRoute?.active ? ownRoute.monthlyFee : 0),
       transportCovered: toMoneyString(transportCovered),
       childrenCovered: toMoneyString(childrenCovered),
       children,
+      // How many of this teacher's children are enrolled — so the modal can show
+      // context even in a month with no generated challans.
+      childrenEnrolled: s.teacher._count.staffChildren,
       uncoveredPayable: toMoneyString(totalPayable),
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Salary structure — set each teacher's monthly salary in one place
+// ---------------------------------------------------------------------------
+
+/** Every active teacher with their salary + the context that affects their pay. */
+export async function listSalaryStructure() {
+  const teachers = await prisma.teacherProfile.findMany({
+    where: { status: UserStatus.ACTIVE },
+    include: {
+      user: { select: { fullName: true, avatarUrl: true } },
+      transportAssignment: { include: { route: true } },
+      _count: { select: { staffChildren: true } },
+    },
+    orderBy: { user: { fullName: 'asc' } },
+  });
+  return teachers.map((t) => ({
+    id: t.id,
+    name: t.user.fullName,
+    avatarUrl: publicUrl(t.user.avatarUrl),
+    employeeId: t.employeeId,
+    salary: toMoneyString(t.salary),
+    childrenEnrolled: t._count.staffChildren,
+    transport: t.transportAssignment?.route
+      ? { name: t.transportAssignment.route.name, monthlyFee: toMoneyString(t.transportAssignment.route.monthlyFee) }
+      : null,
+  }));
+}
+
+export async function setTeacherSalary(actor: Actor, teacherId: string, salary: string) {
+  const t = await prisma.teacherProfile.findUnique({ where: { id: teacherId }, include: { user: true } });
+  if (!t) throw NotFound('Teacher not found');
+  const updated = await prisma.teacherProfile.update({ where: { id: teacherId }, data: { salary } });
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.userId,
+      actorName: actorUser?.fullName ?? 'Admin',
+      actorRole: actor.role,
+      action: 'UPDATE',
+      module: 'SALARIES',
+      targetType: 'TeacherProfile',
+      targetId: teacherId,
+      targetLabel: `Salary structure — ${t.user.fullName}`,
+      details: `Admin set ${t.user.fullName}'s monthly salary to Rs ${toMoneyString(salary)}`,
+      changes: { salary: { before: t.salary.toString(), after: toMoneyString(salary) } },
+    },
+  });
+  return { id: teacherId, salary: toMoneyString(updated.salary) };
 }
 
 export async function updateSalary(actor: Actor, id: string, input: UpdateSalaryInput) {
@@ -316,6 +461,30 @@ export async function setSalaryStatus(actor: Actor, id: string, status: 'PENDING
     },
   });
   return shapeSlip(updated);
+}
+
+/** Mark many salary slips paid at once (payday). Already-paid slips are skipped. */
+export async function markSalariesPaid(actor: Actor, slipIds: string[], paidDate?: string) {
+  const when = paidDate ? parsePktDay(paidDate) : pktDay();
+  const res = await prisma.salarySlip.updateMany({
+    where: { id: { in: slipIds }, status: 'PENDING' },
+    data: { status: 'PAID', paidDate: when },
+  });
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.userId,
+      actorName: actorUser?.fullName ?? 'Admin',
+      actorRole: actor.role,
+      action: 'UPDATE',
+      module: 'SALARIES',
+      targetType: 'SalarySlip',
+      targetId: `${res.count} slips`,
+      targetLabel: `Payroll disbursed (${res.count} slips)`,
+      details: `Admin marked ${res.count} salary slip${res.count === 1 ? '' : 's'} as paid`,
+    },
+  });
+  return { paid: res.count, skipped: slipIds.length - res.count };
 }
 
 /** Month-scoped payroll summary (for the dashboard/overview). */

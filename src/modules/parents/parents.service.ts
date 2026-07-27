@@ -2,6 +2,7 @@ import { Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
 import { AppError, NotFound } from '../../utils/apiResponse';
+import { logAudit } from '../audit/audit.service';
 import type { CreateParentInput, ListParentsQuery, UpdateParentInput } from './parents.schema';
 
 export async function listParents(query: ListParentsQuery) {
@@ -89,11 +90,20 @@ export async function createParent(actorId: string, input: CreateParentInput) {
     },
     include: { parentProfile: true },
   });
+  await logAudit(null, {
+    actorId,
+    action: 'CREATE',
+    module: 'USERS',
+    targetType: 'Parent',
+    targetId: user.parentProfile!.id,
+    targetLabel: `${user.fullName} (${user.cnic})`,
+    details: `Registered guardian ${user.fullName}`,
+  });
   return getParent(user.parentProfile!.id);
 }
 
-export async function updateParent(id: string, data: UpdateParentInput) {
-  const parent = await prisma.parentProfile.findUnique({ where: { id } });
+export async function updateParent(id: string, data: UpdateParentInput, actorId?: string) {
+  const parent = await prisma.parentProfile.findUnique({ where: { id }, include: { user: true } });
   if (!parent) throw NotFound('Parent not found');
   await prisma.parentProfile.update({
     where: { id },
@@ -108,19 +118,69 @@ export async function updateParent(id: string, data: UpdateParentInput) {
       },
     },
   });
+
+  // Record only the fields that actually changed.
+  const changes: Record<string, { before: string; after: string }> = {};
+  if (data.fullName !== undefined && data.fullName !== parent.user.fullName) {
+    changes.fullName = { before: parent.user.fullName, after: data.fullName };
+  }
+  if (data.phone !== undefined && (data.phone ?? null) !== (parent.user.phone ?? null)) {
+    changes.phone = { before: parent.user.phone ?? 'None', after: data.phone ?? 'None' };
+  }
+  if (data.occupation !== undefined && (data.occupation ?? null) !== (parent.occupation ?? null)) {
+    changes.occupation = { before: parent.occupation ?? 'None', after: data.occupation ?? 'None' };
+  }
+  if (data.address !== undefined && (data.address ?? null) !== (parent.address ?? null)) {
+    changes.address = { before: parent.address ?? 'None', after: data.address ?? 'None' };
+  }
+  if (actorId && Object.keys(changes).length > 0) {
+    await logAudit(null, {
+      actorId,
+      action: 'UPDATE',
+      module: 'USERS',
+      targetType: 'Parent',
+      targetId: id,
+      targetLabel: `${data.fullName ?? parent.user.fullName} (${parent.user.cnic})`,
+      details: `Updated ${Object.keys(changes).length} field${Object.keys(changes).length > 1 ? 's' : ''} (${Object.keys(changes).join(', ')}) for guardian ${data.fullName ?? parent.user.fullName}`,
+      changes,
+    });
+  }
   return getParent(id);
 }
 
-export async function setStatus(id: string, status: UserStatus) {
-  const parent = await prisma.parentProfile.findUnique({ where: { id } });
+export async function setStatus(id: string, status: UserStatus, actorId?: string) {
+  const parent = await prisma.parentProfile.findUnique({ where: { id }, include: { user: true } });
   if (!parent) throw NotFound('Parent not found');
   await prisma.user.update({ where: { id: parent.userId }, data: { status } });
+  if (actorId) {
+    await logAudit(null, {
+      actorId,
+      action: 'STATUS_CHANGE',
+      module: 'USERS',
+      targetType: 'Parent',
+      targetId: id,
+      targetLabel: `${parent.user.fullName} (${parent.user.cnic})`,
+      details: `Guardian ${parent.user.fullName} ${status === 'ACTIVE' ? 'activated' : 'deactivated'}`,
+      changes: { status: { before: parent.user.status, after: status } },
+    });
+  }
   return getParent(id);
 }
 
-export async function resetPassword(id: string, newPassword: string) {
-  const parent = await prisma.parentProfile.findUnique({ where: { id } });
+export async function resetPassword(id: string, newPassword: string, actorId?: string) {
+  const parent = await prisma.parentProfile.findUnique({ where: { id }, include: { user: true } });
   if (!parent) throw NotFound('Parent not found');
   const passwordHash = await hashPassword(newPassword);
   await prisma.user.update({ where: { id: parent.userId }, data: { passwordHash } });
+  if (actorId) {
+    await logAudit(null, {
+      actorId,
+      action: 'RESET',
+      module: 'USERS',
+      targetType: 'Parent',
+      targetId: id,
+      targetLabel: `${parent.user.fullName} (${parent.user.cnic})`,
+      details: `Reset login password for guardian ${parent.user.fullName}`,
+    });
+  }
 }

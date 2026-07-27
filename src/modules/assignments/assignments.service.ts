@@ -1,6 +1,7 @@
 import { UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
+import { logAudit } from '../audit/audit.service';
 
 const conflict = (message: string, code = 'CONFLICT') => new AppError(message, 409, code);
 
@@ -13,18 +14,40 @@ async function loadActiveTeacherOr404(teacherId: string) {
   return teacher;
 }
 
-export async function setClassTeacher(sectionId: string, teacherId: string | null) {
-  const section = await prisma.section.findUnique({ where: { id: sectionId } });
+export async function setClassTeacher(sectionId: string, teacherId: string | null, actorId?: string) {
+  const section = await prisma.section.findUnique({
+    where: { id: sectionId },
+    include: { class: true, classTeacher: { include: { user: true } } },
+  });
   if (!section) throw NotFound('Section not found');
 
+  let newTeacherName: string | null = null;
   if (teacherId) {
     const teacher = await loadActiveTeacherOr404(teacherId);
     if (teacher.status !== UserStatus.ACTIVE) {
       throw conflict('Cannot set an inactive teacher as class teacher', 'TEACHER_INACTIVE');
     }
+    newTeacherName = teacher.user.fullName;
   }
 
   await prisma.section.update({ where: { id: sectionId }, data: { classTeacherId: teacherId } });
+
+  if (actorId) {
+    const label = `${section.class.name}-${section.name}`;
+    const oldName = section.classTeacher?.user.fullName ?? null;
+    await logAudit(null, {
+      actorId,
+      action: 'UPDATE',
+      module: 'TIMETABLE',
+      targetType: 'ClassSection',
+      targetId: sectionId,
+      targetLabel: label,
+      details: newTeacherName
+        ? `Set ${newTeacherName} as class teacher of ${label}`
+        : `Removed the class teacher from ${label}`,
+      changes: { classTeacher: { before: oldName ?? 'None', after: newTeacherName ?? 'None' } },
+    });
+  }
   return getSectionTeachingAssignments(sectionId);
 }
 
@@ -63,8 +86,8 @@ export async function getSectionTeachingAssignments(sectionId: string) {
   };
 }
 
-export async function upsertTeachingAssignment(sectionId: string, subjectId: string, teacherId: string) {
-  const section = await prisma.section.findUnique({ where: { id: sectionId } });
+export async function upsertTeachingAssignment(sectionId: string, subjectId: string, teacherId: string, actorId?: string) {
+  const section = await prisma.section.findUnique({ where: { id: sectionId }, include: { class: true } });
   if (!section) throw NotFound('Section not found');
 
   // The subject must be offered by the section's class (ClassSubject).
@@ -106,6 +129,12 @@ export async function upsertTeachingAssignment(sectionId: string, subjectId: str
     }
   }
 
+  // Capture the outgoing teacher (if any) before the upsert replaces it.
+  const existing = await prisma.teachingAssignment.findUnique({
+    where: { sectionId_subjectId: { sectionId, subjectId } },
+    include: { teacher: { include: { user: true } }, subject: true },
+  });
+
   // Upholds @@unique([sectionId, subjectId]) — replaces any existing teacher.
   await prisma.teachingAssignment.upsert({
     where: { sectionId_subjectId: { sectionId, subjectId } },
@@ -113,11 +142,28 @@ export async function upsertTeachingAssignment(sectionId: string, subjectId: str
     update: { teacherId },
   });
 
+  if (actorId) {
+    const subjectName = existing?.subject.name
+      ?? (await prisma.subject.findUnique({ where: { id: subjectId }, select: { name: true } }))?.name
+      ?? 'subject';
+    const label = `${section.class.name}-${section.name}`;
+    await logAudit(null, {
+      actorId,
+      action: 'UPDATE',
+      module: 'TIMETABLE',
+      targetType: 'ClassSection',
+      targetId: sectionId,
+      targetLabel: label,
+      details: `Assigned ${teacher.user.fullName} to teach ${subjectName} in ${label}`,
+      changes: { [`${subjectName} teacher`]: { before: existing?.teacher.user.fullName ?? 'None', after: teacher.user.fullName } },
+    });
+  }
+
   return getSectionTeachingAssignments(sectionId);
 }
 
-export async function deleteTeachingAssignment(sectionId: string, subjectId: string) {
-  const section = await prisma.section.findUnique({ where: { id: sectionId } });
+export async function deleteTeachingAssignment(sectionId: string, subjectId: string, actorId?: string) {
+  const section = await prisma.section.findUnique({ where: { id: sectionId }, include: { class: true } });
   if (!section) throw NotFound('Section not found');
 
   // Block un-assigning while the subject is still on this section's timetable.
@@ -136,6 +182,25 @@ export async function deleteTeachingAssignment(sectionId: string, subjectId: str
     );
   }
 
+  const removed = await prisma.teachingAssignment.findUnique({
+    where: { sectionId_subjectId: { sectionId, subjectId } },
+    include: { teacher: { include: { user: true } }, subject: true },
+  });
+
   await prisma.teachingAssignment.deleteMany({ where: { sectionId, subjectId } });
+
+  if (actorId && removed) {
+    const label = `${section.class.name}-${section.name}`;
+    await logAudit(null, {
+      actorId,
+      action: 'UPDATE',
+      module: 'TIMETABLE',
+      targetType: 'ClassSection',
+      targetId: sectionId,
+      targetLabel: label,
+      details: `Removed ${removed.teacher.user.fullName} from teaching ${removed.subject.name} in ${label}`,
+      changes: { [`${removed.subject.name} teacher`]: { before: removed.teacher.user.fullName, after: 'None' } },
+    });
+  }
   return getSectionTeachingAssignments(sectionId);
 }

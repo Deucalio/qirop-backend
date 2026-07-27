@@ -24,7 +24,8 @@ interface AttendanceSnapshot {
 
 const studentInclude = {
   section: { include: { class: true } },
-  parent: { include: { user: true } },
+  // teacherProfile lets the list flag whether the guardian is a staff member.
+  parent: { include: { user: { include: { teacherProfile: { select: { id: true } } } } } },
   // Staff-child link (fees bill to this teacher's salary) + transport route.
   teacherParent: { include: { user: true } },
   transportAssignment: { include: { route: true } },
@@ -47,7 +48,13 @@ function shapeListItem(s: StudentWithRels) {
     photoUrl: publicUrl(s.photoUrl),
     section: { id: s.section.id, name: s.section.name },
     class: { id: s.section.class.id, name: s.section.class.name },
-    parent: { id: s.parent.id, name: s.parent.user.fullName, phone: s.parent.user.phone },
+    parent: {
+      id: s.parent.id,
+      name: s.parent.user.fullName,
+      phone: s.parent.user.phone,
+      // The guardian's own account is also a teacher here.
+      isTeacher: s.parent.user.teacherProfile !== null,
+    },
     // Staff child: their fees are billed to this teacher's salary.
     teacherParent: s.teacherParent
       ? { id: s.teacherParent.id, name: s.teacherParent.user.fullName }
@@ -375,7 +382,7 @@ export async function createStudent(actor: Actor, input: CreateStudentInput) {
 export async function updateStudent(id: string, data: UpdateStudentInput, actor?: Actor) {
   const student = await prisma.student.findUnique({
     where: { id },
-    include: { section: { include: { class: true } } },
+    include: { section: { include: { class: true } }, parent: { include: { user: true } } },
   });
   if (!student) throw NotFound('Student not found');
 
@@ -468,6 +475,19 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     changedLabels.push('Gender');
   }
 
+  const parentChanged = !!(resolvedParentId && resolvedParentId !== student.parentId);
+  if (parentChanged) {
+    const newParent = await prisma.parentProfile.findUnique({
+      where: { id: resolvedParentId! },
+      select: { user: { select: { fullName: true } } },
+    });
+    changes.parent = {
+      before: student.parent?.user.fullName ?? 'None',
+      after: newParent?.user.fullName ?? 'None',
+    };
+    changedLabels.push('Parent/Guardian');
+  }
+
   await prisma.student.update({
     where: { id },
     data: {
@@ -483,6 +503,14 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     },
   });
 
+  // Apply explicit teacher/transport links AND always re-derive the staff-child
+  // link from the (possibly new) parent. Without this, a student re-parented to a
+  // teacher keeps a stale (usually null) teacherParentId — so their fees never
+  // bill to the salary and no future challan is marked billedToTeacher. The
+  // frontend never sends teacherParentId, so deriving here can't clobber an
+  // intentional override; applyStudentLinks still honours one if the API sends it.
+  const linkChanges = await applyStudentLinks(id, data, { deriveStaffParent: true });
+
   const updatedStudent = await prisma.student.findUnique({
     where: { id },
     include: {
@@ -491,10 +519,14 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     },
   });
 
-  if (actor && changedLabels.length > 0) {
+  if (actor && (changedLabels.length > 0 || linkChanges.length > 0)) {
     const studentName = `${updatedStudent?.firstName ?? student.firstName} ${updatedStudent?.lastName ?? student.lastName}`;
-    const desc = `Updated ${changedLabels.length} field${changedLabels.length > 1 ? 's' : ''} (${changedLabels.join(', ')}) for student ${studentName}`;
-    
+    const fieldPart = changedLabels.length > 0
+      ? `Updated ${changedLabels.length} field${changedLabels.length > 1 ? 's' : ''} (${changedLabels.join(', ')})`
+      : 'Updated links';
+    const desc = `${fieldPart} for student ${studentName}${linkChanges.length ? `. ${linkChanges.join('; ')}` : ''}`;
+
+    if (linkChanges.length) changes.links = linkChanges;
     // Attach guardian metadata for rich UI display
     changes._meta = {
       photoUrl: publicUrl(updatedStudent?.photoUrl),

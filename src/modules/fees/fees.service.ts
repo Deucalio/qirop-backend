@@ -699,8 +699,41 @@ export async function listChallans(query: ListChallansQuery) {
     orderBy: [{ year: 'desc' }, { month: 'desc' }, { challanNo: 'asc' }],
     take: 1000,
   });
+
+  // Per-challan "previous dues" = the student's unpaid balance from months BEFORE
+  // this challan. Fetch every challan of the listed students once and index them.
+  const studentIds = [...new Set(challans.map((c) => c.studentId))];
+  const prior = studentIds.length
+    ? await prisma.feeChallan.findMany({
+        where: { studentId: { in: studentIds } },
+        select: {
+          studentId: true,
+          year: true,
+          month: true,
+          amount: true,
+          staffCovered: true,
+          allocations: { where: { payment: { isReversed: false } }, select: { amountApplied: true } },
+        },
+      })
+    : [];
+  const byStudent = new Map<string, { year: number; month: number; balance: Money }[]>();
+  for (const p of prior) {
+    const cash = p.allocations.reduce((s, a) => s.plus(a.amountApplied), ZERO);
+    const balance = round2(money(p.amount).minus(p.staffCovered).minus(cash));
+    const list = byStudent.get(p.studentId) ?? [];
+    list.push({ year: p.year, month: p.month, balance });
+    byStudent.set(p.studentId, list);
+  }
+  const previousBalanceFor = (studentId: string, year: number, month: number) =>
+    sum(
+      (byStudent.get(studentId) ?? [])
+        .filter((x) => (x.year < year || (x.year === year && x.month < month)) && x.balance.greaterThan(0))
+        .map((x) => x.balance),
+    );
+
   return challans.map((c) => ({
     ...shapeChallan(c),
+    previousBalance: toMoneyString(previousBalanceFor(c.studentId, c.year, c.month)),
     student: {
       id: c.student.id,
       name: `${c.student.firstName} ${c.student.lastName}`,
