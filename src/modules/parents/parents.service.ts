@@ -4,7 +4,7 @@ import { hashPassword } from '../../utils/password';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import { logAudit } from '../audit/audit.service';
 import type { CreateParentInput, ListParentsQuery, UpdateParentInput } from './parents.schema';
-import { studentDues } from '../students/students.service';
+import { studentDues, getStudentFeeDetails } from '../students/students.service';
 import { money, ZERO, toMoneyString } from '../../utils/money';
 
 export async function listParents(query: ListParentsQuery) {
@@ -85,6 +85,10 @@ export async function getParent(id: string) {
     },
   });
   if (!parent) throw NotFound('Parent not found');
+
+  const studentIds = parent.students.map((s) => s.id);
+  const feeMap = await getStudentFeeDetails(studentIds);
+
   return {
     id: parent.id,
     userId: parent.userId,
@@ -106,6 +110,7 @@ export async function getParent(id: string) {
       className: s.section.class.name,
       sectionName: s.section.name,
       status: s.status,
+      fees: feeMap.get(s.id) ?? { outstanding: '0.00', unpaidCount: 0, status: 'NO_DUES' as const, challans: [] },
     })),
   };
 }

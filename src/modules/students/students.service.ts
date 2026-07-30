@@ -263,6 +263,101 @@ export async function studentDues(ids: string[]): Promise<Map<string, { outstand
   return map;
 }
 
+export interface StudentChildChallan {
+  id: string;
+  challanNo: string;
+  month: number;
+  year: number;
+  dueDate: string;
+  totalAmount: string;
+  staffCovered: string;
+  payableAmount: string;
+  status: string;
+}
+
+export interface StudentChildFeeSummary {
+  outstanding: string;
+  unpaidCount: number;
+  status: 'PAID' | 'UNPAID' | 'PARTIAL' | 'OVERDUE' | 'NO_DUES';
+  challans: StudentChildChallan[];
+}
+
+/** Comprehensive per-student fee status and challan list for guardian modals. */
+export async function getStudentFeeDetails(ids: string[]): Promise<Map<string, StudentChildFeeSummary>> {
+  const map = new Map<string, StudentChildFeeSummary>();
+  if (ids.length === 0) return map;
+
+  const challans = await prisma.feeChallan.findMany({
+    where: { studentId: { in: ids } },
+    include: {
+      allocations: {
+        where: { payment: { isReversed: false } },
+        select: { amountApplied: true },
+      },
+    },
+    orderBy: [{ year: 'desc' }, { month: 'desc' }],
+  });
+
+  const studentMap = new Map<string, typeof challans>();
+  for (const id of ids) {
+    studentMap.set(id, []);
+  }
+  for (const c of challans) {
+    const list = studentMap.get(c.studentId);
+    if (list) list.push(c);
+  }
+
+  for (const [studentId, list] of studentMap.entries()) {
+    let totalOutstanding = ZERO;
+    let unpaidCount = 0;
+    let hasOverdue = false;
+    let hasPartial = false;
+
+    const mappedChallans = list.map((c) => {
+      const cash = c.allocations.reduce((sum, a) => sum.plus(a.amountApplied), ZERO);
+      const balance = round2(money(c.amount).minus(c.staffCovered).minus(cash));
+      const payable = balance.greaterThan(0) ? balance : ZERO;
+
+      if (payable.greaterThan(0)) {
+        totalOutstanding = totalOutstanding.plus(payable);
+        unpaidCount += 1;
+        if (c.status === 'OVERDUE') hasOverdue = true;
+        if (c.status === 'PARTIAL') hasPartial = true;
+      }
+
+      return {
+        id: c.id,
+        challanNo: c.challanNo,
+        month: c.month,
+        year: c.year,
+        dueDate: c.dueDate.toISOString().slice(0, 10),
+        totalAmount: toMoneyString(c.amount),
+        staffCovered: toMoneyString(c.staffCovered),
+        payableAmount: toMoneyString(payable),
+        status: c.status,
+      };
+    });
+
+    let status: 'PAID' | 'UNPAID' | 'PARTIAL' | 'OVERDUE' | 'NO_DUES';
+    if (totalOutstanding.greaterThan(0)) {
+      if (hasOverdue) status = 'OVERDUE';
+      else if (hasPartial) status = 'PARTIAL';
+      else status = 'UNPAID';
+    } else {
+      status = mappedChallans.length > 0 ? 'PAID' : 'NO_DUES';
+    }
+
+    map.set(studentId, {
+      outstanding: toMoneyString(totalOutstanding),
+      unpaidCount,
+      status,
+      challans: mappedChallans,
+    });
+  }
+
+  return map;
+}
+
 export async function getStudent(id: string, actor?: Actor) {
   const detail = shapeDetail(await loadStudentOr404(id));
   if (actor && (await userHasPermission(actor.userId, actor.role, PermissionModule.ATTENDANCE, 'view'))) {

@@ -8,7 +8,7 @@ import { userHasPermission } from '../../utils/permissions';
 import { summarize } from '../../utils/attendanceMetrics';
 import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateTeacherInput, ListTeachersQuery, UpdateTeacherInput } from './teachers.schema';
-import { studentDues } from '../students/students.service';
+import { studentDues, getStudentFeeDetails } from '../students/students.service';
 import { money, ZERO, toMoneyString } from '../../utils/money';
 import type { Response } from 'express';
 
@@ -60,16 +60,21 @@ function shapeClassTeacherSection(s: SectionRow) {
 }
 
 /** Shape a teacher for a detail view. `salary` is included ONLY when allowed. */
-function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
+async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
   const parentProfile = (profile.user as any).parentProfile;
-  const children = parentProfile?.students.map((s: any) => ({
+  const rawChildren = parentProfile?.students ?? [];
+  const studentIds = rawChildren.map((s: any) => s.id);
+  const feeMap = await getStudentFeeDetails(studentIds);
+
+  const children = rawChildren.map((s: any) => ({
     id: s.id,
     name: `${s.firstName} ${s.lastName}`,
     admissionNo: s.admissionNo,
     className: s.section.class.name,
     sectionName: s.section.name,
     status: s.status,
-  })) || [];
+    fees: feeMap.get(s.id) ?? { outstanding: '0.00', unpaidCount: 0, status: 'NO_DUES' as const, challans: [] },
+  }));
 
   return {
     id: profile.id,
@@ -227,14 +232,14 @@ export async function listTeachers(query: ListTeachersQuery) {
 
 export async function getTeacher(id: string, includeSalary: boolean) {
   const profile = await loadTeacherOr404(id);
-  return shapeTeacher(profile, includeSalary);
+  return await shapeTeacher(profile, includeSalary);
 }
 
 /** Teacher self-view — NEVER includes salary. */
 export async function getMeTeacher(userId: string) {
   const profile = await prisma.teacherProfile.findUnique({ where: { userId }, include: teacherInclude });
   if (!profile) throw NotFound('Teacher profile not found');
-  return shapeTeacher(profile, false);
+  return await shapeTeacher(profile, false);
 }
 
 export async function getTeacherAssignments(id: string) {
