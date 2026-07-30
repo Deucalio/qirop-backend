@@ -28,11 +28,11 @@ export const createTeacherSchema = z.object({
   fullName: z.string().min(1, 'Full name is required').max(150),
   phone: z.string().max(50).nullable().optional(),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
-  employeeId: z.string().min(1, 'Employee ID is required').max(50),
+  employeeId: z.string().max(50).optional(),
   gender: z.nativeEnum(Gender),
   qualification: z.string().max(200).nullable().optional(),
   qualifications: qualificationsArraySchema.optional(),
-  address: z.string().max(500).nullable().optional(),
+  address: z.string().min(1, 'Address is required').max(500),
   joiningDate: z.coerce.date(),
   salary: z.coerce.number().nonnegative('Salary must be zero or more'),
   fatherName: z.string().min(1, 'Father / mother name is required').max(150),
@@ -70,6 +70,7 @@ export const resetPasswordSchema = z.object({
 export const listTeachersQuerySchema = z.object({
   status: z.nativeEnum(UserStatus).optional(),
   search: z.string().trim().max(150).optional(),
+  hasKidsEnrolled: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
 });
 
 /** ?year=&month= for the month-scoped attendance snapshot (defaults to the current PKT month). */

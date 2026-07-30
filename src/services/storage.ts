@@ -97,9 +97,16 @@ export function publicUrl(path: string | null | undefined): string | null {
  * Stream a private file back to the caller using the server-side token.
  * The caller MUST have already authorized the requester.
  */
-export async function proxyDownload(path: string, res: Response): Promise<void> {
+export async function proxyDownload(
+  path: string,
+  res: Response,
+  dispositionType: 'inline' | 'attachment' = 'attachment',
+): Promise<void> {
   ensureConfigured();
-  const upstream = await fetch(`${BASE}/files/download?path=${encodeURIComponent(path)}`, { headers: authHeaders() });
+  const upstream = await fetch(
+    `${BASE}/files/download?path=${encodeURIComponent(path)}&disposition=${dispositionType}`,
+    { headers: authHeaders() },
+  );
   if (!upstream.ok) {
     throw new AppError('File not found', upstream.status === 404 ? 404 : 502, 'DOWNLOAD_FAILED');
   }

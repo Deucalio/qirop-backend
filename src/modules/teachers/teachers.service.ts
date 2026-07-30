@@ -1,13 +1,16 @@
 import { AttendanceStatus, MarkingType, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
-import { publicUrl, replaceFile, deleteFile } from '../../services/storage';
+import { publicUrl, replaceFile, deleteFile, uploadFile, proxyDownload } from '../../services/storage';
 import { logAudit } from '../audit/audit.service';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
 import { summarize } from '../../utils/attendanceMetrics';
 import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateTeacherInput, ListTeachersQuery, UpdateTeacherInput } from './teachers.schema';
+import { studentDues } from '../students/students.service';
+import { money, ZERO, toMoneyString } from '../../utils/money';
+import type { Response } from 'express';
 
 export interface Actor {
   userId: string;
@@ -37,6 +40,7 @@ const teacherInclude = {
   qualifications: { orderBy: { level: 'asc' } },
   // Own commute route — its fee is deducted from this teacher's salary.
   transportAssignment: { include: { route: true } },
+  documents: true,
 } satisfies Prisma.TeacherProfileInclude;
 
 type TeacherWithRels = Prisma.TeacherProfileGetPayload<{ include: typeof teacherInclude }>;
@@ -82,6 +86,12 @@ function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
     status: profile.status,
     fatherName: profile.fatherName,
     parentCnic: profile.parentCnic,
+    documents: profile.documents?.map((d) => ({
+      id: d.id,
+      label: d.label,
+      fileUrl: d.fileUrl,
+      createdAt: d.createdAt,
+    })) || [],
     ...(includeSalary ? { salary: profile.salary.toString() } : {}),
     qualifications: profile.qualifications.map((q) => ({
       level: q.level,
@@ -133,6 +143,14 @@ export async function listTeachers(query: ListTeachersQuery) {
   const profiles = await prisma.teacherProfile.findMany({
     where: {
       status: query.status,
+      ...(query.hasKidsEnrolled
+        ? {
+            OR: [
+              { staffChildren: { some: {} } },
+              { user: { parentProfile: { students: { some: {} } } } },
+            ],
+          }
+        : {}),
       ...(query.search
         ? {
             OR: [
@@ -142,20 +160,69 @@ export async function listTeachers(query: ListTeachersQuery) {
           }
         : {}),
     },
-    include: { user: true, _count: { select: { teachingAssignments: true, classTeacherSections: true } } },
+    include: {
+      user: {
+        include: {
+          parentProfile: {
+            include: {
+              students: { select: { id: true } },
+            },
+          },
+        },
+      },
+      staffChildren: { select: { id: true } },
+      _count: { select: { teachingAssignments: true, classTeacherSections: true } },
+    },
     orderBy: { user: { fullName: 'asc' } },
   });
-  return profiles.map((p) => ({
-    id: p.id,
-    userId: p.userId,
-    fullName: p.user.fullName,
-    cnic: p.user.cnic,
-    employeeId: p.employeeId,
-    phone: p.user.phone,
-    status: p.status,
-    subjectCount: p._count.teachingAssignments,
-    classTeacherCount: p._count.classTeacherSections,
-  }));
+
+  const allStudentIds: string[] = [];
+  for (const p of profiles) {
+    if (p.user.parentProfile?.students) {
+      for (const s of p.user.parentProfile.students) allStudentIds.push(s.id);
+    }
+    if (p.staffChildren) {
+      for (const s of p.staffChildren) allStudentIds.push(s.id);
+    }
+  }
+
+  const duesMap = await studentDues(allStudentIds);
+
+  return profiles.map((p) => {
+    const studentIds = Array.from(
+      new Set([
+        ...(p.user.parentProfile?.students.map((s) => s.id) || []),
+        ...(p.staffChildren?.map((s) => s.id) || []),
+      ])
+    );
+
+    let totalDues = ZERO;
+    let unpaidCount = 0;
+    for (const sid of studentIds) {
+      const d = duesMap.get(sid);
+      if (d) {
+        totalDues = totalDues.plus(money(d.outstanding));
+        unpaidCount += d.unpaidCount;
+      }
+    }
+
+    return {
+      id: p.id,
+      userId: p.userId,
+      fullName: p.user.fullName,
+      cnic: p.user.cnic,
+      employeeId: p.employeeId,
+      phone: p.user.phone,
+      status: p.status,
+      subjectCount: p._count.teachingAssignments,
+      classTeacherCount: p._count.classTeacherSections,
+      kidsEnrolledCount: studentIds.length,
+      collectiveDues: {
+        outstanding: toMoneyString(totalDues),
+        unpaidCount,
+      },
+    };
+  });
 }
 
 export async function getTeacher(id: string, includeSalary: boolean) {
@@ -181,7 +248,31 @@ export async function getTeacherAssignments(id: string) {
 export async function createTeacher(actorId: string, input: CreateTeacherInput) {
   const cnicTaken = await prisma.user.findUnique({ where: { cnic: input.cnic } });
   if (cnicTaken) throw new AppError('A user with this CNIC already exists', 409, 'CNIC_TAKEN');
-  const empTaken = await prisma.teacherProfile.findUnique({ where: { employeeId: input.employeeId } });
+
+  let employeeId = input.employeeId;
+  if (!employeeId || !employeeId.trim()) {
+    const latestTeacher = await prisma.teacherProfile.findFirst({
+      where: {
+        employeeId: {
+          startsWith: 'EMP-',
+        },
+      },
+      orderBy: {
+        employeeId: 'desc',
+      },
+    });
+    let nextNum = 101;
+    if (latestTeacher) {
+      const lastPart = latestTeacher.employeeId.replace('EMP-', '');
+      const parsed = parseInt(lastPart, 10);
+      if (!isNaN(parsed)) {
+        nextNum = parsed + 1;
+      }
+    }
+    employeeId = `EMP-${nextNum}`;
+  }
+
+  const empTaken = await prisma.teacherProfile.findUnique({ where: { employeeId } });
   if (empTaken) throw new AppError('A teacher with this employee ID already exists', 409, 'EMPLOYEE_ID_TAKEN');
 
   const passwordHash = await hashPassword(input.password);
@@ -208,7 +299,7 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
       createdById: actorId,
       teacherProfile: {
         create: {
-          employeeId: input.employeeId,
+          employeeId: employeeId,
           gender: input.gender,
           qualification: input.qualification ?? null,
           address: input.address ?? null,
@@ -232,8 +323,8 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
     module: 'STAFF',
     targetType: 'Teacher',
     targetId: user.teacherProfile!.id,
-    targetLabel: `${input.fullName} (${input.employeeId})`,
-    details: `Added new teacher ${input.fullName} (${input.employeeId}) - ${input.qualification || 'Staff Member'}`,
+    targetLabel: `${input.fullName} (${employeeId})`,
+    details: `Added new teacher ${input.fullName} (${employeeId}) - ${input.qualification || 'Staff Member'}`,
     changes: {
       _meta: {
         photoUrl: teacherObj.avatarUrl,
@@ -583,4 +674,73 @@ export async function purgeTeacher(actor: Actor, id: string) {
   for (const url of attachments) await deleteFile(url).catch(() => undefined);
 
   return { id, name, deleted: true };
+}
+
+export async function addTeacherDocument(
+  id: string,
+  label: string,
+  buffer: Buffer,
+  originalName: string,
+  contentType: string,
+  actor?: Actor
+) {
+  const teacher = await prisma.teacherProfile.findUnique({ where: { id } });
+  if (!teacher) throw NotFound('Teacher not found');
+
+  const fileUrl = await uploadFile(buffer, originalName, `/teachers/${id}/documents`, contentType);
+  await prisma.teacherDocument.create({
+    data: {
+      teacherId: id,
+      label,
+      fileUrl,
+    },
+  });
+
+  if (actor) {
+    await logAudit(null, {
+      actorId: actor.userId,
+      action: 'UPDATE',
+      module: 'STAFF',
+      targetType: 'Teacher',
+      targetId: id,
+      targetLabel: `Teacher (${teacher.employeeId})`,
+      details: `Added teacher document: "${label}".`,
+    });
+  }
+
+  return getTeacher(id, true);
+}
+
+export async function removeTeacherDocument(teacherId: string, docId: string, actor?: Actor) {
+  const doc = await prisma.teacherDocument.findUnique({ where: { id: docId } });
+  if (!doc || doc.teacherId !== teacherId) throw NotFound('Document not found');
+
+  await deleteFile(doc.fileUrl).catch(() => undefined);
+  await prisma.teacherDocument.delete({ where: { id: docId } });
+
+  if (actor) {
+    await logAudit(null, {
+      actorId: actor.userId,
+      action: 'UPDATE',
+      module: 'STAFF',
+      targetType: 'Teacher',
+      targetId: teacherId,
+      targetLabel: `Teacher ${teacherId}`,
+      details: `Removed teacher document: "${doc.label}".`,
+    });
+  }
+
+  return getTeacher(teacherId, true);
+}
+
+export async function downloadTeacherDocument(
+  teacherId: string,
+  docId: string,
+  res: Response,
+  disposition: 'inline' | 'attachment' = 'attachment'
+) {
+  const doc = await prisma.teacherDocument.findUnique({ where: { id: docId } });
+  if (!doc || doc.teacherId !== teacherId) throw NotFound('Document not found');
+
+  await proxyDownload(doc.fileUrl, res, disposition);
 }

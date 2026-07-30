@@ -19,10 +19,14 @@ studentsRouter.use(requireAuth);
 studentsRouter.get('/', view, asyncHandler(c.list));
 studentsRouter.get('/:id', view, asyncHandler(c.detail));
 studentsRouter.get('/:id/attendance', view, asyncHandler(c.attendance));
-studentsRouter.post('/', edit, validateBody(createStudentSchema), asyncHandler(c.create));
+studentsRouter.post('/', edit, imageUpload.single('photo'), asyncHandler(c.create));
 studentsRouter.put('/:id', edit, validateBody(updateStudentSchema), asyncHandler(c.update));
 studentsRouter.patch('/:id/status', edit, validateBody(studentStatusSchema), asyncHandler(c.updateStatus));
 studentsRouter.post('/:id/photo', edit, imageUpload.single('photo'), asyncHandler(c.uploadPhoto));
 studentsRouter.get('/:id/audit-logs', view, asyncHandler(c.getAuditLogs));
+// Student documents endpoints
+studentsRouter.post('/:id/documents', edit, imageUpload.single('file'), asyncHandler(c.uploadDocument));
+studentsRouter.delete('/:id/documents/:docId', edit, asyncHandler(c.deleteDocument));
+studentsRouter.get('/:id/documents/:docId/download', view, asyncHandler(c.downloadDocument));
 // Hard-delete (purge every record). ADMIN/SUPERADMIN only — beyond STUDENTS:edit.
 studentsRouter.delete('/:id', requireRole(Role.SUPERADMIN, Role.ADMIN), asyncHandler(c.purge));

@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import * as studentsService from './students.service';
-import { attendanceMonthQuerySchema, listStudentsQuerySchema } from './students.schema';
+import { attendanceMonthQuerySchema, listStudentsQuerySchema, createStudentSchema } from './students.schema';
 import { AppError, Unauthorized } from '../../utils/apiResponse';
 
 export async function list(req: Request, res: Response): Promise<void> {
@@ -20,7 +20,30 @@ export async function attendance(req: Request, res: Response): Promise<void> {
 
 export async function create(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Unauthorized();
-  res.status(201).json(await studentsService.createStudent(req.user, req.body));
+
+  let body = req.body;
+  if (typeof body.parent === 'string') {
+    try {
+      body.parent = JSON.parse(body.parent);
+    } catch {}
+  }
+
+  const input = createStudentSchema.parse(body);
+  const student = await studentsService.createStudent(req.user, input);
+
+  if (req.file) {
+    const result = await studentsService.setPhoto(
+      student.id,
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      req.user,
+    );
+    res.status(201).json(result);
+    return;
+  }
+
+  res.status(201).json(student);
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
@@ -44,4 +67,30 @@ export async function getAuditLogs(req: Request, res: Response): Promise<void> {
 export async function purge(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Unauthorized();
   res.json(await studentsService.purgeStudent(req.user, req.params.id));
+}
+
+export async function uploadDocument(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw Unauthorized();
+  if (!req.file) throw new AppError('No file provided (field name: "file")', 400, 'NO_FILE');
+  const label = req.body.label || 'Document';
+  res.status(201).json(
+    await studentsService.addDocument(
+      req.params.id,
+      label,
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      req.user,
+    ),
+  );
+}
+
+export async function deleteDocument(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw Unauthorized();
+  res.json(await studentsService.removeDocument(req.params.id, req.params.docId, req.user));
+}
+
+export async function downloadDocument(req: Request, res: Response): Promise<void> {
+  const disposition = (req.query.disposition as 'inline' | 'attachment') || 'attachment';
+  await studentsService.downloadDocument(req.params.id, req.params.docId, res, disposition);
 }

@@ -69,6 +69,30 @@ export async function uploadPhoto(req: Request, res: Response): Promise<void> {
   res.json(await teachersService.setPhoto(req.params.id, req.file.buffer, req.file.originalname, req.file.mimetype));
 }
 
+export async function addDocument(req: Request, res: Response): Promise<void> {
+  if (!req.file) throw new AppError('No document file provided (field name: "file")', 400, 'NO_FILE');
+  const label = req.body.label || 'Document';
+  res.json(
+    await teachersService.addTeacherDocument(
+      req.params.id,
+      label,
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      req.user
+    )
+  );
+}
+
+export async function removeDocument(req: Request, res: Response): Promise<void> {
+  res.json(await teachersService.removeTeacherDocument(req.params.id, req.params.docId, req.user));
+}
+
+export async function downloadDocument(req: Request, res: Response): Promise<void> {
+  const disposition = (req.query.disposition as 'inline' | 'attachment') || 'attachment';
+  await teachersService.downloadTeacherDocument(req.params.id, req.params.docId, res, disposition);
+}
+
 /** Teacher self-view — salary is never included. */
 export async function meTeacher(req: Request, res: Response): Promise<void> {
   if (!req.user) throw Unauthorized();

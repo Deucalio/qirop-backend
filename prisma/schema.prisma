@@ -222,6 +222,7 @@ model TeacherProfile {
   homework             Homework[]
   salarySlips          SalarySlip[]
   qualifications       TeacherQualification[]
+  documents            TeacherDocument[]
 
   // Students whose parent is this staff member (their fees bill to this salary).
   staffChildren       Student[]    @relation("StaffChildren")
@@ -234,6 +235,18 @@ model TeacherProfile {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+}
+
+model TeacherDocument {
+  id        String         @id @default(cuid())
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  label     String
+  fileUrl   String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([teacherId])
 }
 
 // One row per academic milestone (board/university, year, marks, grade/division).
@@ -265,6 +278,12 @@ model ParentProfile {
   user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   occupation String?
   address    String?
+
+  // Mother fields (optional)
+  motherName       String?
+  motherCnic       String?
+  motherPhone      String?
+  motherOccupation String?
 
   students Student[]
 
@@ -467,6 +486,7 @@ model Student {
   attendance StudentAttendance[]
   challans   FeeChallan[]
   payments   FeePayment[]
+  documents  StudentDocument[]
 
   // At most one transport route (see TransportAssignment).
   transportAssignment TransportAssignment?
@@ -479,6 +499,18 @@ model Student {
   @@index([parentId])
   @@index([teacherParentId])
   @@index([status])
+}
+
+model StudentDocument {
+  id        String   @id @default(cuid())
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  label     String
+  fileUrl   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
 }
 
 // ============================================================================

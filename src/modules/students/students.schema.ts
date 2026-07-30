@@ -10,14 +10,24 @@ const inlineParentSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
   occupation: z.string().max(150).nullable().optional(),
   address: z.string().max(500).nullable().optional(),
+  motherName: z.string().max(150).nullable().optional(),
+  motherCnic: z.union([
+    z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X'),
+    z.literal(''),
+    z.null(),
+    z.undefined(),
+  ]),
+  motherPhone: z.string().max(50).nullable().optional(),
+  motherOccupation: z.string().max(150).nullable().optional(),
 });
 
 export const createStudentSchema = z
   .object({
-    admissionNo: z.string().min(1, 'Admission number is required').max(50),
+    admissionNo: z.string().max(50).optional(),
     rollNo: z.string().max(50).nullable().optional(),
-    firstName: z.string().min(1, 'First name is required').max(100),
-    lastName: z.string().min(1, 'Last name is required').max(100),
+    name: z.string().max(200).optional(),
+    firstName: z.string().max(100).optional(),
+    lastName: z.string().max(100).optional(),
     gender: z.nativeEnum(Gender),
     dob: z.coerce.date().nullable().optional(),
     admissionDate: z.coerce.date(),
@@ -29,6 +39,10 @@ export const createStudentSchema = z
     // Transport route this student rides (null/absent = none).
     transportRouteId: z.string().min(1).nullable().optional(),
   })
+  .refine((v) => Boolean(v.name) || (Boolean(v.firstName) && Boolean(v.lastName)), {
+    message: 'Provide either name or both firstName and lastName',
+    path: ['name'],
+  })
   .refine((v) => Boolean(v.parentId) || Boolean(v.parent), {
     message: 'Provide either parentId or inline parent details',
     path: ['parentId'],
@@ -36,10 +50,11 @@ export const createStudentSchema = z
 
 export const updateStudentSchema = z
   .object({
-    admissionNo: z.string().min(1).max(50).optional(),
+    admissionNo: z.string().max(50).optional(),
     rollNo: z.string().max(50).nullable().optional(),
-    firstName: z.string().min(1).max(100).optional(),
-    lastName: z.string().min(1).max(100).optional(),
+    name: z.string().max(200).optional(),
+    firstName: z.string().max(100).optional(),
+    lastName: z.string().max(100).optional(),
     gender: z.nativeEnum(Gender).optional(),
     dob: z.coerce.date().nullable().optional(),
     admissionDate: z.coerce.date().optional(),

@@ -1,7 +1,7 @@
 import { AttendanceStatus, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
-import { publicUrl, replaceFile, deleteFile } from '../../services/storage';
+import { publicUrl, replaceFile, deleteFile, uploadFile, proxyDownload } from '../../services/storage';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
 import { money, round2, toMoneyString, ZERO } from '../../utils/money';
@@ -9,6 +9,7 @@ import { summarize, type AttendanceSummary } from '../../utils/attendanceMetrics
 import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateStudentInput, ListStudentsQuery, UpdateStudentInput } from './students.schema';
 import { logAudit } from '../audit/audit.service';
+import type { Response } from 'express';
 
 export interface Actor {
   userId: string;
@@ -29,6 +30,7 @@ const studentInclude = {
   // Staff-child link (fees bill to this teacher's salary) + transport route.
   teacherParent: { include: { user: true } },
   transportAssignment: { include: { route: true } },
+  documents: true,
 } satisfies Prisma.StudentInclude;
 
 type StudentWithRels = Prisma.StudentGetPayload<{ include: typeof studentInclude }>;
@@ -40,7 +42,7 @@ function shapeListItem(s: StudentWithRels) {
     rollNo: s.rollNo,
     firstName: s.firstName,
     lastName: s.lastName,
-    name: `${s.firstName} ${s.lastName}`,
+    name: `${s.firstName} ${s.lastName}`.trim(),
     gender: s.gender,
     status: s.status,
     dob: s.dob,
@@ -147,7 +149,19 @@ function shapeDetail(s: StudentWithRels) {
       name: s.parent.user.fullName,
       cnic: s.parent.user.cnic,
       phone: s.parent.user.phone,
+      occupation: s.parent.occupation,
+      address: s.parent.address,
+      motherName: s.parent.motherName,
+      motherCnic: s.parent.motherCnic,
+      motherPhone: s.parent.motherPhone,
+      motherOccupation: s.parent.motherOccupation,
     },
+    documents: s.documents.map((d) => ({
+      id: d.id,
+      label: d.label,
+      fileUrl: d.fileUrl,
+      createdAt: d.createdAt,
+    })),
     // Current-month attendance; null when the viewer lacks ATTENDANCE view.
     attendance: null as AttendanceSnapshot | null,
     // Populated in Phase 5:
@@ -222,7 +236,7 @@ export async function listStudents(query: ListStudentsQuery, actor?: Actor) {
 }
 
 /** Outstanding balance + count of unsettled challans, per student id. */
-async function studentDues(ids: string[]): Promise<Map<string, { outstanding: string; unpaidCount: number }>> {
+export async function studentDues(ids: string[]): Promise<Map<string, { outstanding: string; unpaidCount: number }>> {
   const map = new Map<string, { outstanding: string; unpaidCount: number }>();
   if (ids.length === 0) return map;
   const challans = await prisma.feeChallan.findMany({
@@ -299,14 +313,53 @@ export async function createStudent(actor: Actor, input: CreateStudentInput) {
   const section = await prisma.section.findUnique({ where: { id: input.sectionId }, include: { class: true } });
   if (!section) throw NotFound('Section not found');
 
-  await assertAdmissionFree(input.admissionNo);
+  // Split name if name is provided, else fallback to firstName/lastName
+  let firstName = '';
+  let lastName = '';
+  if (input.name) {
+    const parts = input.name.trim().split(/\s+/);
+    firstName = parts[0] || '';
+    lastName = parts.slice(1).join(' ') || '';
+  } else {
+    firstName = input.firstName?.trim() || '';
+    lastName = input.lastName?.trim() || '';
+  }
+
+  // Auto-generate admissionNo if not provided
+  let admissionNo = input.admissionNo;
+  if (!admissionNo || !admissionNo.trim()) {
+    const currentYear = new Date().getFullYear();
+    const prefix = `ADM-${currentYear}-`;
+    const latestStudent = await prisma.student.findFirst({
+      where: {
+        admissionNo: {
+          startsWith: prefix,
+        },
+      },
+      orderBy: {
+        admissionNo: 'desc',
+      },
+    });
+    let nextNum = 1;
+    if (latestStudent) {
+      const parts = latestStudent.admissionNo.split('-');
+      const lastPart = parts[parts.length - 1];
+      const parsed = parseInt(lastPart, 10);
+      if (!isNaN(parsed)) {
+        nextNum = parsed + 1;
+      }
+    }
+    admissionNo = `${prefix}${String(nextNum).padStart(3, '0')}`;
+  }
+
+  await assertAdmissionFree(admissionNo);
   if (input.rollNo) await assertRollNoFree(input.sectionId, input.rollNo);
 
   const baseData = {
-    admissionNo: input.admissionNo,
+    admissionNo,
     rollNo: input.rollNo ?? null,
-    firstName: input.firstName,
-    lastName: input.lastName,
+    firstName,
+    lastName,
     gender: input.gender,
     dob: input.dob ?? null,
     admissionDate: input.admissionDate,
@@ -338,7 +391,14 @@ export async function createStudent(actor: Actor, input: CreateStudentInput) {
           where: { id: existingUser.id },
           data: {
             parentProfile: {
-              create: { occupation: p.occupation ?? null, address: p.address ?? null },
+              create: {
+                occupation: p.occupation ?? null,
+                address: p.address ?? null,
+                motherName: p.motherName ?? null,
+                motherCnic: p.motherCnic ?? null,
+                motherPhone: p.motherPhone ?? null,
+                motherOccupation: p.motherOccupation ?? null,
+              },
             },
           },
           include: { parentProfile: true },
@@ -359,7 +419,16 @@ export async function createStudent(actor: Actor, input: CreateStudentInput) {
             passwordHash,
             role: Role.PARENT,
             createdById: actor.userId,
-            parentProfile: { create: { occupation: p.occupation ?? null, address: p.address ?? null } },
+            parentProfile: {
+              create: {
+                occupation: p.occupation ?? null,
+                address: p.address ?? null,
+                motherName: p.motherName ?? null,
+                motherCnic: p.motherCnic ?? null,
+                motherPhone: p.motherPhone ?? null,
+                motherOccupation: p.motherOccupation ?? null,
+              },
+            },
           },
           include: { parentProfile: true },
         });
@@ -422,6 +491,15 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     await assertRollNoFree(targetSectionId, nextRollNo, id);
   }
 
+  // Split name if name is provided, else fallback to firstName/lastName
+  let firstName = data.firstName;
+  let lastName = data.lastName;
+  if (data.name) {
+    const parts = data.name.trim().split(/\s+/);
+    firstName = parts[0] || '';
+    lastName = parts.slice(1).join(' ') || '';
+  }
+
   const changes: Record<string, any> = {};
   const changedLabels: string[] = [];
   let actionType = 'UPDATE';
@@ -445,12 +523,12 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     }
   }
 
-  if (data.firstName && data.firstName !== student.firstName) {
-    changes.firstName = { before: student.firstName, after: data.firstName };
+  if (firstName && firstName !== student.firstName) {
+    changes.firstName = { before: student.firstName, after: firstName };
     changedLabels.push('First Name');
   }
-  if (data.lastName && data.lastName !== student.lastName) {
-    changes.lastName = { before: student.lastName, after: data.lastName };
+  if (lastName !== undefined && lastName !== student.lastName) {
+    changes.lastName = { before: student.lastName, after: lastName };
     changedLabels.push('Last Name');
   }
   if (data.rollNo !== undefined && (data.rollNo ?? null) !== (student.rollNo ?? null)) {
@@ -493,8 +571,8 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
     data: {
       admissionNo: data.admissionNo ?? undefined,
       rollNo: data.rollNo === undefined ? undefined : data.rollNo,
-      firstName: data.firstName ?? undefined,
-      lastName: data.lastName ?? undefined,
+      firstName: firstName ?? undefined,
+      lastName: lastName ?? undefined,
       gender: data.gender ?? undefined,
       dob: data.dob === undefined ? undefined : data.dob,
       admissionDate: data.admissionDate ?? undefined,
@@ -647,4 +725,45 @@ export async function purgeStudent(actor: Actor, id: string) {
   if (student.photoUrl) await deleteFile(student.photoUrl).catch(() => undefined);
 
   return { id, name, deleted: true };
+}
+
+export async function addDocument(id: string, label: string, buffer: Buffer, originalName: string, contentType: string, actor?: Actor) {
+  const student = await prisma.student.findUnique({ where: { id } });
+  if (!student) throw NotFound('Student not found');
+
+  const fileUrl = await uploadFile(buffer, originalName, `/students/${id}/documents`, contentType);
+  const doc = await prisma.studentDocument.create({
+    data: {
+      studentId: id,
+      label,
+      fileUrl,
+    },
+  });
+
+  if (actor) {
+    await logStudentEvent(id, actor.userId, 'UPDATED', `Added student document: "${label}".`);
+  }
+
+  return getStudent(id, actor);
+}
+
+export async function removeDocument(studentId: string, docId: string, actor?: Actor) {
+  const doc = await prisma.studentDocument.findUnique({ where: { id: docId } });
+  if (!doc || doc.studentId !== studentId) throw NotFound('Document not found');
+
+  await deleteFile(doc.fileUrl).catch(() => undefined);
+  await prisma.studentDocument.delete({ where: { id: docId } });
+
+  if (actor) {
+    await logStudentEvent(studentId, actor.userId, 'UPDATED', `Removed student document: "${doc.label}".`);
+  }
+
+  return getStudent(studentId, actor);
+}
+
+export async function downloadDocument(studentId: string, docId: string, res: Response, disposition: 'inline' | 'attachment' = 'attachment') {
+  const doc = await prisma.studentDocument.findUnique({ where: { id: docId } });
+  if (!doc || doc.studentId !== studentId) throw NotFound('Document not found');
+
+  await proxyDownload(doc.fileUrl, res, disposition);
 }

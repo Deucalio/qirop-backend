@@ -10,7 +10,7 @@ attendance (daily + per-period), weekly timetables, and homework with file
 attachments. **Phase 5 is complete** — [Fees](#fees--module-fees) (challans, FIFO
 payment ledger, discounts, PDFs, parent view), [Transport](#transport--module-fees)
 (routes + riders, billed onto challans/salaries), and
-[Salaries & Expenses](#salaries--module-salaries) (payroll with automatic staff-fee
+[Salaries &amp; Expenses](#salaries--module-salaries) (payroll with automatic staff-fee
 recovery, expenses with funding sources, finance summary). Reports are **not**
 built yet.
 
@@ -39,32 +39,32 @@ npm run dev                 # http://localhost:4000
 
 ### Scripts
 
-| Script | Purpose |
-| --- | --- |
-| `npm run dev` | Dev server with watch (tsx) |
-| `npm run build` / `npm start` | Compile to `dist/` and run |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm run prisma:migrate` | Author a new migration (dev) |
-| `npm run prisma:deploy` | Apply migrations (CI/production) |
-| `npm run prisma:seed` | Run the idempotent seed |
-| `npm run prisma:studio` | Open Prisma Studio |
+| Script                            | Purpose                          |
+| --------------------------------- | -------------------------------- |
+| `npm run dev`                   | Dev server with watch (tsx)      |
+| `npm run build` / `npm start` | Compile to`dist/` and run      |
+| `npm run typecheck`             | `tsc --noEmit`                 |
+| `npm run prisma:migrate`        | Author a new migration (dev)     |
+| `npm run prisma:deploy`         | Apply migrations (CI/production) |
+| `npm run prisma:seed`           | Run the idempotent seed          |
+| `npm run prisma:studio`         | Open Prisma Studio               |
 
 ### Environment
 
 Validated once at boot in [`src/config/env.ts`](src/config/env.ts) — the process
 exits with a readable list if anything is missing.
 
-| Variable | Notes |
-| --- | --- |
-| `DATABASE_URL` | Postgres connection string |
-| `JWT_SECRET` | ≥ 16 chars |
-| `JWT_EXPIRES_IN` | Default `7d` |
-| `BCRYPT_ROUNDS` | Default `12` |
-| `CLIENT_ORIGIN` | CORS origin, default `http://localhost:5173` |
-| `PORT` / `NODE_ENV` | Default `4000` / `development` |
-| `COOKIE_SECURE` | `auto` (Secure in prod only), `true`, or `false`. **Set `false` when serving production over plain HTTP** or the browser drops the auth cookie |
-| `SUPERADMIN_CNIC` / `_PASSWORD` / `_NAME` | Seeded superadmin |
-| `FILESTORE_URL` / `_TOKEN` / `_APP_ID` | External file service; the token is **server-side only** |
+| Variable                                        | Notes                                                                                                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                | Postgres connection string                                                                                                                                   |
+| `JWT_SECRET`                                  | ≥ 16 chars                                                                                                                                                  |
+| `JWT_EXPIRES_IN`                              | Default`7d`                                                                                                                                                |
+| `BCRYPT_ROUNDS`                               | Default`12`                                                                                                                                                |
+| `CLIENT_ORIGIN`                               | CORS origin, default`http://localhost:5173`                                                                                                                |
+| `PORT` / `NODE_ENV`                         | Default`4000` / `development`                                                                                                                            |
+| `COOKIE_SECURE`                               | `auto` (Secure in prod only), `true`, or `false`. **Set `false` when serving production over plain HTTP** or the browser drops the auth cookie |
+| `SUPERADMIN_CNIC` / `_PASSWORD` / `_NAME` | Seeded superadmin                                                                                                                                            |
+| `FILESTORE_URL` / `_TOKEN` / `_APP_ID`    | External file service; the token is**server-side only**                                                                                                |
 
 ---
 
@@ -92,14 +92,14 @@ Errors are always `{ error: { message, code, details? } }`. Services throw
 `AppError` / `NotFound` / `Forbidden` from `utils/apiResponse`; the central
 [`errorHandler`](src/middleware/errorHandler.ts) maps everything else:
 
-| Condition | Status | Code |
-| --- | --- | --- |
-| Zod failure | 422 | `VALIDATION_ERROR` (+ field details) |
-| Prisma `P2002` | 409 | `UNIQUE_VIOLATION` |
-| Prisma `P2003` | 409 | `FOREIGN_KEY_VIOLATION` |
-| Prisma `P2025` | 404 | `NOT_FOUND` |
-| **DB unreachable** (`P1000/1/2/8/17`, `P2024`, init errors) | **503** | `DB_UNAVAILABLE` |
-| Multer size limit | 413 | `LIMIT_FILE_SIZE` |
+| Condition                                                             | Status        | Code                                   |
+| --------------------------------------------------------------------- | ------------- | -------------------------------------- |
+| Zod failure                                                           | 422           | `VALIDATION_ERROR` (+ field details) |
+| Prisma`P2002`                                                       | 409           | `UNIQUE_VIOLATION`                   |
+| Prisma`P2003`                                                       | 409           | `FOREIGN_KEY_VIOLATION`              |
+| Prisma`P2025`                                                       | 404           | `NOT_FOUND`                          |
+| **DB unreachable** (`P1000/1/2/8/17`, `P2024`, init errors) | **503** | `DB_UNAVAILABLE`                     |
+| Multer size limit                                                     | 413           | `LIMIT_FILE_SIZE`                    |
 
 > The 503 case matters here: school internet drops regularly, and a connectivity
 > failure is not a client error. The message tells a non-technical user to wait
@@ -222,56 +222,63 @@ All routes are prefixed `/api`. Everything except `/health` and `/auth/login`
 requires the auth cookie.
 
 ### Health & auth
-| Method | Route | Notes |
-| --- | --- | --- |
-| GET | `/health` | DB connectivity check |
-| POST | `/auth/login` | `{ cnic, password }` → httpOnly cookie; rate-limited |
-| POST | `/auth/logout` | Clears the cookie |
-| GET | `/auth/me` | Current user + permissions |
-| POST | `/auth/change-password` | `{ currentPassword, newPassword }` |
+
+| Method | Route                     | Notes                                                   |
+| ------ | ------------------------- | ------------------------------------------------------- |
+| GET    | `/health`               | DB connectivity check                                   |
+| POST   | `/auth/login`           | `{ cnic, password }` → httpOnly cookie; rate-limited |
+| POST   | `/auth/logout`          | Clears the cookie                                       |
+| GET    | `/auth/me`              | Current user + permissions                              |
+| POST   | `/auth/change-password` | `{ currentPassword, newPassword }`                    |
 
 ### School — module `SCHOOL_SETUP`
+
 `GET|PUT /school` · `POST /school/logo` · `GET|PUT /school/settings`
 (settings are **merged**, so sub-configs like `timetable` survive a save).
 
 ### Users & roles — module `USERS`
+
 `GET /admins` · `GET /admins/:id` · `POST /admins` · `PUT /admins/:id` ·
 `PUT /admins/:id/permissions` · `POST /admins/:id/reset-password` ·
 `PATCH /admins/:id/status`
 
 ### Classes, sections, subjects — module `CLASSES`
-| Method | Route | Notes |
-| --- | --- | --- |
-| GET | `/classes` | + section/subject/student counts, rolled-up timetable status, class teachers |
-| POST | `/classes` | `{ name, sections?: string[] }` — omit `sections` for an unsplit class |
-| PUT | `/classes/:id` | Rename (display order is derived from the number in the name) |
-| DELETE | `/classes/:id` | Blocked if it has named sections or students |
-| GET/POST | `/classes/:classId/sections` | Single-letter names |
-| PUT/DELETE | `/sections/:id` | Rename / remove (see section rules above) |
-| GET/POST | `/subjects` | Global subject list, with resolved colours |
-| PUT | `/subjects/:id` | `{ name?, color? }` — `color: null` reverts to automatic |
-| DELETE | `/subjects/:id` | Blocked while mapped to any class |
-| GET | `/subjects/:id/details` | Classes offering it + who teaches it (staff data gated on `STAFF` view) |
-| GET/PUT | `/classes/:classId/subjects` | Class ↔ subject mapping; removing a subject also clears its teaching assignments |
+
+| Method     | Route                          | Notes                                                                             |
+| ---------- | ------------------------------ | --------------------------------------------------------------------------------- |
+| GET        | `/classes`                   | + section/subject/student counts, rolled-up timetable status, class teachers      |
+| POST       | `/classes`                   | `{ name, sections?: string[] }` — omit `sections` for an unsplit class       |
+| PUT        | `/classes/:id`               | Rename (display order is derived from the number in the name)                     |
+| DELETE     | `/classes/:id`               | Blocked if it has named sections or students                                      |
+| GET/POST   | `/classes/:classId/sections` | Single-letter names                                                               |
+| PUT/DELETE | `/sections/:id`              | Rename / remove (see section rules above)                                         |
+| GET/POST   | `/subjects`                  | Global subject list, with resolved colours                                        |
+| PUT        | `/subjects/:id`              | `{ name?, color? }` — `color: null` reverts to automatic                     |
+| DELETE     | `/subjects/:id`              | Blocked while mapped to any class                                                 |
+| GET        | `/subjects/:id/details`      | Classes offering it + who teaches it (staff data gated on`STAFF` view)          |
+| GET/PUT    | `/classes/:classId/subjects` | Class ↔ subject mapping; removing a subject also clears its teaching assignments |
 
 ### Assignments — module `STAFF`
+
 `PUT /sections/:id/class-teacher` · `GET /sections/:sectionId/teaching-assignments` ·
 `PUT /teaching-assignments` · `DELETE /teaching-assignments` ·
 `GET /teachers/:id/assignments`
 
 ### Timetable — module `TIMETABLE`
-| Method | Route | Notes |
-| --- | --- | --- |
-| GET | `/timetable-config` | Computed per-day layout (any authenticated user) |
-| PUT | `/timetable-config` | `{ config, dryRun? }` — preview or apply |
-| GET | `/sections/:id/timetable` | Grid + validity + combined-class partners |
-| GET | `/sections/:id/timetable/slot-options` | Availability for one cell |
-| PUT | `/sections/:id/timetable/slot` | `{ day, periodIndex, subjectId, withSectionIds?, force? }` |
-| PUT | `/sections/:id/timetable/validity` | `{ from, until }` — `until: null` = no end date |
-| GET | `/me/teacher/timetable` | Teacher's own week (role TEACHER) |
-| GET | `/me/children/:studentId/timetable` | Parent view (role PARENT) |
+
+| Method | Route                                    | Notes                                                        |
+| ------ | ---------------------------------------- | ------------------------------------------------------------ |
+| GET    | `/timetable-config`                    | Computed per-day layout (any authenticated user)             |
+| PUT    | `/timetable-config`                    | `{ config, dryRun? }` — preview or apply                  |
+| GET    | `/sections/:id/timetable`              | Grid + validity + combined-class partners                    |
+| GET    | `/sections/:id/timetable/slot-options` | Availability for one cell                                    |
+| PUT    | `/sections/:id/timetable/slot`         | `{ day, periodIndex, subjectId, withSectionIds?, force? }` |
+| PUT    | `/sections/:id/timetable/validity`     | `{ from, until }` — `until: null` = no end date         |
+| GET    | `/me/teacher/timetable`                | Teacher's own week (role TEACHER)                            |
+| GET    | `/me/children/:studentId/timetable`    | Parent view (role PARENT)                                    |
 
 ### People
+
 - **Teachers** (`STAFF`): `GET|POST /teachers`, `GET|PUT /teachers/:id`,
   `PATCH /teachers/:id/status` (lists held assignments; `force` to proceed),
   `POST /teachers/:id/reset-password`, `POST /teachers/:id/photo`,
@@ -304,6 +311,7 @@ requires the auth cookie.
 > one — send `rollNo` alongside `sectionId`.
 
 ### Attendance — module `ATTENDANCE`
+
 `POST /me/teacher/attendance/check-in` · `GET /me/teacher/attendance` ·
 `POST /teachers/:id/attendance` · `GET /teacher-attendance?date=` ·
 `GET|POST /sections/:sectionId/attendance` (class teacher or admin) ·
@@ -313,6 +321,7 @@ requires the auth cookie.
 `GET|POST /sections/:sectionId/period-attendance` (per-period, against the timetable)
 
 ### Homework — module `HOMEWORK`
+
 `GET /homework?classId=&sectionId=&subjectId=&from=&to=` (admin) ·
 `GET /me/teacher/homework` · `POST /homework` (multipart) · `PUT /homework/:id` ·
 `DELETE /homework/:id` · `GET /homework/:id` ·
@@ -322,6 +331,7 @@ requires the auth cookie.
 Teachers may only post for a `(section, subject)` pair they actually teach.
 
 ### Fees — module `FEES`
+
 Fee structures (per class):
 `GET /fee-structures` · `PUT /fee-structures/:classId` (monthly + admission; edit)
 
@@ -380,6 +390,7 @@ per-class breakdown (students, already-billed, will-generate, fee structure,
 staff-child & transport-rider counts, estimated total) that powers the modal.
 
 ### Transport — module `FEES`
+
 `GET /transport/routes` · `POST /transport/routes` (edit) ·
 `GET /transport/routes/:id` (route + its student & teacher riders + monthly total) ·
 `PUT /transport/routes/:id` (edit) · `DELETE /transport/routes/:id` (manage — blocked
@@ -408,6 +419,7 @@ where the registered parent isn't the teacher. `GET /parents` reports `isTeacher
 and `teacherId` so the UI can warn that fees will come out of that salary.
 
 ### Salaries — module `SALARIES`
+
 **Admin-only by construction**: teachers are never granted the `SALARIES`
 permission, so every route here 403s for them — including their own slip.
 
@@ -420,6 +432,7 @@ allowances/deductions; rejected once PAID) · `PATCH /salaries/:id/status` ·
 **Staff-fee settlement** (the part worth understanding): a teacher whose children
 study here — or who rides a school route — has those fees taken out of their pay
 instead of collected in cash.
+
 - Per staff-billed challan, the salary-billable amount is
   `amount − admission items − cash already paid`. **Admission is never billed to a
   salary**; it stays payable by the parent.
@@ -437,6 +450,7 @@ instead of collected in cash.
 the settlement only sees challans that exist at generation time, and slips are idempotent.
 
 ### Expenses & finance — module `EXPENSES`
+
 `GET /expenses?from=&to=&category=&search=` (list + range total) ·
 `POST /expenses` (edit) · `GET /expenses/:id` · `PUT /expenses/:id` (edit) ·
 `DELETE /expenses/:id` (manage) · `POST /expenses/:id/receipt` (edit, multipart
@@ -527,8 +541,8 @@ and parent CNICs plus default passwords are printed to the console afterwards.
    school administrator** can act on.
 4. Any date that represents a school day goes through `utils/pktDate.ts`.
 5. Never return `passwordHash`; never return teacher `salary` to a TEACHER.
-  All file I/O through `services/storage.ts`.
-7. Guard destructive operations, and prefer a **dry-run preview** where a change
+   All file I/O through `services/storage.ts`.
+6. Guard destructive operations, and prefer a **dry-run preview** where a change
    can silently destroy data (see `saveTimetableConfig`).
 
 ### Dual-Role Switcher & Student Parent linkage updates (Phase 2 additions)

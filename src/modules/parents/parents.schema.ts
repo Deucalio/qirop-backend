@@ -10,6 +10,15 @@ export const createParentSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
   occupation: z.string().max(150).nullable().optional(),
   address: z.string().max(500).nullable().optional(),
+  motherName: z.string().max(150).nullable().optional(),
+  motherCnic: z.union([
+    z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X'),
+    z.literal(''),
+    z.null(),
+    z.undefined(),
+  ]),
+  motherPhone: z.string().max(50).nullable().optional(),
+  motherOccupation: z.string().max(150).nullable().optional(),
 });
 
 export const updateParentSchema = z
@@ -18,6 +27,15 @@ export const updateParentSchema = z
     phone: z.string().max(50).nullable().optional(),
     occupation: z.string().max(150).nullable().optional(),
     address: z.string().max(500).nullable().optional(),
+    motherName: z.string().max(150).nullable().optional(),
+    motherCnic: z.union([
+      z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X'),
+      z.literal(''),
+      z.null(),
+      z.undefined(),
+    ]),
+    motherPhone: z.string().max(50).nullable().optional(),
+    motherOccupation: z.string().max(150).nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 

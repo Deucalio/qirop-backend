@@ -4,6 +4,8 @@ import { hashPassword } from '../../utils/password';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import { logAudit } from '../audit/audit.service';
 import type { CreateParentInput, ListParentsQuery, UpdateParentInput } from './parents.schema';
+import { studentDues } from '../students/students.service';
+import { money, ZERO, toMoneyString } from '../../utils/money';
 
 export async function listParents(query: ListParentsQuery) {
   const parents = await prisma.parentProfile.findMany({
@@ -22,23 +24,56 @@ export async function listParents(query: ListParentsQuery) {
     },
     include: {
       user: { include: { teacherProfile: { select: { id: true } } } },
+      students: { select: { id: true } },
       _count: { select: { students: true } },
     },
     orderBy: { user: { fullName: 'asc' } },
   });
-  return parents.map((p) => ({
-    id: p.id,
-    userId: p.userId,
-    fullName: p.user.fullName,
-    cnic: p.user.cnic,
-    phone: p.user.phone,
-    status: p.user.status,
-    occupation: p.occupation,
-    childrenCount: p._count.students,
-    // This parent is also a teacher → their children's fees bill to their salary.
-    isTeacher: p.user.teacherProfile !== null,
-    teacherId: p.user.teacherProfile?.id ?? null,
-  }));
+
+  const allStudentIds: string[] = [];
+  for (const p of parents) {
+    if (p.students) {
+      for (const s of p.students) allStudentIds.push(s.id);
+    }
+  }
+
+  const duesMap = await studentDues(allStudentIds);
+
+  return parents.map((p) => {
+    let totalDues = ZERO;
+    let unpaidCount = 0;
+    if (p.students) {
+      for (const s of p.students) {
+        const d = duesMap.get(s.id);
+        if (d) {
+          totalDues = totalDues.plus(money(d.outstanding));
+          unpaidCount += d.unpaidCount;
+        }
+      }
+    }
+
+    return {
+      id: p.id,
+      userId: p.userId,
+      fullName: p.user.fullName,
+      cnic: p.user.cnic,
+      phone: p.user.phone,
+      status: p.user.status,
+      occupation: p.occupation,
+      motherName: p.motherName,
+      motherCnic: p.motherCnic,
+      motherPhone: p.motherPhone,
+      motherOccupation: p.motherOccupation,
+      childrenCount: p._count.students,
+      collectiveDues: {
+        outstanding: toMoneyString(totalDues),
+        unpaidCount,
+      },
+      // This parent is also a teacher → their children's fees bill to their salary.
+      isTeacher: p.user.teacherProfile !== null,
+      teacherId: p.user.teacherProfile?.id ?? null,
+    };
+  });
 }
 
 export async function getParent(id: string) {
@@ -59,6 +94,10 @@ export async function getParent(id: string) {
     status: parent.user.status,
     occupation: parent.occupation,
     address: parent.address,
+    motherName: parent.motherName,
+    motherCnic: parent.motherCnic,
+    motherPhone: parent.motherPhone,
+    motherOccupation: parent.motherOccupation,
     createdAt: parent.createdAt,
     children: parent.students.map((s) => ({
       id: s.id,
@@ -85,7 +124,14 @@ export async function createParent(actorId: string, input: CreateParentInput) {
       role: Role.PARENT,
       createdById: actorId,
       parentProfile: {
-        create: { occupation: input.occupation ?? null, address: input.address ?? null },
+        create: {
+          occupation: input.occupation ?? null,
+          address: input.address ?? null,
+          motherName: input.motherName ?? null,
+          motherCnic: input.motherCnic ?? null,
+          motherPhone: input.motherPhone ?? null,
+          motherOccupation: input.motherOccupation ?? null,
+        },
       },
     },
     include: { parentProfile: true },
@@ -110,6 +156,10 @@ export async function updateParent(id: string, data: UpdateParentInput, actorId?
     data: {
       occupation: data.occupation === undefined ? undefined : data.occupation,
       address: data.address === undefined ? undefined : data.address,
+      motherName: data.motherName === undefined ? undefined : data.motherName,
+      motherCnic: data.motherCnic === undefined ? undefined : data.motherCnic,
+      motherPhone: data.motherPhone === undefined ? undefined : data.motherPhone,
+      motherOccupation: data.motherOccupation === undefined ? undefined : data.motherOccupation,
       user: {
         update: {
           fullName: data.fullName ?? undefined,
@@ -132,6 +182,18 @@ export async function updateParent(id: string, data: UpdateParentInput, actorId?
   }
   if (data.address !== undefined && (data.address ?? null) !== (parent.address ?? null)) {
     changes.address = { before: parent.address ?? 'None', after: data.address ?? 'None' };
+  }
+  if (data.motherName !== undefined && (data.motherName ?? null) !== (parent.motherName ?? null)) {
+    changes.motherName = { before: parent.motherName ?? 'None', after: data.motherName ?? 'None' };
+  }
+  if (data.motherCnic !== undefined && (data.motherCnic ?? null) !== (parent.motherCnic ?? null)) {
+    changes.motherCnic = { before: parent.motherCnic ?? 'None', after: data.motherCnic ?? 'None' };
+  }
+  if (data.motherPhone !== undefined && (data.motherPhone ?? null) !== (parent.motherPhone ?? null)) {
+    changes.motherPhone = { before: parent.motherPhone ?? 'None', after: data.motherPhone ?? 'None' };
+  }
+  if (data.motherOccupation !== undefined && (data.motherOccupation ?? null) !== (parent.motherOccupation ?? null)) {
+    changes.motherOccupation = { before: parent.motherOccupation ?? 'None', after: data.motherOccupation ?? 'None' };
   }
   if (actorId && Object.keys(changes).length > 0) {
     await logAudit(null, {

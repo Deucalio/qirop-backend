@@ -25,6 +25,9 @@ teachersRouter.put('/:id', manage, validateBody(updateTeacherSchema), asyncHandl
 teachersRouter.patch('/:id/status', manage, validateBody(teacherStatusSchema), asyncHandler(c.updateStatus));
 teachersRouter.post('/:id/reset-password', manage, validateBody(resetPasswordSchema), asyncHandler(c.resetPassword));
 teachersRouter.post('/:id/photo', manage, imageUpload.single('photo'), asyncHandler(c.uploadPhoto));
+teachersRouter.post('/:id/documents', manage, imageUpload.single('file'), asyncHandler(c.addDocument));
+teachersRouter.delete('/:id/documents/:docId', manage, asyncHandler(c.removeDocument));
+teachersRouter.get('/:id/documents/:docId/download', view, asyncHandler(c.downloadDocument));
 teachersRouter.post('/:id/students', manage, asyncHandler(c.linkStudent));
 // Hard-delete (purge every record). ADMIN/SUPERADMIN only — beyond STAFF:manage.
 teachersRouter.delete('/:id', requireRole(Role.SUPERADMIN, Role.ADMIN), asyncHandler(c.purge));
