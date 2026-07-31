@@ -63,6 +63,7 @@ export async function getStudentRosterReport(query: RosterQuery) {
       parentPhone: s.parent.user.phone ?? '—',
       motherName: s.parent.motherName ?? '—',
       transportRoute: s.transportAssignment?.route.name ?? 'None',
+      photoUrl: s.photoUrl,
     })),
   };
 }
@@ -137,6 +138,7 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
         unpaidMonths,
         totalOutstanding: toMoneyString(totalUnpaid),
         lastPaymentDate: s.payments[0] ? pktDayString(s.payments[0].paymentDate) : 'No payments',
+        photoUrl: s.photoUrl,
       };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -222,6 +224,7 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
       leave: counts.leave,
       late: counts.late,
       attendancePct,
+      photoUrl: s.photoUrl,
     };
   });
 
@@ -248,7 +251,7 @@ export async function getStaffAttendanceSummaryReport(query: { year: number; mon
   const [teachers, attendanceRecords] = await Promise.all([
     prisma.teacherProfile.findMany({
       where: { status: 'ACTIVE' },
-      include: { user: { select: { fullName: true, phone: true } } },
+      include: { user: { select: { fullName: true, phone: true, avatarUrl: true } } },
       orderBy: { user: { fullName: 'asc' } },
     }),
     prisma.teacherAttendance.findMany({
@@ -286,6 +289,7 @@ export async function getStaffAttendanceSummaryReport(query: { year: number; mon
       leave: counts.leave,
       late: counts.late,
       attendancePct,
+      avatarUrl: t.user.avatarUrl,
     };
   });
 
@@ -323,7 +327,7 @@ export async function getDailyAbsenteeReport(query: { date: string }) {
     prisma.teacherAttendance.findMany({
       where: { date: targetDate, status: { in: ['ABSENT', 'LEAVE'] } },
       include: {
-        teacher: { include: { user: { select: { fullName: true, phone: true } } } },
+        teacher: { include: { user: { select: { fullName: true, phone: true, avatarUrl: true } } } },
       },
     }),
   ]);
@@ -339,6 +343,7 @@ export async function getDailyAbsenteeReport(query: { date: string }) {
     contactPerson: a.student.parent.user.fullName,
     contactPhone: a.student.parent.user.phone ?? '—',
     note: a.note ?? 'No note',
+    photoUrl: a.student.photoUrl,
   }));
 
   const staff = teacherAbsentees.map((a) => ({
@@ -352,6 +357,7 @@ export async function getDailyAbsenteeReport(query: { date: string }) {
     contactPerson: a.teacher.user.fullName,
     contactPhone: a.teacher.user.phone ?? '—',
     note: 'Staff absence',
+    avatarUrl: a.teacher.user.avatarUrl,
   }));
 
   return {
@@ -502,7 +508,7 @@ export async function getPayrollRegisterReport(query: { year: number; month: num
   const slips = await prisma.salarySlip.findMany({
     where: { year: query.year, month: query.month },
     include: {
-      teacher: { include: { user: { select: { fullName: true, phone: true } } } },
+      teacher: { include: { user: { select: { fullName: true, phone: true, avatarUrl: true } } } },
       generatedBy: { select: { fullName: true } },
     },
     orderBy: { teacher: { user: { fullName: 'asc' } } },
@@ -536,6 +542,7 @@ export async function getPayrollRegisterReport(query: { year: number; month: num
       netSalary: toMoneyString(s.netSalary),
       status: s.status,
       paidDate: s.paidDate ? pktDayString(s.paidDate) : '—',
+      avatarUrl: s.teacher.user.avatarUrl,
     };
   });
 
