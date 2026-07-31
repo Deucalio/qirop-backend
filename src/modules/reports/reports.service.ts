@@ -34,7 +34,7 @@ export async function getStudentRosterReport(query: RosterQuery) {
     where,
     include: {
       section: { include: { class: true } },
-      parent: { include: { user: { select: { fullName: true, phone: true, cnic: true } } } },
+      parent: { include: { user: { select: { fullName: true, phone: true, cnic: true, teacherProfile: { select: { id: true } } } } } },
       transportAssignment: { include: { route: true } },
     },
     orderBy: [{ section: { class: { order: 'asc' } } }, { section: { name: 'asc' } }, { firstName: 'asc' }],
@@ -64,6 +64,7 @@ export async function getStudentRosterReport(query: RosterQuery) {
       motherName: s.parent.motherName ?? '—',
       transportRoute: s.transportAssignment?.route.name ?? 'None',
       photoUrl: s.photoUrl,
+      isStaffParent: !!s.teacherParentId || !!s.parent.user.teacherProfile,
     })),
   };
 }
@@ -94,7 +95,7 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
     where: whereStudent,
     include: {
       section: { include: { class: true } },
-      parent: { include: { user: { select: { fullName: true, phone: true } } } },
+      parent: { include: { user: { select: { fullName: true, phone: true, teacherProfile: { select: { id: true } } } } } },
       challans: {
         where: { status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] } },
         include: { allocations: true },
@@ -139,6 +140,7 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
         totalOutstanding: toMoneyString(totalUnpaid),
         lastPaymentDate: s.payments[0] ? pktDayString(s.payments[0].paymentDate) : 'No payments',
         photoUrl: s.photoUrl,
+        isStaffParent: !!s.teacherParentId || !!s.parent.user.teacherProfile,
       };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -309,23 +311,32 @@ export async function getStaffAttendanceSummaryReport(query: { year: number; mon
   };
 }
 
-export async function getDailyAbsenteeReport(query: { date: string }) {
-  const targetDate = parsePktDay(query.date);
+export async function getDailyAbsenteeReport(query: { date?: string; from?: string; to?: string }) {
+  let dateWhere: Prisma.DateTimeFilter;
+  if (query.from && query.to) {
+    const start = parsePktDay(query.from);
+    const end = parsePktDay(query.to);
+    end.setUTCHours(23, 59, 59, 999);
+    dateWhere = { gte: start, lte: end };
+  } else {
+    const targetDate = parsePktDay(query.date ?? pktDayString(new Date()));
+    dateWhere = { equals: targetDate };
+  }
 
   const [studentAbsentees, teacherAbsentees] = await Promise.all([
     prisma.studentAttendance.findMany({
-      where: { date: targetDate, status: { in: ['ABSENT', 'LEAVE'] } },
+      where: { date: dateWhere, status: { in: ['ABSENT', 'LEAVE'] } },
       include: {
         student: {
           include: {
             section: { include: { class: true } },
-            parent: { include: { user: { select: { fullName: true, phone: true } } } },
+            parent: { include: { user: { select: { fullName: true, phone: true, teacherProfile: { select: { id: true } } } } } },
           },
         },
       },
     }),
     prisma.teacherAttendance.findMany({
-      where: { date: targetDate, status: { in: ['ABSENT', 'LEAVE'] } },
+      where: { date: dateWhere, status: { in: ['ABSENT', 'LEAVE'] } },
       include: {
         teacher: { include: { user: { select: { fullName: true, phone: true, avatarUrl: true } } } },
       },
@@ -342,6 +353,7 @@ export async function getDailyAbsenteeReport(query: { date: string }) {
     status: a.status,
     contactPerson: a.student.parent.user.fullName,
     contactPhone: a.student.parent.user.phone ?? '—',
+    isStaffParent: !!a.student.teacherParentId || !!a.student.parent.user.teacherProfile,
     note: a.note ?? 'No note',
     photoUrl: a.student.photoUrl,
   }));
@@ -356,12 +368,13 @@ export async function getDailyAbsenteeReport(query: { date: string }) {
     status: a.status,
     contactPerson: a.teacher.user.fullName,
     contactPhone: a.teacher.user.phone ?? '—',
+    isStaffParent: true,
     note: 'Staff absence',
     avatarUrl: a.teacher.user.avatarUrl,
   }));
 
   return {
-    date: query.date,
+    date: query.date ?? `${query.from} to ${query.to}`,
     totalAbsentees: students.length + staff.length,
     studentsCount: students.length,
     staffCount: staff.length,
@@ -621,10 +634,11 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
       month: q.month ?? 1,
     });
   } else if (q.reportType === 'daily-absentees') {
-    // For daily absentees in saved reports, we use the first day of month or year
-    const targetDate = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-01` : `${q.year}-01-01`;
-    title = `Daily Absentee Report (${targetDate})`;
-    data = await getDailyAbsenteeReport({ date: targetDate });
+    const from = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-01` : `${q.year}-01-01`;
+    const lastDay = q.month ? new Date(Date.UTC(q.year, q.month, 0)).getUTCDate() : 31;
+    const to = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` : `${q.year}-12-31`;
+    title = `Daily Absentee Report (${periodLabel})`;
+    data = await getDailyAbsenteeReport({ from, to });
   } else if (q.reportType === 'fees') {
     title = `Fee Collections Audit (${periodLabel})`;
     const from = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-01` : `${q.year}-01-01`;
