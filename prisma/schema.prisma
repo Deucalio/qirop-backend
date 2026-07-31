@@ -897,3 +897,21 @@ model TransportAssignment {
   @@index([routeId])
 }
 
+model SavedReport {
+  id          String   @id @default(cuid())
+  reportType  String   // e.g. "roster", "defaulters", "student-summary", "staff-summary", "daily-absentees", "fees", "expenses", "payroll"
+  title       String
+  periodType  String   // "monthly" or "yearly"
+  year        Int
+  month       Int?     // null if yearly
+  classId     String?  // optional class scoped
+  sectionId   String?  // optional section scoped
+  data        Json
+  generatedBy String
+  generatedAt DateTime @default(now())
+
+  @@unique([reportType, periodType, year, month, classId, sectionId])
+  @@index([reportType])
+}
+
+

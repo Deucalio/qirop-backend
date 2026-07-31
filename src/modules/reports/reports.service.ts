@@ -554,3 +554,154 @@ export async function getPayrollRegisterReport(query: { year: number; month: num
     rows,
   };
 }
+
+export interface SavedReportQuery {
+  reportType: string;
+  periodType: string;
+  year: number;
+  month?: number | null;
+  classId?: string | null;
+  sectionId?: string | null;
+}
+
+export async function findSavedReport(q: SavedReportQuery) {
+  return prisma.savedReport.findUnique({
+    where: {
+      reportType_periodType_year_month_classId_sectionId: {
+        reportType: q.reportType,
+        periodType: q.periodType,
+        year: q.year,
+        month: q.month ?? 0,
+        classId: q.classId ?? 'all',
+        sectionId: q.sectionId ?? 'all',
+      },
+    },
+  });
+}
+
+export async function createSavedReport(q: SavedReportQuery, generatedBy: string) {
+  let title = '';
+  let data: any = null;
+
+  const monthLabel = q.month ? MONTHS[q.month] : '';
+  const periodLabel = q.periodType === 'monthly' ? `${monthLabel} ${q.year}` : `Year ${q.year}`;
+
+  // Generate data based on report type
+  if (q.reportType === 'roster') {
+    title = `Student Roster & Directory (${periodLabel})`;
+    data = await getStudentRosterReport({
+      classId: q.classId ?? undefined,
+      sectionId: q.sectionId ?? undefined,
+    });
+  } else if (q.reportType === 'defaulters') {
+    title = `Fee Defaulters Audit (${periodLabel})`;
+    data = await getFeeDefaultersReport({
+      classId: q.classId ?? undefined,
+      sectionId: q.sectionId ?? undefined,
+    });
+  } else if (q.reportType === 'student-summary') {
+    title = `Student Attendance Summary (${periodLabel})`;
+    data = await getStudentAttendanceSummaryReport({
+      year: q.year,
+      month: q.month ?? 1,
+      classId: q.classId ?? undefined,
+      sectionId: q.sectionId ?? undefined,
+    });
+  } else if (q.reportType === 'staff-summary') {
+    title = `Staff Attendance Summary (${periodLabel})`;
+    data = await getStaffAttendanceSummaryReport({
+      year: q.year,
+      month: q.month ?? 1,
+    });
+  } else if (q.reportType === 'daily-absentees') {
+    // For daily absentees in saved reports, we use the first day of month or year
+    const targetDate = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-01` : `${q.year}-01-01`;
+    title = `Daily Absentee Report (${targetDate})`;
+    data = await getDailyAbsenteeReport({ date: targetDate });
+  } else if (q.reportType === 'fees') {
+    title = `Fee Collections Audit (${periodLabel})`;
+    const from = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-01` : `${q.year}-01-01`;
+    const lastDay = q.month ? new Date(Date.UTC(q.year, q.month, 0)).getUTCDate() : 31;
+    const to = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` : `${q.year}-12-31`;
+    data = await getFeeCollectionsAuditReport({ from, to });
+  } else if (q.reportType === 'expenses') {
+    title = `Expense Ledger Audit (${periodLabel})`;
+    const from = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-01` : `${q.year}-01-01`;
+    const lastDay = q.month ? new Date(Date.UTC(q.year, q.month, 0)).getUTCDate() : 31;
+    const to = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` : `${q.year}-12-31`;
+    data = await getExpenseLedgerAuditReport({ from, to });
+  } else if (q.reportType === 'payroll') {
+    title = `Payroll Register (${periodLabel})`;
+    data = await getPayrollRegisterReport({
+      year: q.year,
+      month: q.month ?? 1,
+    });
+  } else {
+    throw new AppError('Unknown report type', 400);
+  }
+
+  // Check if already exists, delete if so to overwrite
+  const existing = await findSavedReport(q);
+  if (existing) {
+    await prisma.savedReport.delete({ where: { id: existing.id } });
+  }
+
+  return prisma.savedReport.create({
+    data: {
+      reportType: q.reportType,
+      periodType: q.periodType,
+      year: q.year,
+      month: q.month ?? 0,
+      classId: q.classId ?? 'all',
+      sectionId: q.sectionId ?? 'all',
+      title,
+      data: data as any,
+      generatedBy,
+    },
+  });
+}
+
+export async function deleteSavedReport(id: string) {
+  return prisma.savedReport.delete({
+    where: { id },
+  });
+}
+
+export async function listSavedReports() {
+  return prisma.savedReport.findMany({
+    select: {
+      id: true,
+      reportType: true,
+      title: true,
+      periodType: true,
+      year: true,
+      month: true,
+      classId: true,
+      sectionId: true,
+      generatedBy: true,
+      generatedAt: true,
+    },
+    orderBy: {
+      generatedAt: 'desc',
+    },
+  });
+}
+
+
+const MONTHS = [
+  '',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December'
+];
+
+

@@ -20,3 +20,11 @@ reportsRouter.get('/attendance/daily-absentees', view, asyncHandler(c.dailyAbsen
 reportsRouter.get('/finance/fee-collections', view, asyncHandler(c.feeCollectionsAudit));
 reportsRouter.get('/finance/expenses-audit', view, asyncHandler(c.expenseLedgerAudit));
 reportsRouter.get('/finance/payroll-register', view, asyncHandler(c.payrollRegister));
+
+// Saved snapshots management
+reportsRouter.get('/saved/list', view, asyncHandler(c.listSaved));
+reportsRouter.get('/saved', view, asyncHandler(c.getSaved));
+reportsRouter.post('/saved', requirePermission(PermissionModule.REPORTS, 'edit'), asyncHandler(c.createSaved));
+reportsRouter.delete('/saved/:id', requirePermission(PermissionModule.REPORTS, 'manage'), asyncHandler(c.removeSaved));
+
+
