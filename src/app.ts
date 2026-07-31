@@ -47,6 +47,7 @@ import { transportRouter } from './modules/transport/transport.routes';
 import { salariesRouter } from './modules/salaries/salaries.routes';
 import { expensesRouter, financeRouter } from './modules/expenses/expenses.routes';
 import auditRouter from './modules/audit/audit.routes';
+import { reportsRouter } from './modules/reports/reports.routes';
 import { requireAuth } from './middleware/requireAuth';
 import { requireRole } from './middleware/requireRole';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -106,6 +107,7 @@ export function createApp(): Express {
   app.use('/api/expenses', expensesRouter);
   app.use('/api/finance', financeRouter);
   app.use('/api/audit', auditRouter);
+  app.use('/api/reports', reportsRouter);
   app.use('/api/teaching-assignments', teachingAssignmentsRouter);
   app.use('/api/teacher-attendance', teacherAttendanceRouter);
   app.use('/api/attendance', attendanceRouter);
