@@ -13,15 +13,14 @@ export interface Actor {
   role: Role;
 }
 
-/** A staff-billed challan's salary-billable amount = total − admission − cash already paid. */
+/** A staff-billed challan's salary-billable amount = total − cash already paid. */
 function billableOf(c: {
   amount: Prisma.Decimal;
   items: { type: FeeItemType; amount: Prisma.Decimal }[];
   allocations: { amountApplied: Prisma.Decimal; payment: { isReversed: boolean } }[];
 }): Money {
-  const admission = sum(c.items.filter((i) => i.type === FeeItemType.ADMISSION).map((i) => i.amount));
   const cash = sum(c.allocations.filter((a) => !a.payment.isReversed).map((a) => a.amountApplied));
-  return round2(Decimal.max(0, money(c.amount).minus(admission).minus(cash)));
+  return round2(Decimal.max(0, money(c.amount).minus(cash)));
 }
 
 // ---------------------------------------------------------------------------
