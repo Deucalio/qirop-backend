@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma';
-import { parsePktDay, pktDayString } from '../../utils/pktDate';
+import { parsePktDay, pktDayString, pktTime12HourString } from '../../utils/pktDate';
 import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
 import { AppError } from '../../utils/apiResponse';
 import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus } from '@prisma/client';
@@ -167,9 +167,15 @@ export interface StudentAttendanceSummaryQuery {
   sectionId?: string;
 }
 
+const MONTH_NAMES_LIST = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 export async function getStudentAttendanceSummaryReport(query: StudentAttendanceSummaryQuery) {
-  const start = new Date(Date.UTC(query.year, query.month - 1, 1));
-  const end = new Date(Date.UTC(query.year, query.month, 0, 23, 59, 59));
+  const isYearly = !query.month || query.month === 0;
+  const start = isYearly ? new Date(Date.UTC(query.year, 0, 1)) : new Date(Date.UTC(query.year, query.month - 1, 1));
+  const end = isYearly ? new Date(Date.UTC(query.year, 11, 31, 23, 59, 59)) : new Date(Date.UTC(query.year, query.month, 0, 23, 59, 59));
 
   const whereStudent: Prisma.StudentWhereInput = {
     status: 'ACTIVE',
@@ -191,12 +197,14 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
         ...(query.classId && query.classId !== 'all' ? { section: { classId: query.classId } } : {}),
         ...(query.sectionId && query.sectionId !== 'all' ? { sectionId: query.sectionId } : {}),
       },
-      select: { studentId: true, status: true, date: true },
+      select: { id: true, studentId: true, status: true, date: true, createdAt: true, note: true },
+      orderBy: { date: 'asc' },
     }),
   ]);
 
   const distinctDays = new Set(attendanceRecords.map((r) => r.date.toISOString().slice(0, 10))).size;
   const attMap = new Map<string, { present: number; absent: number; leave: number; late: number }>();
+  const monthlyMap = new Map<string, Map<number, { present: number; absent: number; leave: number; late: number; markedTime?: string; dailyLogs: any[] }>>();
 
   for (const r of attendanceRecords) {
     const cur = attMap.get(r.studentId) ?? { present: 0, absent: 0, leave: 0, late: 0 };
@@ -205,13 +213,67 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
     else if (r.status === 'LEAVE') cur.leave += 1;
     else if (r.status === 'LATE') cur.late += 1;
     attMap.set(r.studentId, cur);
+
+    const m = r.date.getUTCMonth();
+    let studentMonths = monthlyMap.get(r.studentId);
+    if (!studentMonths) {
+      studentMonths = new Map();
+      monthlyMap.set(r.studentId, studentMonths);
+    }
+    const mCur = studentMonths.get(m) ?? { present: 0, absent: 0, leave: 0, late: 0, dailyLogs: [] };
+    if (r.status === 'PRESENT') mCur.present += 1;
+    else if (r.status === 'ABSENT') mCur.absent += 1;
+    else if (r.status === 'LEAVE') mCur.leave += 1;
+    else if (r.status === 'LATE') mCur.late += 1;
+
+    const pktDateStr = pktDayString(r.date);
+    const dayName = new Date(r.date).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Karachi' });
+    const pktTime = r.createdAt ? pktTime12HourString(r.createdAt) : '—';
+    
+    if (!mCur.markedTime) {
+      mCur.markedTime = pktTime;
+    }
+
+    mCur.dailyLogs.push({
+      id: r.id,
+      date: pktDateStr,
+      dayName,
+      status: r.status,
+      markedTime: pktTime,
+      note: r.note ?? null,
+    });
+
+    studentMonths.set(m, mCur);
   }
 
   const rows = students.map((s) => {
     const counts = attMap.get(s.id) ?? { present: 0, absent: 0, leave: 0, late: 0 };
     const totalMarked = counts.present + counts.absent + counts.leave + counts.late;
     const effectivePresent = counts.present + counts.late;
-    const attendancePct = totalMarked > 0 ? Math.round((effectivePresent / totalMarked) * 100) : 100;
+    const attendancePct = totalMarked > 0 ? Math.round((effectivePresent / totalMarked) * 100) : 0;
+
+    const studentMonths = monthlyMap.get(s.id);
+    const monthlyBreakdown = MONTH_NAMES_LIST.map((mName, idx) => {
+      const mData = studentMonths?.get(idx) ?? { present: 0, absent: 0, leave: 0, late: 0, dailyLogs: [] };
+      const mTotal = mData.present + mData.absent + mData.leave + mData.late;
+      const mEff = mData.present + mData.late;
+      const mPct = mTotal > 0 ? Math.round((mEff / mTotal) * 100) : 0;
+      return {
+        month: idx + 1,
+        monthName: mName,
+        present: mData.present,
+        absent: mData.absent,
+        leave: mData.leave,
+        late: mData.late,
+        totalMarkedDays: mTotal,
+        attendancePct: mPct,
+        markedTime: mData.markedTime ?? '—',
+        dailyLogs: (mData.dailyLogs || []).sort((a: any, b: any) => a.date.localeCompare(b.date)),
+      };
+    });
+
+    const selectedMonthIdx = query.month > 0 ? query.month - 1 : null;
+    const dailyLogs = selectedMonthIdx !== null ? (monthlyBreakdown[selectedMonthIdx]?.dailyLogs || []) : [];
 
     return {
       id: s.id,
@@ -227,12 +289,14 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
       late: counts.late,
       attendancePct,
       photoUrl: s.photoUrl,
+      monthlyBreakdown,
+      dailyLogs,
     };
   });
 
   const totalRecords = rows.reduce((s, r) => s + r.totalMarkedDays, 0);
   const totalPresent = rows.reduce((s, r) => s + r.present + r.late, 0);
-  const overallClassPct = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 100;
+  const overallClassPct = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 0;
 
   return {
     summary: {
@@ -247,23 +311,26 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
 }
 
 export async function getStaffAttendanceSummaryReport(query: { year: number; month: number }) {
-  const start = new Date(Date.UTC(query.year, query.month - 1, 1));
-  const end = new Date(Date.UTC(query.year, query.month, 0, 23, 59, 59));
+  const isYearly = !query.month || query.month === 0;
+  const start = isYearly ? new Date(Date.UTC(query.year, 0, 1)) : new Date(Date.UTC(query.year, query.month - 1, 1));
+  const end = isYearly ? new Date(Date.UTC(query.year, 11, 31, 23, 59, 59)) : new Date(Date.UTC(query.year, query.month, 0, 23, 59, 59));
 
   const [teachers, attendanceRecords] = await Promise.all([
     prisma.teacherProfile.findMany({
       where: { status: 'ACTIVE' },
-      include: { user: { select: { fullName: true, phone: true, avatarUrl: true } } },
+      include: { user: { select: { fullName: true, phone: true, avatarUrl: true, cnic: true } } },
       orderBy: { user: { fullName: 'asc' } },
     }),
     prisma.teacherAttendance.findMany({
       where: { date: { gte: start, lte: end } },
-      select: { teacherId: true, status: true, date: true, checkInTime: true },
+      select: { id: true, teacherId: true, status: true, date: true, checkInTime: true, createdAt: true },
+      orderBy: { date: 'asc' },
     }),
   ]);
 
   const distinctDays = new Set(attendanceRecords.map((r) => r.date.toISOString().slice(0, 10))).size;
   const attMap = new Map<string, { present: number; absent: number; leave: number; late: number }>();
+  const monthlyMap = new Map<string, Map<number, { present: number; absent: number; leave: number; late: number; markedTime?: string; dailyLogs: any[] }>>();
 
   for (const r of attendanceRecords) {
     const cur = attMap.get(r.teacherId) ?? { present: 0, absent: 0, leave: 0, late: 0 };
@@ -272,19 +339,75 @@ export async function getStaffAttendanceSummaryReport(query: { year: number; mon
     else if (r.status === 'LEAVE') cur.leave += 1;
     else if (r.status === 'LATE') cur.late += 1;
     attMap.set(r.teacherId, cur);
+
+    const m = r.date.getUTCMonth();
+    let teacherMonths = monthlyMap.get(r.teacherId);
+    if (!teacherMonths) {
+      teacherMonths = new Map();
+      monthlyMap.set(r.teacherId, teacherMonths);
+    }
+    const mCur = teacherMonths.get(m) ?? { present: 0, absent: 0, leave: 0, late: 0, dailyLogs: [] };
+    if (r.status === 'PRESENT') mCur.present += 1;
+    else if (r.status === 'ABSENT') mCur.absent += 1;
+    else if (r.status === 'LEAVE') mCur.leave += 1;
+    else if (r.status === 'LATE') mCur.late += 1;
+
+    const pktDateStr = pktDayString(r.date);
+    const dayName = new Date(r.date).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Karachi' });
+    const rawDate = r.checkInTime ?? r.createdAt;
+    const pktTime = rawDate ? pktTime12HourString(rawDate) : '—';
+    
+    if (!mCur.markedTime) {
+      mCur.markedTime = pktTime;
+    }
+
+    mCur.dailyLogs.push({
+      id: r.id,
+      date: pktDateStr,
+      dayName,
+      status: r.status,
+      markedTime: pktTime,
+      note: null,
+    });
+
+    teacherMonths.set(m, mCur);
   }
 
   const rows = teachers.map((t) => {
     const counts = attMap.get(t.id) ?? { present: 0, absent: 0, leave: 0, late: 0 };
     const totalMarked = counts.present + counts.absent + counts.leave + counts.late;
     const effectivePresent = counts.present + counts.late;
-    const attendancePct = totalMarked > 0 ? Math.round((effectivePresent / totalMarked) * 100) : 100;
+    const attendancePct = totalMarked > 0 ? Math.round((effectivePresent / totalMarked) * 100) : 0;
+
+    const teacherMonths = monthlyMap.get(t.id);
+    const monthlyBreakdown = MONTH_NAMES_LIST.map((mName, idx) => {
+      const mData = teacherMonths?.get(idx) ?? { present: 0, absent: 0, leave: 0, late: 0, dailyLogs: [] };
+      const mTotal = mData.present + mData.absent + mData.leave + mData.late;
+      const mEff = mData.present + mData.late;
+      const mPct = mTotal > 0 ? Math.round((mEff / mTotal) * 100) : 0;
+      return {
+        month: idx + 1,
+        monthName: mName,
+        present: mData.present,
+        absent: mData.absent,
+        leave: mData.leave,
+        late: mData.late,
+        totalMarkedDays: mTotal,
+        attendancePct: mPct,
+        markedTime: mData.markedTime ?? '—',
+        dailyLogs: (mData.dailyLogs || []).sort((a: any, b: any) => a.date.localeCompare(b.date)),
+      };
+    });
+
+    const selectedMonthIdx = query.month > 0 ? query.month - 1 : null;
+    const dailyLogs = selectedMonthIdx !== null ? (monthlyBreakdown[selectedMonthIdx]?.dailyLogs || []) : [];
 
     return {
       id: t.id,
       employeeId: t.employeeId,
       name: t.user.fullName,
       phone: t.user.phone ?? '—',
+      cnic: t.user.cnic ?? '—',
       totalMarkedDays: totalMarked,
       present: counts.present,
       absent: counts.absent,
@@ -292,12 +415,14 @@ export async function getStaffAttendanceSummaryReport(query: { year: number; mon
       late: counts.late,
       attendancePct,
       avatarUrl: t.user.avatarUrl,
+      monthlyBreakdown,
+      dailyLogs,
     };
   });
 
   const totalRecords = rows.reduce((s, r) => s + r.totalMarkedDays, 0);
   const totalPresent = rows.reduce((s, r) => s + r.present + r.late, 0);
-  const overallStaffPct = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 100;
+  const overallStaffPct = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 0;
 
   return {
     summary: {

@@ -20,6 +20,22 @@ export function pktDayString(input?: Date | string | number): string {
   return pktDay(input).toISOString().slice(0, 10);
 }
 
+/** 'hh:mm AM/PM' 12-hour formatted time string in PKT timezone. */
+export function pktTime12HourString(input?: Date | string | number): string {
+  if (!input) return '—';
+  const base = new Date(input);
+  if (isNaN(base.getTime())) return '—';
+  const shifted = new Date(base.getTime() + PKT_OFFSET_MS);
+  let hours = shifted.getUTCHours();
+  const minutes = shifted.getUTCMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  const hoursStr = String(hours).padStart(2, '0');
+  const minutesStr = String(minutes).padStart(2, '0');
+  return `${hoursStr}:${minutesStr} ${ampm}`;
+}
+
 /** Parse a 'YYYY-MM-DD' PKT calendar date to its canonical UTC-midnight Date. */
 export function parsePktDay(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
