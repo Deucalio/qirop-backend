@@ -748,12 +748,28 @@ model Expense {
   // Who actually paid for this expense (sum must equal `amount`).
   funding ExpenseFunding[]
 
+  // Receipt image/document attachments (up to 10 files).
+  attachments ExpenseAttachment[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([category])
   @@index([date])
   @@index([recordedById])
+}
+
+model ExpenseAttachment {
+  id        String   @id @default(cuid())
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  fileUrl   String
+  fileName  String?
+  fileSize  Int?
+  mimeType  String?
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
 }
 
 // One funding source for an expense (school cash/bank, someone's own pocket, …).

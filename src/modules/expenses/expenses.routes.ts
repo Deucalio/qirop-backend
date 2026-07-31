@@ -24,6 +24,9 @@ expensesRouter.put('/:id', edit, validateBody(updateExpenseSchema), asyncHandler
 expensesRouter.delete('/:id', manage, asyncHandler(c.remove));
 expensesRouter.post('/:id/receipt', edit, imageUpload.single('receipt'), asyncHandler(c.uploadReceipt));
 expensesRouter.get('/:id/receipt', view, asyncHandler(c.downloadReceipt));
+expensesRouter.post('/:id/attachments', edit, imageUpload.single('file'), asyncHandler(c.addAttachment));
+expensesRouter.delete('/attachments/:attachmentId', edit, asyncHandler(c.deleteAttachment));
+expensesRouter.get('/attachments/:attachmentId/download', view, asyncHandler(c.downloadAttachment));
 
 // Finance overview (income vs expenses vs salaries). Gated by EXPENSES view.
 export const financeRouter = Router();

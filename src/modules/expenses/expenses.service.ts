@@ -50,12 +50,37 @@ async function audit(userId: string, action: string, entityId: string, metadata:
   }
 }
 
+import { publicUrl, uploadFile } from '../../services/storage';
+
 const expenseInclude = {
   recordedBy: { select: { fullName: true } },
   funding: { include: { payer: { select: { fullName: true } } } },
+  attachments: { orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.ExpenseInclude;
 
 function shape(e: Prisma.ExpenseGetPayload<{ include: typeof expenseInclude }>) {
+  const attachments = (e.attachments && e.attachments.length > 0)
+    ? e.attachments.map((att) => ({
+        id: att.id,
+        fileUrl: publicUrl(att.fileUrl),
+        fileName: att.fileName ?? 'Receipt Image',
+        fileSize: att.fileSize ?? 0,
+        mimeType: att.mimeType ?? null,
+        downloadUrl: `/api/expenses/attachments/${att.id}/download`,
+      }))
+    : e.attachmentUrl
+    ? [
+        {
+          id: 'legacy',
+          fileUrl: publicUrl(e.attachmentUrl),
+          fileName: 'Receipt',
+          fileSize: 0,
+          mimeType: null,
+          downloadUrl: `/api/expenses/${e.id}/receipt`,
+        },
+      ]
+    : [];
+
   return {
     id: e.id,
     category: e.category,
@@ -63,8 +88,9 @@ function shape(e: Prisma.ExpenseGetPayload<{ include: typeof expenseInclude }>) 
     amount: toMoneyString(e.amount),
     date: pktDayString(e.date),
     note: e.note,
-    hasReceipt: !!e.attachmentUrl,
-    receiptUrl: e.attachmentUrl ? `/expenses/${e.id}/receipt` : null,
+    hasReceipt: attachments.length > 0,
+    receiptUrl: attachments.length > 0 ? attachments[0].downloadUrl : null,
+    attachments,
     recordedBy: e.recordedBy.fullName,
     funding: e.funding.map((f) => ({
       id: f.id,
@@ -178,10 +204,13 @@ export async function updateExpense(actor: Actor, id: string, input: UpdateExpen
 }
 
 export async function deleteExpense(actor: Actor, id: string) {
-  const e = await prisma.expense.findUnique({ where: { id } });
+  const e = await prisma.expense.findUnique({ where: { id }, include: { attachments: true } });
   if (!e) throw NotFound('Expense not found');
-  await prisma.expense.delete({ where: { id } }); // funding cascades
+  await prisma.expense.delete({ where: { id } }); // funding and attachments cascade
   if (e.attachmentUrl) await deleteFile(e.attachmentUrl).catch(() => undefined);
+  for (const att of e.attachments) {
+    await deleteFile(att.fileUrl).catch(() => undefined);
+  }
   const u = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
   await audit(actor.userId, 'DELETE', id, {
     title: e.title,
@@ -190,19 +219,66 @@ export async function deleteExpense(actor: Actor, id: string) {
   return { id, deleted: true };
 }
 
-export async function setReceipt(actor: Actor, id: string, buffer: Buffer, originalName: string, contentType?: string) {
-  const e = await prisma.expense.findUnique({ where: { id } });
+export async function addExpenseAttachment(
+  actor: Actor,
+  expenseId: string,
+  buffer: Buffer,
+  originalName: string,
+  mimeType?: string,
+) {
+  const e = await prisma.expense.findUnique({ where: { id: expenseId }, include: { attachments: true } });
   if (!e) throw NotFound('Expense not found');
-  const path = await replaceFile(e.attachmentUrl, buffer, originalName, `/expenses/${id}`, contentType);
-  await prisma.expense.update({ where: { id }, data: { attachmentUrl: path } });
-  await audit(actor.userId, 'EXPENSE_RECEIPT_SET', id, {});
-  return getExpense(id);
+
+  if (e.attachments.length >= 10) {
+    throw new AppError('An expense cannot have more than 10 receipt attachments', 400, 'ATTACHMENT_LIMIT');
+  }
+
+  const filePath = await uploadFile(buffer, originalName, `/expenses/${expenseId}`, mimeType);
+  const attachment = await prisma.expenseAttachment.create({
+    data: {
+      expenseId,
+      fileUrl: filePath,
+      fileName: originalName,
+      fileSize: buffer.length,
+      mimeType: mimeType ?? null,
+    },
+  });
+
+  await audit(actor.userId, 'EXPENSE_ATTACHMENT_ADD', expenseId, { fileName: originalName });
+  return getExpense(expenseId);
+}
+
+export async function removeExpenseAttachment(actor: Actor, attachmentId: string) {
+  const att = await prisma.expenseAttachment.findUnique({ where: { id: attachmentId } });
+  if (!att) throw NotFound('Attachment not found');
+
+  await deleteFile(att.fileUrl).catch(() => undefined);
+  await prisma.expenseAttachment.delete({ where: { id: attachmentId } });
+
+  await audit(actor.userId, 'EXPENSE_ATTACHMENT_DELETE', att.expenseId, { attachmentId });
+  return getExpense(att.expenseId);
+}
+
+export async function downloadExpenseAttachment(attachmentId: string, res: Response) {
+  const att = await prisma.expenseAttachment.findUnique({ where: { id: attachmentId } });
+  if (!att) throw NotFound('Attachment not found');
+  await proxyDownload(att.fileUrl, res);
+}
+
+export async function setReceipt(actor: Actor, id: string, buffer: Buffer, originalName: string, contentType?: string) {
+  return addExpenseAttachment(actor, id, buffer, originalName, contentType);
 }
 
 export async function streamReceipt(id: string, res: Response) {
-  const e = await prisma.expense.findUnique({ where: { id } });
-  if (!e || !e.attachmentUrl) throw NotFound('No receipt on this expense');
-  await proxyDownload(e.attachmentUrl, res);
+  const e = await prisma.expense.findUnique({ where: { id }, include: { attachments: true } });
+  if (!e) throw NotFound('Expense not found');
+  if (e.attachments.length > 0) {
+    await proxyDownload(e.attachments[0].fileUrl, res);
+  } else if (e.attachmentUrl) {
+    await proxyDownload(e.attachmentUrl, res);
+  } else {
+    throw NotFound('No receipt on this expense');
+  }
 }
 
 /** Category totals for a period (defaults to the given month). */
@@ -222,21 +298,87 @@ export async function expensesSummary(from: string, to: string) {
   };
 }
 
-/** Year-long income (fees collected) vs expenses vs salaries, month by month. */
+/** Year-long income (fees collected) vs expenses vs salaries, month by month, with detailed breakdown. */
 export async function financeSummary(year: number) {
   const start = new Date(Date.UTC(year, 0, 1));
   const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
 
   const [payments, expenses, salaries] = await Promise.all([
-    prisma.feePayment.findMany({ where: { isReversed: false, paymentDate: { gte: start, lte: end } }, select: { amount: true, paymentDate: true } }),
-    prisma.expense.findMany({ where: { date: { gte: start, lte: end } }, select: { amount: true, date: true } }),
-    prisma.salarySlip.findMany({ where: { year }, select: { netSalary: true, month: true } }),
+    prisma.feePayment.findMany({
+      where: { isReversed: false, paymentDate: { gte: start, lte: end } },
+      include: {
+        allocations: {
+          include: {
+            challan: {
+              include: { items: true },
+            },
+          },
+        },
+      },
+    }),
+    prisma.expense.findMany({
+      where: { date: { gte: start, lte: end } },
+      select: { amount: true, category: true, date: true },
+    }),
+    prisma.salarySlip.findMany({
+      where: { year },
+      select: { netSalary: true, basicSalary: true, staffFeeDeduction: true, month: true, status: true },
+    }),
   ]);
 
-  const rows = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, income: ZERO, expenses: ZERO, salaries: ZERO }));
-  for (const p of payments) rows[p.paymentDate.getUTCMonth()].income = rows[p.paymentDate.getUTCMonth()].income.plus(p.amount);
-  for (const e of expenses) rows[e.date.getUTCMonth()].expenses = rows[e.date.getUTCMonth()].expenses.plus(e.amount);
-  for (const s of salaries) rows[s.month - 1].salaries = rows[s.month - 1].salaries.plus(s.netSalary);
+  const rows = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1,
+    income: ZERO,
+    expenses: ZERO,
+    salaries: ZERO,
+    feesBreakdown: { tuition: ZERO, transport: ZERO, admission: ZERO, lateFee: ZERO },
+    expenseCategories: new Map<ExpenseCategory, { amount: Prisma.Decimal; count: number }>(),
+    salaryBreakdown: { basicSalary: ZERO, staffFeeDeduction: ZERO, netPaid: ZERO, staffPaidCount: 0, staffPendingCount: 0 },
+  }));
+
+  for (const p of payments) {
+    const mIdx = p.paymentDate.getUTCMonth();
+    rows[mIdx].income = rows[mIdx].income.plus(p.amount);
+
+    for (const alloc of p.allocations) {
+      const challan = alloc.challan;
+      if (!challan || !challan.amount || Number(challan.amount) <= 0) continue;
+      const ratio = money(alloc.amountApplied).dividedBy(money(challan.amount));
+
+      for (const item of challan.items) {
+        const itemShare = round2(money(item.amount).times(ratio));
+        if (item.type === 'TUITION') rows[mIdx].feesBreakdown.tuition = rows[mIdx].feesBreakdown.tuition.plus(itemShare);
+        else if (item.type === 'TRANSPORT') rows[mIdx].feesBreakdown.transport = rows[mIdx].feesBreakdown.transport.plus(itemShare);
+        else if (item.type === 'ADMISSION') rows[mIdx].feesBreakdown.admission = rows[mIdx].feesBreakdown.admission.plus(itemShare);
+        else rows[mIdx].feesBreakdown.lateFee = rows[mIdx].feesBreakdown.lateFee.plus(itemShare);
+      }
+    }
+  }
+
+  for (const e of expenses) {
+    const mIdx = e.date.getUTCMonth();
+    rows[mIdx].expenses = rows[mIdx].expenses.plus(e.amount);
+
+    const catMap = rows[mIdx].expenseCategories;
+    const cur = catMap.get(e.category) ?? { amount: ZERO, count: 0 };
+    cur.amount = cur.amount.plus(e.amount);
+    cur.count += 1;
+    catMap.set(e.category, cur);
+  }
+
+  for (const s of salaries) {
+    const mIdx = s.month - 1;
+    if (mIdx < 0 || mIdx > 11) continue;
+    rows[mIdx].salaries = rows[mIdx].salaries.plus(s.netSalary);
+    rows[mIdx].salaryBreakdown.basicSalary = rows[mIdx].salaryBreakdown.basicSalary.plus(s.basicSalary);
+    rows[mIdx].salaryBreakdown.staffFeeDeduction = rows[mIdx].salaryBreakdown.staffFeeDeduction.plus(s.staffFeeDeduction);
+    if (s.status === 'PAID') {
+      rows[mIdx].salaryBreakdown.netPaid = rows[mIdx].salaryBreakdown.netPaid.plus(s.netSalary);
+      rows[mIdx].salaryBreakdown.staffPaidCount += 1;
+    } else {
+      rows[mIdx].salaryBreakdown.staffPendingCount += 1;
+    }
+  }
 
   const months = rows.map((r) => ({
     month: r.month,
@@ -244,10 +386,30 @@ export async function financeSummary(year: number) {
     expenses: toMoneyString(r.expenses),
     salaries: toMoneyString(r.salaries),
     net: toMoneyString(round2(r.income.minus(r.expenses).minus(r.salaries))),
+    feesBreakdown: {
+      tuition: toMoneyString(r.feesBreakdown.tuition),
+      transport: toMoneyString(r.feesBreakdown.transport),
+      admission: toMoneyString(r.feesBreakdown.admission),
+      lateFee: toMoneyString(r.feesBreakdown.lateFee),
+    },
+    expenseCategories: [...r.expenseCategories.entries()].map(([cat, val]) => ({
+      category: cat,
+      amount: toMoneyString(val.amount),
+      count: val.count,
+    })).sort((a, b) => Number(b.amount) - Number(a.amount)),
+    salaryBreakdown: {
+      basicSalary: toMoneyString(r.salaryBreakdown.basicSalary),
+      staffFeeDeduction: toMoneyString(r.salaryBreakdown.staffFeeDeduction),
+      netPaid: toMoneyString(r.salaryBreakdown.netPaid),
+      staffPaidCount: r.salaryBreakdown.staffPaidCount,
+      staffPendingCount: r.salaryBreakdown.staffPendingCount,
+    },
   }));
+
   const totalIncome = sum(months.map((m) => m.income));
   const totalExpenses = sum(months.map((m) => m.expenses));
   const totalSalaries = sum(months.map((m) => m.salaries));
+
   return {
     year,
     months,

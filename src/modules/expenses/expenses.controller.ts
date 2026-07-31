@@ -30,6 +30,16 @@ export async function uploadReceipt(req: Request, res: Response) {
 export async function downloadReceipt(req: Request, res: Response) {
   await svc.streamReceipt(req.params.id, res);
 }
+export async function addAttachment(req: Request, res: Response) {
+  if (!req.file) throw new AppError('No file provided (field name: "file")', 400, 'NO_FILE');
+  res.json(await svc.addExpenseAttachment(actor(req), req.params.id, req.file.buffer, req.file.originalname, req.file.mimetype));
+}
+export async function deleteAttachment(req: Request, res: Response) {
+  res.json(await svc.removeExpenseAttachment(actor(req), req.params.attachmentId));
+}
+export async function downloadAttachment(req: Request, res: Response) {
+  await svc.downloadExpenseAttachment(req.params.attachmentId, res);
+}
 
 function monthRange(year: number, month: number): { from: string; to: string } {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
