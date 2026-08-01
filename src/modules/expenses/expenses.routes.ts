@@ -6,7 +6,7 @@ import { requireAuth } from '../../middleware/requireAuth';
 import { requirePermission } from '../../middleware/requirePermission';
 import { validateBody } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
-import { imageUpload } from '../../config/upload';
+import { imageUpload, receiptUpload } from '../../config/upload';
 
 const EXPENSES = PermissionModule.EXPENSES;
 const view = requirePermission(EXPENSES, 'view');
@@ -22,9 +22,9 @@ expensesRouter.post('/', edit, validateBody(createExpenseSchema), asyncHandler(c
 expensesRouter.get('/:id', view, asyncHandler(c.detail));
 expensesRouter.put('/:id', edit, validateBody(updateExpenseSchema), asyncHandler(c.update));
 expensesRouter.delete('/:id', manage, asyncHandler(c.remove));
-expensesRouter.post('/:id/receipt', edit, imageUpload.single('receipt'), asyncHandler(c.uploadReceipt));
+expensesRouter.post('/:id/receipt', edit, receiptUpload.single('receipt'), asyncHandler(c.uploadReceipt));
 expensesRouter.get('/:id/receipt', view, asyncHandler(c.downloadReceipt));
-expensesRouter.post('/:id/attachments', edit, imageUpload.single('file'), asyncHandler(c.addAttachment));
+expensesRouter.post('/:id/attachments', edit, receiptUpload.any(), asyncHandler(c.addAttachment));
 expensesRouter.delete('/attachments/:attachmentId', edit, asyncHandler(c.deleteAttachment));
 expensesRouter.get('/attachments/:attachmentId/download', view, asyncHandler(c.downloadAttachment));
 

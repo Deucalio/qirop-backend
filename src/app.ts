@@ -57,8 +57,26 @@ export function createApp(): Express {
 
   // Security & parsing. Allow cross-origin embedding of static assets (logos,
   // avatars) so the frontend on a different origin can load /uploads images.
-  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-  app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }));
+  const allowedOrigins = new Set([
+    env.CLIENT_ORIGIN,
+    'https://www.qiropschool.com',
+    'https://qiropschool.com',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ]);
+
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.has(origin) || origin.endsWith('.vercel.app')) {
+          callback(null, true);
+        } else {
+          callback(null, true);
+        }
+      },
+      credentials: true,
+    }),
+  );
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 

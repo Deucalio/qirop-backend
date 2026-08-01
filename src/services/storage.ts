@@ -55,6 +55,45 @@ export async function uploadFile(
   return json.file.path;
 }
 
+/** Upload multiple files to `dir` in one batch request via FileStore API. */
+export async function uploadFilesBatch(
+  files: Array<{ buffer: Buffer; originalName: string; contentType?: string }>,
+  dir: string,
+): Promise<string[]> {
+  if (files.length === 0) return [];
+  ensureConfigured();
+  const form = new FormData();
+  for (const f of files) {
+    const blob = new Blob([f.buffer as unknown as ArrayBuffer], f.contentType ? { type: f.contentType } : undefined);
+    form.append('files[]', blob, uniqueName(f.originalName));
+  }
+  form.append('path', dir);
+
+  const res = await fetch(`${BASE}/files/batch-upload`, { method: 'POST', headers: authHeaders(), body: form });
+  if (!res.ok) {
+    throw new AppError(`Batch file upload failed (${res.status})`, 502, 'UPLOAD_FAILED');
+  }
+  const json = (await res.json()) as {
+    uploaded?: Array<{ path?: string }>;
+    failed?: Array<{ name?: string }>;
+  };
+  if (json.failed && json.failed.length > 0) {
+    const partialPaths = (json.uploaded ?? []).map((u) => u.path).filter((p): p is string => Boolean(p));
+    if (partialPaths.length > 0) {
+      await deleteFilesBatch(partialPaths).catch(() => undefined);
+    }
+    throw new AppError('One or more files failed during batch upload', 502, 'UPLOAD_FAILED');
+  }
+  const paths = (json.uploaded ?? []).map((u) => u.path).filter((p): p is string => Boolean(p));
+  if (paths.length !== files.length) {
+    if (paths.length > 0) {
+      await deleteFilesBatch(paths).catch(() => undefined);
+    }
+    throw new AppError(`Batch upload returned ${paths.length} paths for ${files.length} files`, 502, 'UPLOAD_FAILED');
+  }
+  return paths;
+}
+
 /** Delete a stored file. Missing files are treated as already-gone (no throw). */
 export async function deleteFile(path: string | null | undefined): Promise<void> {
   if (!path) return;
@@ -67,6 +106,27 @@ export async function deleteFile(path: string | null | undefined): Promise<void>
   if (!res.ok && res.status !== 404) {
     // eslint-disable-next-line no-console
     console.warn(`FileStore delete failed for ${path}: ${res.status}`);
+  }
+}
+
+/** Delete multiple stored files in one batch request. Missing files are ignored. */
+export async function deleteFilesBatch(paths: (string | null | undefined)[]): Promise<void> {
+  const validPaths = paths.filter((p): p is string => Boolean(p && typeof p === 'string' && p.trim()));
+  if (validPaths.length === 0) return;
+  ensureConfigured();
+  try {
+    const res = await fetch(`${BASE}/files/batch`, {
+      method: 'DELETE',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: validPaths }),
+    });
+    if (!res.ok && res.status !== 404) {
+      // eslint-disable-next-line no-console
+      console.warn(`FileStore batch delete failed (${res.status}) for paths:`, validPaths);
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('FileStore batch delete error:', err);
   }
 }
 

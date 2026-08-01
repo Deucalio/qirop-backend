@@ -31,8 +31,30 @@ export async function downloadReceipt(req: Request, res: Response) {
   await svc.streamReceipt(req.params.id, res);
 }
 export async function addAttachment(req: Request, res: Response) {
-  if (!req.file) throw new AppError('No file provided (field name: "file")', 400, 'NO_FILE');
-  res.json(await svc.addExpenseAttachment(actor(req), req.params.id, req.file.buffer, req.file.originalname, req.file.mimetype));
+  const files: Express.Multer.File[] = [];
+  if (req.files && Array.isArray(req.files)) {
+    files.push(...req.files);
+  } else if (req.files && typeof req.files === 'object') {
+    for (const key of Object.keys(req.files)) {
+      const fieldFiles = (req.files as Record<string, Express.Multer.File[]>)[key];
+      if (Array.isArray(fieldFiles)) files.push(...fieldFiles);
+    }
+  }
+  if (req.file) {
+    files.push(req.file);
+  }
+
+  if (files.length === 0) {
+    throw new AppError('No file provided for attachment upload', 400, 'NO_FILE');
+  }
+
+  const mapped = files.map((f) => ({
+    buffer: f.buffer,
+    originalName: f.originalname,
+    mimeType: f.mimetype,
+  }));
+
+  res.json(await svc.addExpenseAttachmentsBatch(actor(req), req.params.id, mapped));
 }
 export async function deleteAttachment(req: Request, res: Response) {
   res.json(await svc.removeExpenseAttachment(actor(req), req.params.attachmentId));

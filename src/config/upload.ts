@@ -10,10 +10,10 @@ const storage = multer.memoryStorage();
 
 const ALLOWED_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 
-/** Images only, ≤ 2 MB (logos, avatars, student photos). */
+/** Images only, ≤ 5 MB (logos, avatars, student photos, staff photos). */
 export const imageUpload = multer({
   storage,
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_IMAGE_MIME.has(file.mimetype)) cb(null, true);
     else cb(new AppError('Only image files (png, jpg, webp, gif) are allowed', 422, 'INVALID_FILE_TYPE'));
@@ -24,4 +24,14 @@ export const imageUpload = multer({
 export const attachmentUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+/** Receipt images & expense vouchers, ≤ 5 MB, max 10 files per request. */
+export const receiptUpload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMAGE_MIME.has(file.mimetype)) cb(null, true);
+    else cb(new AppError('Only image files (png, jpg, webp, gif) are allowed', 422, 'INVALID_FILE_TYPE'));
+  },
 });

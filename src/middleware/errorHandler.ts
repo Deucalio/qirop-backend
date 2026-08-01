@@ -31,9 +31,21 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   // Multer upload errors (duck-typed to avoid importing multer here).
   if (err && typeof err === 'object' && (err as { name?: string }).name === 'MulterError') {
     const code = (err as { code?: string }).code;
-    const message =
-      code === 'LIMIT_FILE_SIZE' ? 'File is too large (max 2 MB)' : 'File upload failed';
-    res.status(413).json({ error: { message, code: code ?? 'UPLOAD_ERROR' } });
+    let status = 400;
+    let message = 'File upload failed';
+
+    if (code === 'LIMIT_FILE_SIZE') {
+      status = 413;
+      message = 'An uploaded file is too large (max 5 MB limit per file)';
+    } else if (code === 'LIMIT_FILE_COUNT') {
+      status = 400;
+      message = 'Too many files uploaded (max 10 receipt files allowed)';
+    } else if (code === 'LIMIT_UNEXPECTED_FILE') {
+      status = 400;
+      message = 'Unexpected file field or batch limit exceeded (max 10 files allowed)';
+    }
+
+    res.status(status).json({ error: { message, code: code ?? 'UPLOAD_ERROR' } });
     return;
   }
 

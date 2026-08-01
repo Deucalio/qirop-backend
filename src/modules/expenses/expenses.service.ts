@@ -4,7 +4,7 @@ import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import { money, sum, round2, toMoneyString, ZERO } from '../../utils/money';
 import { pktDayString, parsePktDay } from '../../utils/pktDate';
-import { replaceFile, deleteFile, proxyDownload } from '../../services/storage';
+import { replaceFile, deleteFile, deleteFilesBatch, proxyDownload } from '../../services/storage';
 import type { CreateExpenseInput, UpdateExpenseInput, ListExpensesQuery } from './expenses.schema';
 
 export interface Actor {
@@ -50,7 +50,7 @@ async function audit(userId: string, action: string, entityId: string, metadata:
   }
 }
 
-import { publicUrl, uploadFile } from '../../services/storage';
+import { publicUrl, uploadFile, uploadFilesBatch } from '../../services/storage';
 
 const expenseInclude = {
   recordedBy: { select: { fullName: true } },
@@ -207,9 +207,11 @@ export async function deleteExpense(actor: Actor, id: string) {
   const e = await prisma.expense.findUnique({ where: { id }, include: { attachments: true } });
   if (!e) throw NotFound('Expense not found');
   await prisma.expense.delete({ where: { id } }); // funding and attachments cascade
-  if (e.attachmentUrl) await deleteFile(e.attachmentUrl).catch(() => undefined);
-  for (const att of e.attachments) {
-    await deleteFile(att.fileUrl).catch(() => undefined);
+  
+  // Clean up all attached files from FileStore API in a single batch call
+  const paths = [e.attachmentUrl, ...e.attachments.map((att) => att.fileUrl)].filter(Boolean);
+  if (paths.length > 0) {
+    await deleteFilesBatch(paths);
   }
   const u = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
   await audit(actor.userId, 'DELETE', id, {
@@ -226,25 +228,43 @@ export async function addExpenseAttachment(
   originalName: string,
   mimeType?: string,
 ) {
+  return addExpenseAttachmentsBatch(actor, expenseId, [{ buffer, originalName, mimeType }]);
+}
+
+export async function addExpenseAttachmentsBatch(
+  actor: Actor,
+  expenseId: string,
+  files: Array<{ buffer: Buffer; originalName: string; mimeType?: string }>,
+) {
+  if (files.length === 0) return getExpense(expenseId);
+
   const e = await prisma.expense.findUnique({ where: { id: expenseId }, include: { attachments: true } });
   if (!e) throw NotFound('Expense not found');
 
-  if (e.attachments.length >= 10) {
-    throw new AppError('An expense cannot have more than 10 receipt attachments', 400, 'ATTACHMENT_LIMIT');
+  if (e.attachments.length + files.length > 10) {
+    throw new AppError(
+      `An expense cannot have more than 10 receipt attachments. Existing: ${e.attachments.length}, Adding: ${files.length}`,
+      400,
+      'ATTACHMENT_LIMIT',
+    );
   }
 
-  const filePath = await uploadFile(buffer, originalName, `/expenses/${expenseId}`, mimeType);
-  const attachment = await prisma.expenseAttachment.create({
-    data: {
+  const paths = await uploadFilesBatch(
+    files.map((f) => ({ buffer: f.buffer, originalName: f.originalName, contentType: f.mimeType })),
+    `/expenses/${expenseId}`,
+  );
+
+  await prisma.expenseAttachment.createMany({
+    data: files.map((f, i) => ({
       expenseId,
-      fileUrl: filePath,
-      fileName: originalName,
-      fileSize: buffer.length,
-      mimeType: mimeType ?? null,
-    },
+      fileUrl: paths[i],
+      fileName: f.originalName,
+      fileSize: f.buffer.length,
+      mimeType: f.mimeType ?? null,
+    })),
   });
 
-  await audit(actor.userId, 'EXPENSE_ATTACHMENT_ADD', expenseId, { fileName: originalName });
+  await audit(actor.userId, 'EXPENSE_ATTACHMENT_ADD_BATCH', expenseId, { count: files.length });
   return getExpense(expenseId);
 }
 

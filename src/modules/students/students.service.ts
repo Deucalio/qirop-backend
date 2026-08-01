@@ -1,7 +1,7 @@
 import { AttendanceStatus, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
-import { publicUrl, replaceFile, deleteFile, uploadFile, proxyDownload } from '../../services/storage';
+import { publicUrl, replaceFile, deleteFile, deleteFilesBatch, uploadFile, proxyDownload } from '../../services/storage';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
 import { money, round2, toMoneyString, ZERO } from '../../utils/money';
@@ -779,7 +779,7 @@ export async function getStudentAuditLogs(studentId: string, actor: Actor) {
 export async function purgeStudent(actor: Actor, id: string) {
   const student = await prisma.student.findUnique({
     where: { id },
-    include: { section: { include: { class: true } } },
+    include: { section: { include: { class: true } }, documents: true },
   });
   if (!student) throw NotFound('Student not found');
 
@@ -791,9 +791,10 @@ export async function purgeStudent(actor: Actor, id: string) {
     await tx.feeChallanItem.deleteMany({ where: { challan: { studentId: id } } });
     await tx.feePayment.deleteMany({ where: { studentId: id } });
     await tx.feeChallan.deleteMany({ where: { studentId: id } });
-    // Attendance history + transport assignment.
+    // Attendance history + transport assignment + student documents.
     await tx.studentAttendance.deleteMany({ where: { studentId: id } });
     await tx.transportAssignment.deleteMany({ where: { studentId: id } });
+    await tx.studentDocument.deleteMany({ where: { studentId: id } });
     // The student themselves.
     await tx.student.delete({ where: { id } });
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
@@ -816,8 +817,11 @@ export async function purgeStudent(actor: Actor, id: string) {
     // Several sequential deletes against a remote DB — allow ample time.
   }, { timeout: 60_000, maxWait: 20_000 });
 
-  // Best-effort: remove the profile photo from file storage.
-  if (student.photoUrl) await deleteFile(student.photoUrl).catch(() => undefined);
+  // Clean up profile photo AND all attached student documents from FileStore API in batch
+  const paths = [student.photoUrl, ...student.documents.map((d) => d.fileUrl)].filter(Boolean);
+  if (paths.length > 0) {
+    await deleteFilesBatch(paths);
+  }
 
   return { id, name, deleted: true };
 }

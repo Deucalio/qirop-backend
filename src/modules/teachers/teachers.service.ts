@@ -1,7 +1,7 @@
 import { AttendanceStatus, MarkingType, PermissionModule, Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
-import { publicUrl, replaceFile, deleteFile, uploadFile, proxyDownload } from '../../services/storage';
+import { publicUrl, replaceFile, deleteFile, deleteFilesBatch, uploadFile, proxyDownload } from '../../services/storage';
 import { logAudit } from '../audit/audit.service';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { userHasPermission } from '../../utils/permissions';
@@ -619,13 +619,14 @@ export async function linkStudentToTeacher(teacherId: string, studentId: string)
 export async function purgeTeacher(actor: Actor, id: string) {
   const teacher = await prisma.teacherProfile.findUnique({
     where: { id },
-    include: { user: true, homework: { select: { attachmentUrl: true } } },
+    include: { user: true, documents: true, homework: { select: { attachmentUrl: true } } },
   });
   if (!teacher) throw NotFound('Teacher not found');
 
   const userId = teacher.userId;
   const name = teacher.user.fullName;
-  const attachments = teacher.homework.map((h) => h.attachmentUrl).filter((u): u is string => !!u);
+  const homeworkAttachments = teacher.homework.map((h) => h.attachmentUrl).filter((u): u is string => !!u);
+  const docFiles = teacher.documents.map((d) => d.fileUrl).filter((u): u is string => !!u);
   const avatarUrl = teacher.user.avatarUrl;
 
   await prisma.$transaction(async (tx) => {
@@ -649,6 +650,7 @@ export async function purgeTeacher(actor: Actor, id: string) {
     await tx.teacherPeriodAttendance.deleteMany({ where: { teacherId: id } });
     await tx.salarySlip.deleteMany({ where: { teacherId: id } });
     await tx.teacherQualification.deleteMany({ where: { teacherId: id } });
+    await tx.teacherDocument.deleteMany({ where: { teacherId: id } });
     await tx.transportAssignment.deleteMany({ where: { teacherId: id } });
     await tx.teacherProfile.delete({ where: { id } });
 
@@ -674,9 +676,11 @@ export async function purgeTeacher(actor: Actor, id: string) {
     // Many sequential deletes against a remote DB — allow ample time.
   }, { timeout: 60_000, maxWait: 20_000 });
 
-  // Best-effort file cleanup (outside the transaction).
-  if (avatarUrl) await deleteFile(avatarUrl).catch(() => undefined);
-  for (const url of attachments) await deleteFile(url).catch(() => undefined);
+  // Clean up avatar, all teacher documents, and homework attachments from FileStore API in batch
+  const allPaths = [avatarUrl, ...docFiles, ...homeworkAttachments].filter(Boolean);
+  if (allPaths.length > 0) {
+    await deleteFilesBatch(allPaths);
+  }
 
   return { id, name, deleted: true };
 }
