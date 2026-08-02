@@ -1028,13 +1028,26 @@ async function getChallanTx(tx: Tx, id: string) {
 
 export async function deleteChallan(actor: Actor, id: string) {
   return prisma.$transaction(async (tx) => {
-    const c = await tx.feeChallan.findUnique({ where: { id }, include: { allocations: true } });
+    const c = await tx.feeChallan.findUnique({
+      where: { id },
+      include: { allocations: true, student: true },
+    });
     if (!c) throw NotFound('Challan not found');
     if (c.allocations.length > 0) {
       throw new AppError('This challan has payments against it and cannot be deleted. Reverse the payments first.', 409, 'HAS_PAYMENTS');
     }
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    const studentName = c.student ? `${c.student.firstName} ${c.student.lastName}` : 'Student';
+
     await tx.feeChallan.delete({ where: { id } });
-    await audit(tx, actor.userId, 'CHALLAN_DELETED', 'FeeChallan', id, { challanNo: c.challanNo });
+    await audit(tx, actor.userId, 'CHALLAN_DELETED', 'FeeChallan', id, {
+      targetLabel: `${studentName} (Challan #${c.challanNo})`,
+      details: `${actorUser?.fullName ?? 'Admin'} deleted fee challan ${c.challanNo} (Rs. ${toMoneyString(c.amount)}) for ${studentName}`,
+      changes: {
+        challanNo: { before: c.challanNo, after: null },
+        amount: { before: toMoneyString(c.amount), after: null },
+      },
+    });
     return { deleted: true };
   });
 }
