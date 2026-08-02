@@ -44,3 +44,9 @@ schoolRouter.put(
   validateBody(updateSettingsSchema),
   asyncHandler(schoolController.updateSettings),
 );
+
+schoolRouter.delete(
+  '/reset-all',
+  requirePermission(PermissionModule.SCHOOL_SETUP, 'edit'),
+  asyncHandler(schoolController.resetAllData),
+);

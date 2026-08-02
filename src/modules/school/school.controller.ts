@@ -31,3 +31,9 @@ export async function updateSettings(req: Request, res: Response): Promise<void>
   const settings = await schoolService.updateSettings(req.body.settings, req.user?.userId);
   res.json({ settings });
 }
+
+export async function resetAllData(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
+  const result = await schoolService.resetAllSchoolData(req.user);
+  res.json(result);
+}
