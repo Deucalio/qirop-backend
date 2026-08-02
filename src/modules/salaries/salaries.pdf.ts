@@ -106,14 +106,14 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
     },
   ];
 
-  // Staff-fee deduction breakdown (§7) — amber callout + child table.
-  if (Number(s.staffFeeDeduction) > 0 || b.children.length > 0) {
+  // Staff-fee deduction breakdown (§7) — amber callout + child & transport tables.
+  if (Number(s.staffFeeDeduction) > 0 || b.children.length > 0 || b.transportRoute) {
     content.push({
       table: {
         widths: ['*'],
         body: [[{
           stack: [
-            { text: '⚑ Why fees were deducted from this salary', fontSize: 10, bold: true, color: '#b45309', margin: [0, 0, 0, 3] },
+            { text: 'Why fees were deducted from this salary', fontSize: 10, bold: true, color: '#b45309', margin: [0, 0, 0, 3] },
             {
               text:
                 'This teacher has children enrolled at the school (and/or uses school transport). Their monthly fees are ' +
@@ -131,8 +131,38 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
       margin: [0, 16, 0, 10],
     });
 
-    if (Number(b.transportCovered) > 0) {
-      content.push({ text: `Own transport${b.transportRoute ? ` (${b.transportRoute})` : ''}: ${formatPKR(b.transportCovered)}`, fontSize: 9, color: MUTED, margin: [0, 0, 0, 6] });
+    if (b.transportRoute || Number(b.transportFee) > 0 || Number(b.transportCovered) > 0) {
+      const feeVal = Number(b.transportFee) || 0;
+      const covVal = Number(b.transportCovered) || 0;
+      const remVal = Math.max(0, feeVal - covVal);
+
+      content.push({
+        table: {
+          headerRows: 1,
+          widths: ['*', 'auto', 'auto', 'auto'],
+          body: [
+            [
+              { text: 'Teacher Transport Commute', fontSize: 8, bold: true, color: MUTED },
+              { text: 'Monthly Fee', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
+              { text: 'From salary', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
+              { text: 'Balance', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
+            ],
+            [
+              { text: `Own Commute (${b.transportRoute ?? 'School Transport Route'})`, fontSize: 9 },
+              { text: formatPKR(feeVal), fontSize: 9, alignment: 'right' },
+              { text: formatPKR(covVal), fontSize: 9, alignment: 'right', color: '#7c3aed' },
+              { text: formatPKR(remVal), fontSize: 9, alignment: 'right', color: remVal > 0 ? '#dc2626' : '#166534' },
+            ],
+          ],
+        },
+        layout: {
+          hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
+          vLineWidth: () => 0,
+          hLineColor: (i: number) => (i === 1 ? '#7c3aed' : LINE),
+          paddingTop: () => 5, paddingBottom: () => 5,
+        },
+        margin: [0, 0, 0, 10],
+      });
     }
 
     if (b.children.length > 0) {
@@ -142,13 +172,13 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
           widths: ['*', 'auto', 'auto', 'auto'],
           body: [
             [
-              { text: 'Child (challan)', fontSize: 8, bold: true, color: MUTED },
+              { text: 'Child (challan & month)', fontSize: 8, bold: true, color: MUTED },
               { text: 'Fee', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
               { text: 'From salary', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
               { text: 'Still payable', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
             ],
             ...b.children.map((c): TableCell[] => [
-              { text: `${c.studentName} (${c.challanNo})`, fontSize: 9 },
+              { text: `${c.studentName} — ${MONTHS[c.period.month]} ${c.period.year} (${c.challanNo})`, fontSize: 9 },
               { text: formatPKR(c.billable), fontSize: 9, alignment: 'right' },
               { text: formatPKR(c.covered), fontSize: 9, alignment: 'right', color: '#7c3aed' },
               { text: formatPKR(c.payable), fontSize: 9, alignment: 'right', color: Number(c.payable) > 0 ? '#dc2626' : '#166534' },

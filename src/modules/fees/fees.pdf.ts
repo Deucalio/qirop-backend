@@ -246,7 +246,7 @@ function challanContent(c: ChallanData, school: SchoolInfo): { stack: Content[] 
           [
             {
               stack: [
-                { text: '⚑ Staff Family Concession', style: 'calloutTitle' },
+                { text: 'Staff Family Concession', style: 'calloutTitle' },
                 {
                   text:
                     'This student is a staff member\'s child. Tuition & transport are settled from the ' +
