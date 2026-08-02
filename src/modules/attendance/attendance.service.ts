@@ -539,22 +539,37 @@ export async function getSummary(dateStr?: string) {
 }
 
 export async function getTrend(days: number) {
-  // The most recent PKT days that actually have marked attendance.
+  const takeDays = Math.min(60, Math.max(1, days));
   const distinct = await prisma.studentAttendance.findMany({
     distinct: ['date'],
     select: { date: true },
     orderBy: { date: 'desc' },
-    take: days,
+    take: takeDays,
   });
-  const dates = distinct.map((d) => d.date).sort((a, b) => a.getTime() - b.getTime());
 
-  const points = [];
-  for (const d of dates) {
-    const marks = await prisma.studentAttendance.findMany({ where: { date: d }, select: { status: true } });
-    const s = summarize(marks.map((m) => m.status));
-    points.push({ date: pktDayString(d), rate: s.rate, marked: s.marked });
+  if (distinct.length === 0) return [];
+  const dates = distinct.map((d) => d.date).sort((a, b) => a.getTime() - b.getTime());
+  const minDate = dates[0];
+  const maxDate = dates[dates.length - 1];
+
+  const allMarks = await prisma.studentAttendance.findMany({
+    where: { date: { gte: minDate, lte: maxDate } },
+    select: { date: true, status: true },
+  });
+
+  const map = new Map<string, AttendanceStatus[]>();
+  for (const m of allMarks) {
+    const key = pktDayString(m.date);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(m.status);
   }
-  return points;
+
+  return dates.map((d) => {
+    const ds = pktDayString(d);
+    const list = map.get(ds) || [];
+    const s = summarize(list);
+    return { date: ds, rate: s.rate, marked: s.marked };
+  });
 }
 
 // ===========================================================================

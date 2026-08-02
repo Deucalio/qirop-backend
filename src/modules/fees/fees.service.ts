@@ -1221,56 +1221,127 @@ export async function listPayments(query: { studentId?: string; from?: string; t
   }));
 }
 
-export async function feesSummary(year: number, month: number) {
+export async function feesSummary(
+  year?: number,
+  month?: number,
+  months?: number,
+  startDate?: string,
+  endDate?: string,
+) {
+  let where: Prisma.FeeChallanWhereInput = {};
+  if (startDate && endDate) {
+    where = {
+      createdAt: {
+        gte: new Date(startDate + 'T00:00:00.000Z'),
+        lte: new Date(endDate + 'T23:59:59.999Z'),
+      },
+    };
+  } else if (months && months > 0) {
+    const now = pktDay();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    where = { createdAt: { gte: start } };
+  } else if (year && month) {
+    where = { year, month };
+  }
+
   const challans = await prisma.feeChallan.findMany({
-    where: { year, month },
+    where,
     include: { allocations: { include: { payment: true } } },
   });
+
   let billed = ZERO;
   let collected = ZERO;
+  let staffCovered = ZERO;
   let outstanding = ZERO;
   let overdue = 0;
   for (const c of challans) {
     const cash = sum(c.allocations.filter((a) => !a.payment.isReversed).map((a) => a.amountApplied));
     billed = billed.plus(c.amount);
     collected = collected.plus(cash);
+    staffCovered = staffCovered.plus(c.staffCovered);
     const bal = money(c.amount).minus(cash).minus(c.staffCovered);
     if (bal.greaterThan(0)) {
       outstanding = outstanding.plus(bal);
       if (c.status === ChallanStatus.OVERDUE) overdue++;
     }
   }
-  const rate = billed.greaterThan(0) ? round2(collected.dividedBy(billed).times(100)) : ZERO;
+  const totalSettled = collected.plus(staffCovered);
+  const rate = billed.greaterThan(0) ? round2(totalSettled.dividedBy(billed).times(100)) : ZERO;
   return {
-    year,
-    month,
+    year: year ?? new Date().getFullYear(),
+    month: month ?? new Date().getMonth() + 1,
     billed: toMoneyString(billed),
     collected: toMoneyString(collected),
+    staffCovered: toMoneyString(round2(staffCovered)),
     outstanding: toMoneyString(round2(outstanding)),
     overdueCount: overdue,
     collectionRate: Number(rate.toFixed(1)),
   };
 }
 
-export async function feesTrend(months: number) {
-  const now = pktDay();
-  const out: { year: number; month: number; collected: string; pending: string }[] = [];
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-    const year = d.getUTCFullYear();
-    const month = d.getUTCMonth() + 1;
-    const challans = await prisma.feeChallan.findMany({
-      where: { year, month },
-      include: { allocations: { include: { payment: true } } },
-    });
-    let collected = ZERO;
-    let pending = ZERO;
-    for (const c of challans) {
-      const cash = sum(c.allocations.filter((a) => !a.payment.isReversed).map((a) => a.amountApplied));
-      collected = collected.plus(cash);
-      pending = pending.plus(Prisma.Decimal.max(0, money(c.amount).minus(cash).minus(c.staffCovered)));
+export async function feesTrend(months?: number, startDate?: string, endDate?: string) {
+  const monthBuckets: { year: number; month: number }[] = [];
+
+  if (startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    let cur = new Date(Date.UTC(start.getFullYear(), start.getMonth(), 1));
+    const endMonth = new Date(Date.UTC(end.getFullYear(), end.getMonth(), 1));
+
+    let iter = 0;
+    while (cur <= endMonth && iter < 24) {
+      iter++;
+      monthBuckets.push({ year: cur.getUTCFullYear(), month: cur.getUTCMonth() + 1 });
+      cur.setUTCMonth(cur.getUTCMonth() + 1);
     }
-    out.push({ year, month, collected: toMoneyString(collected), pending: toMoneyString(round2(pending)) });
+  } else {
+    const numMonths = Math.min(24, Math.max(1, months || 6));
+    const now = pktDay();
+    for (let i = numMonths - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      monthBuckets.push({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 });
+    }
   }
-  return out;
+
+  if (monthBuckets.length === 0) return [];
+
+  const years = Array.from(new Set(monthBuckets.map((b) => b.year)));
+  const challans = await prisma.feeChallan.findMany({
+    where: {
+      year: { in: years },
+    },
+    select: {
+      year: true,
+      month: true,
+      amount: true,
+      staffCovered: true,
+      allocations: {
+        select: {
+          amountApplied: true,
+          payment: { select: { isReversed: true } },
+        },
+      },
+    },
+  });
+
+  const map = new Map<string, { collected: Prisma.Decimal; pending: Prisma.Decimal }>();
+  for (const c of challans) {
+    const key = `${c.year}-${c.month}`;
+    if (!map.has(key)) map.set(key, { collected: ZERO, pending: ZERO });
+    const bucket = map.get(key)!;
+    const cash = sum(c.allocations.filter((a) => !a.payment.isReversed).map((a) => a.amountApplied));
+    bucket.collected = bucket.collected.plus(cash);
+    const pend = Prisma.Decimal.max(0, money(c.amount).minus(cash).minus(c.staffCovered));
+    bucket.pending = bucket.pending.plus(pend);
+  }
+
+  return monthBuckets.map(({ year, month }) => {
+    const b = map.get(`${year}-${month}`);
+    return {
+      year,
+      month,
+      collected: toMoneyString(b ? b.collected : ZERO),
+      pending: toMoneyString(b ? round2(b.pending) : ZERO),
+    };
+  });
 }

@@ -123,12 +123,16 @@ export const teacherChildChallanPdf = guardianChallanPdf('teacher');
 
 // Dashboard
 export async function feesSummary(req: Request, res: Response) {
-  const now = new Date();
-  const year = Number(req.query.year) || now.getFullYear();
-  const month = Number(req.query.month) || now.getMonth() + 1;
-  res.json(await svc.feesSummary(year, month));
+  const year = req.query.year ? Number(req.query.year) : undefined;
+  const month = req.query.month ? Number(req.query.month) : undefined;
+  const months = req.query.months ? Number(req.query.months) : undefined;
+  const startDate = req.query.startDate as string | undefined;
+  const endDate = req.query.endDate as string | undefined;
+  res.json(await svc.feesSummary(year, month, months, startDate, endDate));
 }
 export async function feesTrend(req: Request, res: Response) {
-  const months = Math.min(24, Math.max(1, Number(req.query.months) || 6));
-  res.json(await svc.feesTrend(months));
+  const months = req.query.months ? Number(req.query.months) : undefined;
+  const startDate = req.query.startDate as string | undefined;
+  const endDate = req.query.endDate as string | undefined;
+  res.json(await svc.feesTrend(months, startDate, endDate));
 }
