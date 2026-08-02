@@ -52,3 +52,15 @@ export function requirePermission(module: PermissionModule, action: PermissionAc
     }
   };
 }
+
+export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.user) {
+    next(Unauthorized());
+    return;
+  }
+  if (req.user.role !== Role.SUPERADMIN) {
+    next(Forbidden('Danger Zone operations are strictly restricted to Super Admin accounts'));
+    return;
+  }
+  next();
+}

@@ -304,3 +304,367 @@ export async function purgeBatchData(actor: { userId: string; role: Role | strin
 
   return { purged: deletedSummary, message: `Successfully purged ${categories.length} selected module(s)` };
 }
+
+function fmtDt(d: Date | null | undefined): { dateStr: string; timeStr: string } {
+  if (!d) return { dateStr: 'N/A', timeStr: 'N/A' };
+  const dateObj = new Date(d);
+  return {
+    dateStr: dateObj.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }),
+    timeStr: dateObj.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+  };
+}
+
+export async function getPurgeDetailedItems() {
+  const [
+    rawChallans,
+    rawSalaries,
+    rawStudentAttendance,
+    rawTeacherAttendance,
+    rawHomework,
+    rawExpenses,
+    rawTransport,
+    rawTimetable,
+    rawNotifications,
+    rawStudents,
+    rawTeachers,
+    rawParents,
+  ] = await Promise.all([
+    prisma.feeChallan.findMany({
+      include: { student: { select: { firstName: true, lastName: true, admissionNo: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+    prisma.salarySlip.findMany({
+      include: { teacher: { include: { user: { select: { fullName: true } } } } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+    prisma.studentAttendance.findMany({
+      include: { student: { select: { firstName: true, lastName: true } }, section: { include: { class: true } } },
+      orderBy: { date: 'desc' },
+      take: 200,
+    }),
+    prisma.teacherAttendance.findMany({
+      include: { teacher: { include: { user: { select: { fullName: true } } } } },
+      orderBy: { date: 'desc' },
+      take: 200,
+    }),
+    prisma.homework.findMany({
+      include: { section: { include: { class: true } }, subject: true, teacher: { include: { user: { select: { fullName: true } } } } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+    prisma.expense.findMany({
+      orderBy: { date: 'desc' },
+      take: 200,
+    }),
+    prisma.transportRoute.findMany({
+      include: { _count: { select: { assignments: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.timetableSlot.findMany({
+      include: { section: { include: { class: true } }, subject: true },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+    prisma.notification.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+    prisma.student.findMany({
+      include: { section: { include: { class: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+    prisma.teacherProfile.findMany({
+      include: { user: { select: { fullName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+    prisma.parentProfile.findMany({
+      include: { user: { select: { fullName: true, phone: true } }, students: { select: { firstName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    }),
+  ]);
+
+  return {
+    challans: rawChallans.map((c) => {
+      const dt = fmtDt(c.createdAt);
+      return {
+        id: c.id,
+        title: `Challan #${c.challanNo}`,
+        subtitle: `${c.student.firstName} ${c.student.lastName} (${c.student.admissionNo}) · Month ${c.month}/${c.year}`,
+        amount: `Rs ${Number(c.amount).toLocaleString()}`,
+        status: c.status,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    salaries: rawSalaries.map((s) => {
+      const dt = fmtDt(s.createdAt);
+      return {
+        id: s.id,
+        title: `Salary Slip ${s.year}-${String(s.month).padStart(2, '0')}`,
+        subtitle: `${s.teacher.user.fullName} · Status: ${s.status}`,
+        amount: `Rs ${Number(s.netSalary).toLocaleString()}`,
+        status: s.status,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    student_attendance: rawStudentAttendance.map((sa) => {
+      const dt = fmtDt(sa.createdAt);
+      return {
+        id: sa.id,
+        title: `${sa.student.firstName} ${sa.student.lastName} — ${sa.status}`,
+        subtitle: `${sa.section.class.name}-${sa.section.name}`,
+        dateStr: fmtDt(sa.date).dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    teacher_attendance: rawTeacherAttendance.map((ta) => {
+      const dt = fmtDt(ta.date);
+      return {
+        id: ta.id,
+        title: `${ta.teacher.user.fullName} — ${ta.status}`,
+        subtitle: ta.checkInTime ? `Check-in: ${new Date(ta.checkInTime).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })}` : 'No Check-in',
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    homework: rawHomework.map((h) => {
+      const dt = fmtDt(h.createdAt);
+      return {
+        id: h.id,
+        title: h.title,
+        subtitle: `${h.section.class.name}-${h.section.name} · ${h.subject.name} · By: ${h.teacher.user.fullName}`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    expenses: rawExpenses.map((e) => {
+      const dt = fmtDt(e.createdAt);
+      return {
+        id: e.id,
+        title: e.title,
+        subtitle: `Category: ${e.category}`,
+        amount: `Rs ${Number(e.amount).toLocaleString()}`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    transport: rawTransport.map((tr) => {
+      const dt = fmtDt(tr.createdAt);
+      return {
+        id: tr.id,
+        title: tr.name,
+        subtitle: `${tr._count.assignments} assigned rider(s) · ${tr.vehicleInfo || 'No vehicle info'}`,
+        amount: `Rs ${Number(tr.monthlyFee).toLocaleString()}`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    timetable: rawTimetable.map((tt) => {
+      const dt = fmtDt(tt.createdAt);
+      return {
+        id: tt.id,
+        title: `${tt.section.class.name}-${tt.section.name} · Period ${tt.periodIndex} (${tt.day})`,
+        subtitle: `${tt.subject.name}`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    announcements: rawNotifications.map((n) => {
+      const dt = fmtDt(n.createdAt);
+      return {
+        id: n.id,
+        title: n.title,
+        subtitle: n.body,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    students: rawStudents.map((st) => {
+      const dt = fmtDt(st.createdAt);
+      return {
+        id: st.id,
+        title: `${st.firstName} ${st.lastName}`,
+        subtitle: `Adm #${st.admissionNo} · Roll #${st.rollNo || 'N/A'} · ${st.section.class.name}-${st.section.name}`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    teachers: rawTeachers.map((tp) => {
+      const dt = fmtDt(tp.createdAt);
+      return {
+        id: tp.id,
+        title: tp.user.fullName,
+        subtitle: `Emp ID: ${tp.employeeId} · Gender: ${tp.gender}`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+
+    parents: rawParents.map((pp) => {
+      const dt = fmtDt(pp.createdAt);
+      return {
+        id: pp.id,
+        title: pp.user.fullName,
+        subtitle: `Phone: ${pp.user.phone || 'N/A'} · Children: ${pp.students.map((s) => s.firstName).join(', ') || 'None'}`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
+  };
+}
+
+export async function purgeSelectiveItemsMap(
+  actor: { userId: string; role: Role | string },
+  itemMap: Record<string, string[]>,
+) {
+  const deletedCounts: Record<string, number> = {};
+  const tasks: Promise<unknown>[] = [];
+
+  if (itemMap.challans?.length) {
+    const ids = itemMap.challans;
+    tasks.push(
+      prisma.$transaction([
+        prisma.feePaymentAllocation.deleteMany({ where: { challanId: { in: ids } } }),
+        prisma.feeChallanItem.deleteMany({ where: { challanId: { in: ids } } }),
+        prisma.feeChallan.deleteMany({ where: { id: { in: ids } } }),
+      ]).then(([, , c]) => { deletedCounts['challans'] = c.count; })
+    );
+  }
+
+  if (itemMap.salaries?.length) {
+    const ids = itemMap.salaries;
+    tasks.push(
+      prisma.salarySlip.deleteMany({ where: { id: { in: ids } } })
+        .then((s) => { deletedCounts['salaries'] = s.count; })
+    );
+  }
+
+  if (itemMap.student_attendance?.length) {
+    const ids = itemMap.student_attendance;
+    tasks.push(
+      prisma.studentAttendance.deleteMany({ where: { id: { in: ids } } })
+        .then((sa) => { deletedCounts['student_attendance'] = sa.count; })
+    );
+  }
+
+  if (itemMap.teacher_attendance?.length) {
+    const ids = itemMap.teacher_attendance;
+    tasks.push(
+      prisma.teacherAttendance.deleteMany({ where: { id: { in: ids } } })
+        .then((ta) => { deletedCounts['teacher_attendance'] = ta.count; })
+    );
+  }
+
+  if (itemMap.homework?.length) {
+    const ids = itemMap.homework;
+    tasks.push(
+      prisma.homework.deleteMany({ where: { id: { in: ids } } })
+        .then((h) => { deletedCounts['homework'] = h.count; })
+    );
+  }
+
+  if (itemMap.expenses?.length) {
+    const ids = itemMap.expenses;
+    tasks.push(
+      prisma.$transaction([
+        prisma.expenseFunding.deleteMany({ where: { expenseId: { in: ids } } }),
+        prisma.expenseAttachment.deleteMany({ where: { expenseId: { in: ids } } }),
+        prisma.expense.deleteMany({ where: { id: { in: ids } } }),
+      ]).then(([, , e]) => { deletedCounts['expenses'] = e.count; })
+    );
+  }
+
+  if (itemMap.transport?.length) {
+    const ids = itemMap.transport;
+    tasks.push(
+      prisma.$transaction([
+        prisma.transportAssignment.deleteMany({ where: { routeId: { in: ids } } }),
+        prisma.transportRoute.deleteMany({ where: { id: { in: ids } } }),
+      ]).then(([, tr]) => { deletedCounts['transport'] = tr.count; })
+    );
+  }
+
+  if (itemMap.timetable?.length) {
+    const ids = itemMap.timetable;
+    tasks.push(
+      prisma.timetableSlot.deleteMany({ where: { id: { in: ids } } })
+        .then((tt) => { deletedCounts['timetable'] = tt.count; })
+    );
+  }
+
+  if (itemMap.announcements?.length) {
+    const ids = itemMap.announcements;
+    tasks.push(
+      prisma.notification.deleteMany({ where: { id: { in: ids } } })
+        .then((n) => { deletedCounts['announcements'] = n.count; })
+    );
+  }
+
+  if (itemMap.students?.length) {
+    const ids = itemMap.students;
+    tasks.push(
+      prisma.$transaction([
+        prisma.studentDocument.deleteMany({ where: { studentId: { in: ids } } }),
+        prisma.studentAttendance.deleteMany({ where: { studentId: { in: ids } } }),
+        prisma.student.deleteMany({ where: { id: { in: ids } } }),
+      ]).then(([, , st]) => { deletedCounts['students'] = st.count; })
+    );
+  }
+
+  if (itemMap.teachers?.length) {
+    const ids = itemMap.teachers;
+    tasks.push(
+      prisma.$transaction([
+        prisma.teacherQualification.deleteMany({ where: { teacherId: { in: ids } } }),
+        prisma.teacherDocument.deleteMany({ where: { teacherId: { in: ids } } }),
+        prisma.teacherProfile.deleteMany({ where: { id: { in: ids } } }),
+      ]).then(([, , tp]) => { deletedCounts['teachers'] = tp.count; })
+    );
+  }
+
+  if (itemMap.parents?.length) {
+    const ids = itemMap.parents;
+    tasks.push(
+      prisma.parentProfile.deleteMany({ where: { id: { in: ids } } })
+        .then((pp) => { deletedCounts['parents'] = pp.count; })
+    );
+  }
+
+  await Promise.all(tasks);
+
+  const totalItems = Object.values(deletedCounts).reduce((a, b) => a + b, 0);
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.userId,
+      actorName: actorUser?.fullName ?? 'Admin',
+      actorRole: actor.role as Role,
+      action: 'DELETE',
+      module: 'SCHOOL',
+      targetType: 'ItemSelectivePurge',
+      targetId: 'ITEM_BATCH',
+      targetLabel: `Purged ${totalItems} selected items`,
+      details: `${actorUser?.fullName ?? 'Admin'} deleted ${totalItems} specific items across ${Object.keys(deletedCounts).length} modules`,
+      changes: deletedCounts,
+    },
+  });
+
+  return { purged: deletedCounts, message: `Successfully deleted ${totalItems} selected item(s)` };
+}

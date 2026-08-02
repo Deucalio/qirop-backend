@@ -52,3 +52,18 @@ export async function purgeBatchData(req: Request, res: Response): Promise<void>
   const result = await schoolService.purgeBatchData(req.user, categories as string[]);
   res.json(result);
 }
+
+export async function getPurgeItems(_req: Request, res: Response): Promise<void> {
+  const items = await schoolService.getPurgeDetailedItems();
+  res.json(items);
+}
+
+export async function purgeItemsBatch(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
+  const itemsMap: unknown = req.body?.items;
+  if (!itemsMap || typeof itemsMap !== 'object') {
+    throw new AppError('Provide valid item selection map', 400, 'INVALID_INPUT');
+  }
+  const result = await schoolService.purgeSelectiveItemsMap(req.user, itemsMap as Record<string, string[]>);
+  res.json(result);
+}

@@ -3,7 +3,7 @@ import { PermissionModule } from '@prisma/client';
 import * as schoolController from './school.controller';
 import { updateSchoolSchema, updateSettingsSchema } from './school.schema';
 import { requireAuth } from '../../middleware/requireAuth';
-import { requirePermission } from '../../middleware/requirePermission';
+import { requirePermission, requireSuperAdmin } from '../../middleware/requirePermission';
 import { validateBody } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { imageUpload } from '../../config/upload';
@@ -45,20 +45,36 @@ schoolRouter.put(
   asyncHandler(schoolController.updateSettings),
 );
 
+/* -------------------------------------------------------------------------- */
+/* Danger Zone Purge Routes — STRICTLY RESTRICTED TO SUPERADMIN             */
+/* -------------------------------------------------------------------------- */
+
 schoolRouter.delete(
   '/reset-all',
-  requirePermission(PermissionModule.SCHOOL_SETUP, 'edit'),
+  requireSuperAdmin,
   asyncHandler(schoolController.resetAllData),
 );
 
 schoolRouter.get(
   '/purge-counts',
-  requirePermission(PermissionModule.SCHOOL_SETUP, 'view'),
+  requireSuperAdmin,
   asyncHandler(schoolController.getPurgeCounts),
 );
 
 schoolRouter.post(
   '/purge-batch',
-  requirePermission(PermissionModule.SCHOOL_SETUP, 'edit'),
+  requireSuperAdmin,
   asyncHandler(schoolController.purgeBatchData),
+);
+
+schoolRouter.get(
+  '/purge-items',
+  requireSuperAdmin,
+  asyncHandler(schoolController.getPurgeItems),
+);
+
+schoolRouter.post(
+  '/purge-items-batch',
+  requireSuperAdmin,
+  asyncHandler(schoolController.purgeItemsBatch),
 );
