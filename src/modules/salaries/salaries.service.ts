@@ -528,3 +528,38 @@ export async function getMySlipDetail(userId: string, id: string) {
 
   return getSalary(id);
 }
+
+export async function deleteSalariesForMonth(actor: Actor, year: number, month: number) {
+  const slips = await prisma.salarySlip.findMany({
+    where: { year, month },
+    select: { id: true },
+  });
+
+  if (slips.length === 0) {
+    throw new AppError(`No salary slips found for ${year}-${String(month).padStart(2, '0')}`, 404, 'NOT_FOUND');
+  }
+
+  const res = await prisma.salarySlip.deleteMany({
+    where: { year, month },
+  });
+
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.userId,
+      actorName: actorUser?.fullName ?? 'Admin',
+      actorRole: actor.role,
+      action: 'DELETE',
+      module: 'SALARIES',
+      targetType: 'SalarySlip',
+      targetId: `${year}-${month}`,
+      targetLabel: `All Salary Slips for ${year}-${String(month).padStart(2, '0')} (${res.count} slips)`,
+      details: `${actorUser?.fullName ?? 'Admin'} deleted all ${res.count} salary slip(s) for ${year}-${String(month).padStart(2, '0')}`,
+      changes: {
+        deletedCount: { before: res.count, after: 0 },
+      },
+    },
+  });
+
+  return { deleted: res.count, year, month };
+}

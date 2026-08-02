@@ -28,6 +28,7 @@ salariesRouter.get('/preflight', view, asyncHandler(c.preflight));
 salariesRouter.get('/structure', view, asyncHandler(c.structure));
 salariesRouter.patch('/structure/:teacherId', edit, validateBody(setSalaryStructureSchema), asyncHandler(c.setStructure));
 salariesRouter.get('/', view, asyncHandler(c.list));
+salariesRouter.delete('/month', edit, asyncHandler(c.deleteSalariesForMonth));
 salariesRouter.get('/:id', view, asyncHandler(c.detail));
 salariesRouter.get('/:id/pdf', view, asyncHandler(c.pdf));
 salariesRouter.put('/:id', edit, validateBody(updateSalarySchema), asyncHandler(c.update));

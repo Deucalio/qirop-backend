@@ -88,6 +88,7 @@ export async function getParent(id: string) {
 
   const studentIds = parent.students.map((s) => s.id);
   const feeMap = await getStudentFeeDetails(studentIds);
+  const teacher = await prisma.teacherProfile.findUnique({ where: { userId: parent.userId } });
 
   return {
     id: parent.id,
@@ -102,11 +103,18 @@ export async function getParent(id: string) {
     motherCnic: parent.motherCnic,
     motherPhone: parent.motherPhone,
     motherOccupation: parent.motherOccupation,
+    isTeacher: !!teacher,
+    teacherId: teacher?.id ?? null,
     createdAt: parent.createdAt,
     children: parent.students.map((s) => ({
       id: s.id,
       name: `${s.firstName} ${s.lastName}`,
       admissionNo: s.admissionNo,
+      rollNo: s.rollNo,
+      gender: s.gender,
+      dob: s.dob ? s.dob.toISOString() : null,
+      admissionDate: s.admissionDate ? s.admissionDate.toISOString() : null,
+      photoUrl: s.photoUrl,
       className: s.section.class.name,
       sectionName: s.section.name,
       status: s.status,

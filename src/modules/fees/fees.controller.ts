@@ -47,6 +47,13 @@ export async function patchChallan(req: Request, res: Response) {
 export async function deleteChallan(req: Request, res: Response) {
   res.json(await svc.deleteChallan(actor(req), req.params.id));
 }
+export async function deleteChallansBatch(req: Request, res: Response) {
+  const ids: unknown = req.body?.ids || req.body?.challanIds;
+  if (!Array.isArray(ids) || ids.length === 0 || !ids.every((x) => typeof x === 'string')) {
+    throw new AppError('Provide a non-empty array of challan ids', 400, 'INVALID_IDS');
+  }
+  res.json(await svc.deleteChallansBatch(actor(req), ids as string[]));
+}
 export async function markOverdue(_req: Request, res: Response) {
   res.json(await svc.markOverdue());
 }

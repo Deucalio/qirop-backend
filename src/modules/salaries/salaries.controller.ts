@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import * as svc from './salaries.service';
 import { renderSalarySlipPdf } from './salaries.pdf';
 import { listSalariesQuerySchema } from './salaries.schema';
-import { Unauthorized } from '../../utils/apiResponse';
+import { Unauthorized, AppError } from '../../utils/apiResponse';
 
 const actor = (req: Request) => {
   if (!req.user) throw Unauthorized();
@@ -48,6 +48,14 @@ export async function pdf(req: Request, res: Response) {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${filename}"`);
   res.send(buffer);
+}
+export async function deleteSalariesForMonth(req: Request, res: Response) {
+  const year = Number(req.body?.year || req.query?.year);
+  const month = Number(req.body?.month || req.query?.month);
+  if (!year || !month) {
+    throw new AppError('Year and month are required', 400, 'INVALID_PARAMS');
+  }
+  res.json(await svc.deleteSalariesForMonth(actor(req), year, month));
 }
 
 export async function listMySlips(req: Request, res: Response) {

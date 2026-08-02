@@ -41,6 +41,7 @@ feesRouter.get('/challans/:id', view, asyncHandler(c.getChallan));
 feesRouter.get('/challans/:id/pdf', view, asyncHandler(c.challanPdf));
 feesRouter.patch('/challans/:id', edit, validateBody(patchChallanSchema), asyncHandler(c.patchChallan));
 feesRouter.delete('/challans/:id', manage, asyncHandler(c.deleteChallan));
+feesRouter.post('/challans/delete-batch', manage, asyncHandler(c.deleteChallansBatch));
 
 feesRouter.post('/payments', edit, validateBody(recordPaymentSchema), asyncHandler(c.recordPayment));
 feesRouter.get('/payments', view, asyncHandler(c.listPayments));

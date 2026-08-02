@@ -1052,6 +1052,45 @@ export async function deleteChallan(actor: Actor, id: string) {
   });
 }
 
+export async function deleteChallansBatch(actor: Actor, ids: string[]) {
+  return prisma.$transaction(
+    async (tx) => {
+      let deleted = 0;
+      let skipped = 0;
+      const deletedChallanNos: string[] = [];
+
+      for (const id of ids) {
+        const c = await tx.feeChallan.findUnique({
+          where: { id },
+          include: { allocations: true, student: true },
+        });
+        if (!c || c.allocations.length > 0) {
+          skipped++;
+          continue;
+        }
+        await tx.feeChallan.delete({ where: { id } });
+        deleted++;
+        deletedChallanNos.push(c.challanNo);
+      }
+
+      if (deleted > 0) {
+        const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+        await audit(tx, actor.userId, 'CHALLANS_DELETED_BATCH', 'FeeChallan', `${deleted} challans`, {
+          targetLabel: `${deleted} Fee Challan(s)`,
+          details: `${actorUser?.fullName ?? 'Admin'} bulk deleted ${deleted} fee challan(s) (${deletedChallanNos.slice(0, 5).join(', ')}${deletedChallanNos.length > 5 ? ` +${deletedChallanNos.length - 5} more` : ''})`,
+          changes: {
+            deletedCount: { before: 0, after: deleted },
+            skippedCount: { before: 0, after: skipped },
+          },
+        });
+      }
+
+      return { deleted, skipped };
+    },
+    { timeout: 120_000, maxWait: 20_000 },
+  );
+}
+
 /**
  * Mark challans paid in bulk (or one) — used for "this whole class paid at the
  * counter today". This is NOT a status flip: it records a real `FeePayment` for
