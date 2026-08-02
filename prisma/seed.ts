@@ -47,8 +47,7 @@ async function seedSuperadmin(): Promise<void> {
   const passwordHash = await bcrypt.hash(SUPERADMIN_PASSWORD, BCRYPT_ROUNDS);
   await prisma.user.upsert({
     where: { cnic: SUPERADMIN_CNIC },
-    // Do not overwrite an existing password on re-seed.
-    update: { fullName: SUPERADMIN_NAME, role: Role.SUPERADMIN },
+    update: { fullName: SUPERADMIN_NAME, role: Role.SUPERADMIN, passwordHash },
     create: {
       cnic: SUPERADMIN_CNIC,
       passwordHash,

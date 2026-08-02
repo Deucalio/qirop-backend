@@ -12,7 +12,8 @@
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
     "prisma:seed": "prisma db seed",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "reset-superadmin": "tsx prisma/reset-superadmin.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
