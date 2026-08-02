@@ -40,9 +40,7 @@ export function requirePermission(module: PermissionModule, action: PermissionAc
         !!perm &&
         (action === 'view'
           ? perm.canView || perm.canEdit || perm.canManage
-          : action === 'edit'
-            ? perm.canEdit || perm.canManage
-            : perm.canManage);
+          : perm.canEdit || perm.canManage);
 
       if (!allowed) {
         next(Forbidden());

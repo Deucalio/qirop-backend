@@ -481,6 +481,7 @@ function shapeChallan(c: ChallanWithLedger) {
     status: c.status,
     isOverdue: pastDue && balance.greaterThan(0),
     billedToTeacherId: c.billedToTeacherId,
+    createdAt: c.createdAt ? c.createdAt.toISOString() : undefined,
     items: c.items
       .sort((a, b) => a.type.localeCompare(b.type))
       .map((i) => ({ id: i.id, type: i.type, label: i.label, amount: toMoneyString(i.amount) })),

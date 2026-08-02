@@ -15,6 +15,7 @@ export interface PermissionDTO {
 export interface AuthenticatedUser {
   id: string;
   fullName: string;
+  designation: string | null;
   role: Role;
   permissions: PermissionDTO[];
 }
@@ -90,7 +91,7 @@ export async function login(cnic: string, password: string): Promise<LoginResult
 
   return {
     token,
-    user: { id: user.id, fullName: user.fullName, role: user.role, permissions },
+    user: { id: user.id, fullName: user.fullName, designation: user.designation ?? null, role: user.role, permissions },
   };
 }
 
@@ -126,6 +127,7 @@ export async function getMe(userId: string) {
     id: user.id,
     cnic: user.cnic,
     fullName: user.fullName,
+    designation: user.designation ?? null,
     role: user.role,
     status: user.status,
     phone: user.phone,
@@ -189,6 +191,7 @@ export async function switchRole(userId: string, targetRole: Role): Promise<Logi
     user: {
       id: userId,
       fullName: updatedUser.fullName,
+      designation: updatedUser.designation ?? null,
       role: targetRole,
       permissions,
     },

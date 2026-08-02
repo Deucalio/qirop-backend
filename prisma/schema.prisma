@@ -129,6 +129,7 @@ model User {
   role         Role
   status       UserStatus @default(ACTIVE)
   fullName     String
+  designation  String?
   phone        String?
   avatarUrl    String?
   lastLoginAt  DateTime?
@@ -466,6 +467,9 @@ model Student {
   dob           DateTime?
   admissionDate DateTime
   photoUrl      String?
+  bFormNo       String?
+  caste         String?
+  religion      String?
   status        UserStatus @default(ACTIVE)
 
   sectionId String

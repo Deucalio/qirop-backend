@@ -104,6 +104,7 @@ function toListItem(user: AdminWithPerms) {
     id: user.id,
     cnic: user.cnic,
     fullName: user.fullName,
+    designation: user.designation ?? null,
     phone: user.phone,
     role: user.role,
     status: user.status,
@@ -118,6 +119,7 @@ function toDetail(user: AdminWithPerms) {
     id: user.id,
     cnic: user.cnic,
     fullName: user.fullName,
+    designation: user.designation ?? null,
     phone: user.phone,
     role: user.role,
     status: user.status,
@@ -170,6 +172,7 @@ export async function createAdmin(actor: Actor, input: CreateAdminInput) {
     data: {
       cnic: input.cnic,
       fullName: input.fullName,
+      designation: input.designation ?? null,
       phone: input.phone ?? null,
       passwordHash,
       role: Role.ADMIN, // never SUPERADMIN — no promotion via this endpoint
@@ -207,7 +210,7 @@ export async function createAdmin(actor: Actor, input: CreateAdminInput) {
 export async function updateAdmin(
   actor: Actor,
   id: string,
-  data: { fullName?: string; phone?: string | null },
+  data: { fullName?: string; designation?: string | null; phone?: string | null },
 ) {
   const target = await loadAdminTarget(id);
   if (target.role === Role.SUPERADMIN && actor.role !== Role.SUPERADMIN) {
@@ -218,6 +221,7 @@ export async function updateAdmin(
     where: { id: target.id },
     data: {
       fullName: data.fullName ?? undefined,
+      designation: data.designation === undefined ? undefined : data.designation,
       phone: data.phone === undefined ? undefined : data.phone,
     },
     include: { adminPermissions: true },

@@ -94,3 +94,8 @@ export async function downloadDocument(req: Request, res: Response): Promise<voi
   const disposition = (req.query.disposition as 'inline' | 'attachment') || 'attachment';
   await studentsService.downloadDocument(req.params.id, req.params.docId, res, disposition);
 }
+
+export async function nextRollNo(req: Request, res: Response): Promise<void> {
+  const rollNo = await studentsService.getNextRollNo(req.params.sectionId);
+  res.json({ rollNo });
+}

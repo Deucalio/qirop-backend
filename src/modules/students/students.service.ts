@@ -47,6 +47,9 @@ function shapeListItem(s: StudentWithRels) {
     status: s.status,
     dob: s.dob,
     admissionDate: s.admissionDate,
+    bFormNo: s.bFormNo,
+    caste: s.caste,
+    religion: s.religion,
     photoUrl: publicUrl(s.photoUrl),
     section: { id: s.section.id, name: s.section.name },
     class: { id: s.section.class.id, name: s.section.class.name },
@@ -447,17 +450,39 @@ export async function createStudent(actor: Actor, input: CreateStudentInput) {
     admissionNo = `${prefix}${String(nextNum).padStart(3, '0')}`;
   }
 
+  // Auto-generate rollNo per section if not provided
+  let rollNo = input.rollNo?.trim();
+  if (!rollNo) {
+    const existingStudents = await prisma.student.findMany({
+      where: { sectionId: input.sectionId },
+      select: { rollNo: true },
+    });
+    let maxRoll = 0;
+    for (const s of existingStudents) {
+      if (s.rollNo) {
+        const parsed = parseInt(s.rollNo, 10);
+        if (!isNaN(parsed) && parsed > maxRoll) {
+          maxRoll = parsed;
+        }
+      }
+    }
+    rollNo = String(maxRoll + 1);
+  }
+
   await assertAdmissionFree(admissionNo);
-  if (input.rollNo) await assertRollNoFree(input.sectionId, input.rollNo);
+  if (rollNo) await assertRollNoFree(input.sectionId, rollNo);
 
   const baseData = {
     admissionNo,
-    rollNo: input.rollNo ?? null,
+    rollNo,
     firstName,
     lastName,
     gender: input.gender,
     dob: input.dob ?? null,
     admissionDate: input.admissionDate,
+    bFormNo: input.bFormNo ?? null,
+    caste: input.caste ?? null,
+    religion: input.religion ?? 'Islam',
     sectionId: input.sectionId,
   };
 
@@ -671,6 +696,9 @@ export async function updateStudent(id: string, data: UpdateStudentInput, actor?
       gender: data.gender ?? undefined,
       dob: data.dob === undefined ? undefined : data.dob,
       admissionDate: data.admissionDate ?? undefined,
+      bFormNo: data.bFormNo === undefined ? undefined : data.bFormNo,
+      caste: data.caste === undefined ? undefined : data.caste,
+      religion: data.religion === undefined ? undefined : data.religion,
       sectionId: data.sectionId ?? undefined,
       parentId: resolvedParentId ?? undefined,
     },
@@ -865,4 +893,21 @@ export async function downloadDocument(studentId: string, docId: string, res: Re
   if (!doc || doc.studentId !== studentId) throw NotFound('Document not found');
 
   await proxyDownload(doc.fileUrl, res, disposition);
+}
+
+export async function getNextRollNo(sectionId: string): Promise<string> {
+  const existingStudents = await prisma.student.findMany({
+    where: { sectionId },
+    select: { rollNo: true },
+  });
+  let maxRoll = 0;
+  for (const s of existingStudents) {
+    if (s.rollNo) {
+      const parsed = parseInt(s.rollNo, 10);
+      if (!isNaN(parsed) && parsed > maxRoll) {
+        maxRoll = parsed;
+      }
+    }
+  }
+  return String(maxRoll + 1);
 }

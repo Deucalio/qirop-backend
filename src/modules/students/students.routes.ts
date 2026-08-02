@@ -16,6 +16,7 @@ const edit = requirePermission(STUDENTS, 'edit');
 export const studentsRouter = Router();
 studentsRouter.use(requireAuth);
 
+studentsRouter.get('/next-roll-no/:sectionId', view, asyncHandler(c.nextRollNo));
 studentsRouter.get('/', view, asyncHandler(c.list));
 studentsRouter.get('/:id', view, asyncHandler(c.detail));
 studentsRouter.get('/:id/attendance', view, asyncHandler(c.attendance));

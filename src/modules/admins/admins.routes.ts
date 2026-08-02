@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { PermissionModule } from '@prisma/client';
+import { PermissionModule, Role } from '@prisma/client';
 import * as adminsController from './admins.controller';
 import {
   createAdminSchema,
@@ -9,6 +9,7 @@ import {
   updateStatusSchema,
 } from './admins.schema';
 import { requireAuth } from '../../middleware/requireAuth';
+import { requireRole } from '../../middleware/requireRole';
 import { requirePermission } from '../../middleware/requirePermission';
 import { validateBody } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -24,35 +25,35 @@ adminsRouter.get('/:id', requirePermission(USERS, 'view'), asyncHandler(adminsCo
 
 adminsRouter.post(
   '/',
-  requirePermission(USERS, 'manage'),
+  requireRole(Role.SUPERADMIN),
   validateBody(createAdminSchema),
   asyncHandler(adminsController.create),
 );
 
 adminsRouter.put(
   '/:id',
-  requirePermission(USERS, 'manage'),
+  requireRole(Role.SUPERADMIN),
   validateBody(updateAdminSchema),
   asyncHandler(adminsController.update),
 );
 
 adminsRouter.put(
   '/:id/permissions',
-  requirePermission(USERS, 'manage'),
+  requireRole(Role.SUPERADMIN),
   validateBody(updatePermissionsSchema),
   asyncHandler(adminsController.updatePermissions),
 );
 
 adminsRouter.post(
   '/:id/reset-password',
-  requirePermission(USERS, 'manage'),
+  requireRole(Role.SUPERADMIN),
   validateBody(resetPasswordSchema),
   asyncHandler(adminsController.resetPassword),
 );
 
 adminsRouter.patch(
   '/:id/status',
-  requirePermission(USERS, 'manage'),
+  requireRole(Role.SUPERADMIN),
   validateBody(updateStatusSchema),
   asyncHandler(adminsController.updateStatus),
 );

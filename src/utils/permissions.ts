@@ -20,6 +20,5 @@ export async function userHasPermission(
   const p = await prisma.adminPermission.findUnique({ where: { userId_module: { userId, module } } });
   if (!p) return false;
   if (action === 'view') return p.canView || p.canEdit || p.canManage;
-  if (action === 'edit') return p.canEdit || p.canManage;
-  return p.canManage;
+  return p.canEdit || p.canManage;
 }

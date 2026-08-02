@@ -7,13 +7,14 @@ export const permissionEntrySchema = z.object({
   module: z.nativeEnum(PermissionModule),
   canView: z.boolean(),
   canEdit: z.boolean(),
-  canManage: z.boolean(),
+  canManage: z.boolean().optional().default(false),
 });
 
 export const createAdminSchema = z.object({
   cnic: z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X'),
   fullName: z.string().min(1, 'Full name is required').max(150),
-  phone: z.string().max(50).nullable().optional(),
+  designation: z.string().min(1, 'Designation is required').max(100),
+  phone: z.string().min(1, 'Phone is required').max(50),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
   permissions: z.array(permissionEntrySchema).default([]),
 });
@@ -21,9 +22,10 @@ export const createAdminSchema = z.object({
 export const updateAdminSchema = z
   .object({
     fullName: z.string().min(1).max(150).optional(),
+    designation: z.string().max(100).nullable().optional(),
     phone: z.string().max(50).nullable().optional(),
   })
-  .refine((v) => v.fullName !== undefined || v.phone !== undefined, {
+  .refine((v) => v.fullName !== undefined || v.designation !== undefined || v.phone !== undefined, {
     message: 'Nothing to update',
   });
 

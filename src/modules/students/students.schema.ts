@@ -34,6 +34,9 @@ export const createStudentSchema = z
     sectionId: z.string().min(1, 'Section is required'),
     parentId: z.string().min(1).optional(),
     parent: inlineParentSchema.optional(),
+    bFormNo: z.string().max(100).nullable().optional(),
+    caste: z.string().max(100).nullable().optional(),
+    religion: z.string().max(100).optional(),
     // Staff child: the TeacherProfile whose salary this student's fees bill to.
     teacherParentId: z.string().min(1).nullable().optional(),
     // Transport route this student rides (null/absent = none).
@@ -60,6 +63,9 @@ export const updateStudentSchema = z
     admissionDate: z.coerce.date().optional(),
     sectionId: z.string().min(1).optional(), // section transfer
     parentId: z.string().min(1).optional(),
+    bFormNo: z.string().max(100).nullable().optional(),
+    caste: z.string().max(100).nullable().optional(),
+    religion: z.string().max(100).nullable().optional(),
     teacherParentId: z.string().min(1).nullable().optional(),
     transportRouteId: z.string().min(1).nullable().optional(),
   })
