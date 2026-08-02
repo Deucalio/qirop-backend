@@ -50,3 +50,15 @@ schoolRouter.delete(
   requirePermission(PermissionModule.SCHOOL_SETUP, 'edit'),
   asyncHandler(schoolController.resetAllData),
 );
+
+schoolRouter.get(
+  '/purge-counts',
+  requirePermission(PermissionModule.SCHOOL_SETUP, 'view'),
+  asyncHandler(schoolController.getPurgeCounts),
+);
+
+schoolRouter.post(
+  '/purge-batch',
+  requirePermission(PermissionModule.SCHOOL_SETUP, 'edit'),
+  asyncHandler(schoolController.purgeBatchData),
+);

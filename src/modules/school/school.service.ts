@@ -162,3 +162,145 @@ export async function resetAllSchoolData(actor: { userId: string; role: Role | s
 
   return { reset: true, message: 'All school data, students, teachers, parents, fee challans, and payrolls have been erased.' };
 }
+
+export async function getPurgeCounts() {
+  const [
+    challans,
+    payments,
+    salarySlips,
+    studentAttendance,
+    teacherAttendance,
+    homework,
+    expenses,
+    transportRoutes,
+    timetableSlots,
+    notifications,
+    students,
+    teachers,
+    parents,
+  ] = await Promise.all([
+    prisma.feeChallan.count(),
+    prisma.feePayment.count(),
+    prisma.salarySlip.count(),
+    prisma.studentAttendance.count(),
+    prisma.teacherAttendance.count(),
+    prisma.homework.count(),
+    prisma.expense.count(),
+    prisma.transportRoute.count(),
+    prisma.timetableSlot.count(),
+    prisma.notification.count(),
+    prisma.student.count(),
+    prisma.teacherProfile.count(),
+    prisma.parentProfile.count(),
+  ]);
+
+  return {
+    challans: { count: challans, label: 'Fee Challans & Payments', sub: `${challans} challans · ${payments} payments` },
+    salaries: { count: salarySlips, label: 'Salary Slips & Payroll', sub: `${salarySlips} salary slips` },
+    student_attendance: { count: studentAttendance, label: 'Student Attendance', sub: `${studentAttendance} attendance logs` },
+    teacher_attendance: { count: teacherAttendance, label: 'Teacher Attendance', sub: `${teacherAttendance} attendance logs` },
+    homework: { count: homework, label: 'Homework & Assignments', sub: `${homework} homework posts` },
+    expenses: { count: expenses, label: 'Expenses & Receipts', sub: `${expenses} recorded expenses` },
+    transport: { count: transportRoutes, label: 'Transport Routes & Links', sub: `${transportRoutes} active routes` },
+    timetable: { count: timetableSlots, label: 'Timetable Slots', sub: `${timetableSlots} weekly periods` },
+    announcements: { count: notifications, label: 'Notifications & Alerts', sub: `${notifications} system notifications` },
+    students: { count: students, label: 'Student Enrolments', sub: `${students} active students` },
+    teachers: { count: teachers, label: 'Teacher Profiles', sub: `${teachers} teacher accounts` },
+    parents: { count: parents, label: 'Parent Accounts', sub: `${parents} parent guardians` },
+  };
+}
+
+export async function purgeBatchData(actor: { userId: string; role: Role | string }, categories: string[]) {
+  const deletedSummary: Record<string, number> = {};
+
+  if (categories.includes('challans')) {
+    await prisma.feePaymentAllocation.deleteMany();
+    const p = await prisma.feePayment.deleteMany();
+    await prisma.feeChallanItem.deleteMany();
+    const c = await prisma.feeChallan.deleteMany();
+    deletedSummary['challans'] = c.count;
+    deletedSummary['payments'] = p.count;
+  }
+
+  if (categories.includes('salaries')) {
+    const s = await prisma.salarySlip.deleteMany();
+    deletedSummary['salaries'] = s.count;
+  }
+
+  if (categories.includes('student_attendance')) {
+    const sa = await prisma.studentAttendance.deleteMany();
+    deletedSummary['student_attendance'] = sa.count;
+  }
+
+  if (categories.includes('teacher_attendance')) {
+    const ta = await prisma.teacherAttendance.deleteMany();
+    await prisma.teacherPeriodAttendance.deleteMany();
+    deletedSummary['teacher_attendance'] = ta.count;
+  }
+
+  if (categories.includes('homework')) {
+    const h = await prisma.homework.deleteMany();
+    deletedSummary['homework'] = h.count;
+  }
+
+  if (categories.includes('expenses')) {
+    await prisma.expenseFunding.deleteMany();
+    await prisma.expenseAttachment.deleteMany();
+    const e = await prisma.expense.deleteMany();
+    deletedSummary['expenses'] = e.count;
+  }
+
+  if (categories.includes('transport')) {
+    await prisma.transportAssignment.deleteMany();
+    const tr = await prisma.transportRoute.deleteMany();
+    deletedSummary['transport'] = tr.count;
+  }
+
+  if (categories.includes('timetable')) {
+    const ts = await prisma.timetableSlot.deleteMany();
+    await prisma.teachingAssignment.deleteMany();
+    deletedSummary['timetable'] = ts.count;
+  }
+
+  if (categories.includes('announcements')) {
+    const n = await prisma.notification.deleteMany();
+    deletedSummary['announcements'] = n.count;
+  }
+
+  if (categories.includes('students')) {
+    await prisma.studentDocument.deleteMany();
+    const st = await prisma.student.deleteMany();
+    deletedSummary['students'] = st.count;
+  }
+
+  if (categories.includes('teachers')) {
+    await prisma.teacherQualification.deleteMany();
+    await prisma.teacherDocument.deleteMany();
+    const tp = await prisma.teacherProfile.deleteMany();
+    deletedSummary['teachers'] = tp.count;
+  }
+
+  if (categories.includes('parents')) {
+    const pp = await prisma.parentProfile.deleteMany();
+    deletedSummary['parents'] = pp.count;
+  }
+
+  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: actor.userId,
+      actorName: actorUser?.fullName ?? 'Admin',
+      actorRole: actor.role as Role,
+      action: 'DELETE',
+      module: 'SCHOOL',
+      targetType: 'SelectivePurge',
+      targetId: categories.join(','),
+      targetLabel: `Batch Purge (${categories.length} modules)`,
+      details: `${actorUser?.fullName ?? 'Admin'} selectively purged ${categories.length} data modules: ${categories.join(', ')}`,
+      changes: deletedSummary,
+    },
+  });
+
+  return { purged: deletedSummary, message: `Successfully purged ${categories.length} selected module(s)` };
+}

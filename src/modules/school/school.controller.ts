@@ -37,3 +37,18 @@ export async function resetAllData(req: Request, res: Response): Promise<void> {
   const result = await schoolService.resetAllSchoolData(req.user);
   res.json(result);
 }
+
+export async function getPurgeCounts(_req: Request, res: Response): Promise<void> {
+  const counts = await schoolService.getPurgeCounts();
+  res.json(counts);
+}
+
+export async function purgeBatchData(req: Request, res: Response): Promise<void> {
+  if (!req.user) throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
+  const categories: unknown = req.body?.categories;
+  if (!Array.isArray(categories) || categories.length === 0 || !categories.every((c) => typeof c === 'string')) {
+    throw new AppError('Select at least one category to purge', 400, 'INVALID_CATEGORIES');
+  }
+  const result = await schoolService.purgeBatchData(req.user, categories as string[]);
+  res.json(result);
+}
