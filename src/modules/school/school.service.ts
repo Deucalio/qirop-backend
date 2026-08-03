@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma';
 import { publicUrl, deleteFile } from '../../services/storage';
 import type { UpdateSchoolInput } from './school.schema';
 import { logAudit } from '../audit/audit.service';
+import type { Actor } from '../timetable/timetable.service';
 
 /** Convert the stored FileStore logo path into a public preview URL for the client. */
 function shape(school: School) {
@@ -268,21 +269,18 @@ export async function purgeBatchData(actor: { userId: string; role: Role | strin
   }
 
   if (categories.includes('students')) {
-    await prisma.studentDocument.deleteMany();
-    const st = await prisma.student.deleteMany();
-    deletedSummary['students'] = st.count;
+    const allSts = await prisma.student.findMany({ select: { id: true } });
+    deletedSummary['students'] = await purgeStudentsBatch(actor, allSts.map((s) => s.id));
   }
 
   if (categories.includes('teachers')) {
-    await prisma.teacherQualification.deleteMany();
-    await prisma.teacherDocument.deleteMany();
-    const tp = await prisma.teacherProfile.deleteMany();
-    deletedSummary['teachers'] = tp.count;
+    const allTps = await prisma.teacherProfile.findMany({ select: { id: true } });
+    deletedSummary['teachers'] = await purgeTeachersBatch(actor, allTps.map((t) => t.id));
   }
 
   if (categories.includes('parents')) {
-    const pp = await prisma.parentProfile.deleteMany();
-    deletedSummary['parents'] = pp.count;
+    const allPps = await prisma.parentProfile.findMany({ select: { id: true } });
+    deletedSummary['parents'] = await purgeParentsBatch(actor, allPps.map((p) => p.id));
   }
 
   const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
@@ -617,33 +615,15 @@ export async function purgeSelectiveItemsMap(
   }
 
   if (itemMap.students?.length) {
-    const ids = itemMap.students;
-    tasks.push(
-      prisma.$transaction([
-        prisma.studentDocument.deleteMany({ where: { studentId: { in: ids } } }),
-        prisma.studentAttendance.deleteMany({ where: { studentId: { in: ids } } }),
-        prisma.student.deleteMany({ where: { id: { in: ids } } }),
-      ]).then(([, , st]) => { deletedCounts['students'] = st.count; })
-    );
+    deletedCounts['students'] = await purgeStudentsBatch(actor, itemMap.students);
   }
 
   if (itemMap.teachers?.length) {
-    const ids = itemMap.teachers;
-    tasks.push(
-      prisma.$transaction([
-        prisma.teacherQualification.deleteMany({ where: { teacherId: { in: ids } } }),
-        prisma.teacherDocument.deleteMany({ where: { teacherId: { in: ids } } }),
-        prisma.teacherProfile.deleteMany({ where: { id: { in: ids } } }),
-      ]).then(([, , tp]) => { deletedCounts['teachers'] = tp.count; })
-    );
+    deletedCounts['teachers'] = await purgeTeachersBatch(actor, itemMap.teachers);
   }
 
   if (itemMap.parents?.length) {
-    const ids = itemMap.parents;
-    tasks.push(
-      prisma.parentProfile.deleteMany({ where: { id: { in: ids } } })
-        .then((pp) => { deletedCounts['parents'] = pp.count; })
-    );
+    deletedCounts['parents'] = await purgeParentsBatch(actor, itemMap.parents);
   }
 
   await Promise.all(tasks);
@@ -667,4 +647,83 @@ export async function purgeSelectiveItemsMap(
   });
 
   return { purged: deletedCounts, message: `Successfully deleted ${totalItems} selected item(s)` };
+}
+
+export async function purgeTeachersBatch(actor: { userId: string; role: Role | string }, ids: string[]): Promise<number> {
+  if (!ids || !ids.length) return 0;
+
+  const tProfiles = await prisma.teacherProfile.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, userId: true },
+  });
+  const tIds = tProfiles.map((tp) => tp.id);
+  const uIds = tProfiles.map((tp) => tp.userId).filter(Boolean);
+
+  if (!tIds.length) return 0;
+
+  // 1. Re-attribute actor references to acting admin so user deletion succeeds
+  await prisma.studentAttendance.updateMany({ where: { markedById: { in: uIds } }, data: { markedById: actor.userId } });
+  await prisma.teacherPeriodAttendance.updateMany({ where: { markedById: { in: uIds } }, data: { markedById: actor.userId } });
+  await prisma.feePayment.updateMany({ where: { receivedById: { in: uIds } }, data: { receivedById: actor.userId } });
+  await prisma.salarySlip.updateMany({ where: { generatedById: { in: uIds } }, data: { generatedById: actor.userId } });
+  await prisma.expense.updateMany({ where: { recordedById: { in: uIds } }, data: { recordedById: actor.userId } });
+
+  // 2. Drop optional links pointing to these teachers
+  await prisma.section.updateMany({ where: { classTeacherId: { in: tIds } }, data: { classTeacherId: null } });
+  await prisma.student.updateMany({ where: { teacherParentId: { in: tIds } }, data: { teacherParentId: null } });
+  await prisma.feeChallan.updateMany({ where: { billedToTeacherId: { in: tIds } }, data: { billedToTeacherId: null } });
+
+  // 3. Delete dependent rows owned by teachers
+  await prisma.homework.deleteMany({ where: { teacherId: { in: tIds } } });
+  await prisma.teachingAssignment.deleteMany({ where: { teacherId: { in: tIds } } });
+  await prisma.teacherAttendance.deleteMany({ where: { teacherId: { in: tIds } } });
+  await prisma.teacherPeriodAttendance.deleteMany({ where: { teacherId: { in: tIds } } });
+  await prisma.salarySlip.deleteMany({ where: { teacherId: { in: tIds } } });
+  await prisma.teacherQualification.deleteMany({ where: { teacherId: { in: tIds } } });
+  await prisma.teacherDocument.deleteMany({ where: { teacherId: { in: tIds } } });
+  await prisma.transportAssignment.deleteMany({ where: { teacherId: { in: tIds } } });
+
+  // 4. Delete teacher profiles
+  const res = await prisma.teacherProfile.deleteMany({ where: { id: { in: tIds } } });
+
+  // 5. Delete corresponding login Users
+  if (uIds.length) {
+    await prisma.user.deleteMany({ where: { id: { in: uIds } } });
+  }
+
+  return res.count;
+}
+
+export async function purgeStudentsBatch(actor: { userId: string; role: Role | string }, ids: string[]): Promise<number> {
+  if (!ids || !ids.length) return 0;
+
+  // Delete dependent rows for students
+  await prisma.feePayment.deleteMany({ where: { studentId: { in: ids } } });
+  await prisma.feeChallan.deleteMany({ where: { studentId: { in: ids } } });
+  await prisma.studentAttendance.deleteMany({ where: { studentId: { in: ids } } });
+  await prisma.studentDocument.deleteMany({ where: { studentId: { in: ids } } });
+  await prisma.transportAssignment.deleteMany({ where: { studentId: { in: ids } } });
+
+  const res = await prisma.student.deleteMany({ where: { id: { in: ids } } });
+  return res.count;
+}
+
+export async function purgeParentsBatch(actor: { userId: string; role: Role | string }, ids: string[]): Promise<number> {
+  if (!ids || !ids.length) return 0;
+
+  const pProfiles = await prisma.parentProfile.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, userId: true },
+  });
+  const pIds = pProfiles.map((p) => p.id);
+  const uIds = pProfiles.map((p) => p.userId).filter(Boolean);
+
+  if (!pIds.length) return 0;
+
+  const res = await prisma.parentProfile.deleteMany({ where: { id: { in: pIds } } });
+  if (uIds.length) {
+    await prisma.user.deleteMany({ where: { id: { in: uIds } } });
+  }
+
+  return res.count;
 }
