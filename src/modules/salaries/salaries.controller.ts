@@ -18,6 +18,7 @@ export async function list(req: Request, res: Response) {
   res.json(await svc.listSalaries(listSalariesQuerySchema.parse(req.query)));
 }
 export async function detail(req: Request, res: Response) {
+  await svc.assertCanViewSalarySlip(actor(req), req.params.id);
   res.json(await svc.getSalary(req.params.id));
 }
 export async function structure(_req: Request, res: Response) {
@@ -44,6 +45,7 @@ export async function preflight(req: Request, res: Response) {
   res.json(await svc.salaryGenerationPreflight(Number(req.query.year) || now.getFullYear(), Number(req.query.month) || now.getMonth() + 1));
 }
 export async function pdf(req: Request, res: Response) {
+  await svc.assertCanViewSalarySlip(actor(req), req.params.id);
   const { buffer, filename } = await renderSalarySlipPdf(req.params.id);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${filename}"`);

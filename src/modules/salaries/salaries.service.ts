@@ -1,9 +1,10 @@
-import { Prisma, Role, UserStatus, FeeItemType } from '@prisma/client';
+import { Prisma, Role, UserStatus, FeeItemType, PermissionModule } from '@prisma/client';
 import { prisma } from '../../config/prisma';
-import { AppError, NotFound } from '../../utils/apiResponse';
+import { AppError, NotFound, Forbidden } from '../../utils/apiResponse';
 import { money, sum, round2, toMoneyString, ZERO, Decimal, type Money } from '../../utils/money';
 import { pktDay, pktDayString, parsePktDay } from '../../utils/pktDate';
 import { publicUrl } from '../../services/storage';
+import { userHasPermission } from '../../utils/permissions';
 import { recomputeChallan } from '../fees/fees.service';
 import { logAudit } from '../audit/audit.service';
 import type { GenerateSalariesInput, UpdateSalaryInput, ListSalariesQuery } from './salaries.schema';
@@ -252,6 +253,20 @@ export async function listSalaries(query: ListSalariesQuery) {
     take: 1000,
   });
   return slips.map(shapeSlip);
+}
+
+export async function assertCanViewSalarySlip(actor: Actor, salarySlipId: string) {
+  const hasPerm = await userHasPermission(actor.userId, actor.role, PermissionModule.SALARIES, 'view');
+  if (hasPerm) return;
+
+  const slip = await prisma.salarySlip.findUnique({
+    where: { id: salarySlipId },
+    select: { teacher: { select: { userId: true } } },
+  });
+  if (!slip) throw NotFound('Salary slip not found');
+  if (slip.teacher?.userId !== actor.userId) {
+    throw Forbidden('You do not have permission to view this salary slip');
+  }
 }
 
 /** A salary slip with the full staff-fee deduction breakdown (children + transport). */
