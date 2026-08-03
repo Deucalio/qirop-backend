@@ -10,6 +10,7 @@ import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateTeacherInput, ListTeachersQuery, UpdateTeacherInput } from './teachers.schema';
 import { studentDues, getStudentFeeDetails } from '../students/students.service';
 import { money, ZERO, toMoneyString } from '../../utils/money';
+import { formatPartialCnic } from '../../utils/cnic';
 import type { Response } from 'express';
 
 export interface Actor {
@@ -145,6 +146,7 @@ async function loadTeacherOr404(id: string): Promise<TeacherWithRels> {
 }
 
 export async function listTeachers(query: ListTeachersQuery) {
+  const qCnic = query.search ? formatPartialCnic(query.search) : '';
   const profiles = await prisma.teacherProfile.findMany({
     where: {
       status: query.status,
@@ -161,6 +163,10 @@ export async function listTeachers(query: ListTeachersQuery) {
             OR: [
               { user: { fullName: { contains: query.search, mode: 'insensitive' } } },
               { employeeId: { contains: query.search, mode: 'insensitive' } },
+              { user: { cnic: { contains: query.search, mode: 'insensitive' } } },
+              { user: { cnic: { contains: qCnic, mode: 'insensitive' } } },
+              { parentCnic: { contains: query.search, mode: 'insensitive' } },
+              { parentCnic: { contains: qCnic, mode: 'insensitive' } },
             ],
           }
         : {}),

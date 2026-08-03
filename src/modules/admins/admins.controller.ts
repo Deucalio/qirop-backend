@@ -38,3 +38,8 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
 export async function updateStatus(req: Request, res: Response): Promise<void> {
   res.json(await adminsService.updateStatus(getActor(req), req.params.id, req.body.status));
 }
+
+export async function remove(req: Request, res: Response): Promise<void> {
+  await adminsService.deleteAdmin(getActor(req), req.params.id);
+  res.json({ message: 'User account deleted successfully' });
+}

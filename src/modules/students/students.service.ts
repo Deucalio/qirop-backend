@@ -10,6 +10,7 @@ import { pktDay, pktDayString, pktMonthRange } from '../../utils/pktDate';
 import type { CreateStudentInput, ListStudentsQuery, UpdateStudentInput } from './students.schema';
 import { logAudit } from '../audit/audit.service';
 import type { Response } from 'express';
+import { formatPartialCnic } from '../../utils/cnic';
 
 export interface Actor {
   userId: string;
@@ -57,6 +58,7 @@ function shapeListItem(s: StudentWithRels) {
       id: s.parent.id,
       name: s.parent.user.fullName,
       phone: s.parent.user.phone,
+      cnic: s.parent.user.cnic,
       // The guardian's own account is also a teacher here.
       isTeacher: s.parent.user.teacherProfile !== null,
     },
@@ -207,8 +209,8 @@ async function assertRollNoFree(sectionId: string, rollNo: string, exceptId?: st
     throw new AppError('This roll number is already used in the target section', 409, 'ROLL_NO_TAKEN');
   }
 }
-
 export async function listStudents(query: ListStudentsQuery, actor?: Actor) {
+  const qCnic = query.search ? formatPartialCnic(query.search) : '';
   const students = await prisma.student.findMany({
     where: {
       status: query.status,
@@ -220,6 +222,10 @@ export async function listStudents(query: ListStudentsQuery, actor?: Actor) {
               { firstName: { contains: query.search, mode: 'insensitive' } },
               { lastName: { contains: query.search, mode: 'insensitive' } },
               { admissionNo: { contains: query.search, mode: 'insensitive' } },
+              { bFormNo: { contains: query.search, mode: 'insensitive' } },
+              { bFormNo: { contains: qCnic, mode: 'insensitive' } },
+              { parent: { user: { cnic: { contains: query.search, mode: 'insensitive' } } } },
+              { parent: { user: { cnic: { contains: qCnic, mode: 'insensitive' } } } },
             ],
           }
         : {}),

@@ -6,8 +6,10 @@ import { logAudit } from '../audit/audit.service';
 import type { CreateParentInput, ListParentsQuery, UpdateParentInput } from './parents.schema';
 import { studentDues, getStudentFeeDetails } from '../students/students.service';
 import { money, ZERO, toMoneyString } from '../../utils/money';
+import { formatPartialCnic } from '../../utils/cnic';
 
 export async function listParents(query: ListParentsQuery) {
+  const qCnic = query.search ? formatPartialCnic(query.search) : '';
   const parents = await prisma.parentProfile.findMany({
     where: {
       user: {
@@ -17,10 +19,19 @@ export async function listParents(query: ListParentsQuery) {
               OR: [
                 { fullName: { contains: query.search, mode: 'insensitive' } },
                 { cnic: { contains: query.search, mode: 'insensitive' } },
+                { cnic: { contains: qCnic, mode: 'insensitive' } },
               ],
             }
           : {}),
       },
+      ...(query.search
+        ? {
+            OR: [
+              { motherCnic: { contains: query.search, mode: 'insensitive' } },
+              { motherCnic: { contains: qCnic, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     },
     include: {
       user: { include: { teacherProfile: { select: { id: true } } } },
@@ -164,6 +175,14 @@ export async function createParent(actorId: string, input: CreateParentInput) {
 export async function updateParent(id: string, data: UpdateParentInput, actorId?: string) {
   const parent = await prisma.parentProfile.findUnique({ where: { id }, include: { user: true } });
   if (!parent) throw NotFound('Parent not found');
+
+  if (data.cnic && data.cnic !== parent.user.cnic) {
+    const existing = await prisma.user.findUnique({ where: { cnic: data.cnic } });
+    if (existing && existing.id !== parent.userId) {
+      throw new AppError('A user with this Father CNIC already exists', 409, 'CNIC_TAKEN');
+    }
+  }
+
   await prisma.parentProfile.update({
     where: { id },
     data: {
@@ -175,6 +194,7 @@ export async function updateParent(id: string, data: UpdateParentInput, actorId?
       motherOccupation: data.motherOccupation === undefined ? undefined : data.motherOccupation,
       user: {
         update: {
+          cnic: data.cnic ?? undefined,
           fullName: data.fullName ?? undefined,
           phone: data.phone === undefined ? undefined : data.phone,
         },
@@ -184,6 +204,9 @@ export async function updateParent(id: string, data: UpdateParentInput, actorId?
 
   // Record only the fields that actually changed.
   const changes: Record<string, { before: string; after: string }> = {};
+  if (data.cnic !== undefined && data.cnic !== parent.user.cnic) {
+    changes.cnic = { before: parent.user.cnic, after: data.cnic };
+  }
   if (data.fullName !== undefined && data.fullName !== parent.user.fullName) {
     changes.fullName = { before: parent.user.fullName, after: data.fullName };
   }

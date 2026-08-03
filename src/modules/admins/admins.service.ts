@@ -346,3 +346,45 @@ export async function updateStatus(actor: Actor, id: string, status: UserStatus)
 
   return toListItem(updated);
 }
+
+export async function deleteAdmin(actor: Actor, id: string) {
+  const target = await loadAdminTarget(id);
+
+  if (target.id === actor.userId) {
+    throw Forbidden('You cannot delete your own user account');
+  }
+
+  if (target.role === Role.SUPERADMIN) {
+    const superAdminCount = await prisma.user.count({ where: { role: Role.SUPERADMIN } });
+    if (superAdminCount <= 1) {
+      throw new AppError('Cannot delete the last Super Admin account', 400, 'LAST_SUPERADMIN');
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Delete permissions
+    await tx.adminPermission.deleteMany({ where: { userId: target.id } });
+
+    // Re-attribute actor references to acting admin
+    await tx.user.updateMany({ where: { createdById: target.id }, data: { createdById: actor.userId } });
+    await tx.feePayment.updateMany({ where: { receivedById: target.id }, data: { receivedById: actor.userId } });
+    await tx.feePayment.updateMany({ where: { reversedById: target.id }, data: { reversedById: actor.userId } });
+    await tx.expense.updateMany({ where: { recordedById: target.id }, data: { recordedById: actor.userId } });
+    await tx.salarySlip.updateMany({ where: { generatedById: target.id }, data: { generatedById: actor.userId } });
+    await tx.studentAttendance.updateMany({ where: { markedById: target.id }, data: { markedById: actor.userId } });
+    await tx.teacherPeriodAttendance.updateMany({ where: { markedById: target.id }, data: { markedById: actor.userId } });
+
+    // Delete user account
+    await tx.user.delete({ where: { id: target.id } });
+  });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'DELETE',
+    module: 'USERS',
+    targetType: 'User',
+    targetId: id,
+    targetLabel: `${target.fullName} (${target.cnic})`,
+    details: `Deleted admin account ${target.fullName} (${target.role})`,
+  });
+}

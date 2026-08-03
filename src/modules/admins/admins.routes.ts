@@ -57,3 +57,9 @@ adminsRouter.patch(
   validateBody(updateStatusSchema),
   asyncHandler(adminsController.updateStatus),
 );
+
+adminsRouter.delete(
+  '/:id',
+  requireRole(Role.SUPERADMIN),
+  asyncHandler(adminsController.remove),
+);

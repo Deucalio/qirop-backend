@@ -23,6 +23,7 @@ export const createParentSchema = z.object({
 
 export const updateParentSchema = z
   .object({
+    cnic: z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X').optional(),
     fullName: z.string().min(1).max(150).optional(),
     phone: z.string().max(50).nullable().optional(),
     occupation: z.string().max(150).nullable().optional(),

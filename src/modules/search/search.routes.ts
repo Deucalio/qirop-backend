@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { prisma } from '../../config/prisma';
 import { requireAuth } from '../../middleware/requireAuth';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { formatPartialCnic } from '../../utils/cnic';
 
 export const searchRouter = Router();
 
@@ -14,6 +15,8 @@ searchRouter.get(
       return res.json({ students: [], teachers: [], parents: [], classes: [], challans: [] });
     }
 
+    const qCnic = formatPartialCnic(q);
+
     const [students, teachers, parents, classes, challans] = await Promise.all([
       prisma.student.findMany({
         where: {
@@ -23,6 +26,9 @@ searchRouter.get(
             { rollNo: { contains: q, mode: 'insensitive' } },
             { admissionNo: { contains: q, mode: 'insensitive' } },
             { bFormNo: { contains: q, mode: 'insensitive' } },
+            { bFormNo: { contains: qCnic, mode: 'insensitive' } },
+            { parent: { user: { cnic: { contains: q, mode: 'insensitive' } } } },
+            { parent: { user: { cnic: { contains: qCnic, mode: 'insensitive' } } } },
           ],
         },
         take: 10,
@@ -42,6 +48,7 @@ searchRouter.get(
             { user: { fullName: { contains: q, mode: 'insensitive' } } },
             { employeeId: { contains: q, mode: 'insensitive' } },
             { user: { cnic: { contains: q, mode: 'insensitive' } } },
+            { user: { cnic: { contains: qCnic, mode: 'insensitive' } } },
             { user: { designation: { contains: q, mode: 'insensitive' } } },
           ],
         },
@@ -58,6 +65,9 @@ searchRouter.get(
             { user: { fullName: { contains: q, mode: 'insensitive' } } },
             { user: { phone: { contains: q, mode: 'insensitive' } } },
             { user: { cnic: { contains: q, mode: 'insensitive' } } },
+            { user: { cnic: { contains: qCnic, mode: 'insensitive' } } },
+            { motherCnic: { contains: q, mode: 'insensitive' } },
+            { motherCnic: { contains: qCnic, mode: 'insensitive' } },
           ],
         },
         take: 10,
