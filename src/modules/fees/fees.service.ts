@@ -1,4 +1,4 @@
-import { ChallanStatus, FeeItemType, PaymentMethod, Prisma, UserStatus } from '@prisma/client';
+import { ChallanStatus, FeeItemType, PaymentMethod, Prisma, UserStatus, SalaryStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { pktDay, pktDayString, parsePktDay, isFuturePktDay, pktMonthRange } from '../../utils/pktDate';
@@ -695,7 +695,13 @@ export async function listChallans(query: ListChallansQuery) {
     include: {
       items: true,
       allocations: { include: { payment: true } },
-      student: { include: { section: { include: { class: true } }, parent: { include: { user: true } } } },
+      student: {
+        include: {
+          section: { include: { class: true } },
+          parent: { include: { user: true } },
+          teacherParent: { include: { user: true } },
+        },
+      },
     },
     orderBy: [{ year: 'desc' }, { month: 'desc' }, { challanNo: 'asc' }],
     take: 1000,
@@ -742,8 +748,11 @@ export async function listChallans(query: ListChallansQuery) {
       rollNo: c.student.rollNo,
       className: c.student.section.class.name,
       sectionName: c.student.section.name,
-      parentName: c.student.parent.user.fullName,
-      parentPhone: c.student.parent.user.phone,
+      parentName: c.student.parent?.user?.fullName || 'Parent',
+      parentPhone: c.student.parent?.user?.phone || null,
+      guardianName: c.student.teacherParent?.user?.fullName || c.student.parent?.user?.fullName || 'Parent',
+      guardianPhone: c.student.teacherParent?.user?.phone || c.student.parent?.user?.phone || null,
+      guardianRole: c.student.teacherParentId ? 'TEACHER' : 'PARENT',
     },
   }));
 }
@@ -1229,25 +1238,47 @@ export async function feesSummary(
   endDate?: string,
 ) {
   let where: Prisma.FeeChallanWhereInput = {};
+  let expenseWhere: Prisma.ExpenseWhereInput = {};
+  let salaryWhere: Prisma.SalarySlipWhereInput = { status: SalaryStatus.PAID };
+
   if (startDate && endDate) {
-    where = {
-      createdAt: {
-        gte: new Date(startDate + 'T00:00:00.000Z'),
-        lte: new Date(endDate + 'T23:59:59.999Z'),
-      },
-    };
+    const sDate = new Date(startDate + 'T00:00:00.000Z');
+    const eDate = new Date(endDate + 'T23:59:59.999Z');
+    where = { createdAt: { gte: sDate, lte: eDate } };
+    expenseWhere = { date: { gte: sDate, lte: eDate } };
+    salaryWhere = { ...salaryWhere, createdAt: { gte: sDate, lte: eDate } };
   } else if (months && months > 0) {
     const now = pktDay();
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
     where = { createdAt: { gte: start } };
+    expenseWhere = { date: { gte: start } };
+    salaryWhere = { ...salaryWhere, createdAt: { gte: start } };
   } else if (year && month) {
     where = { year, month };
+    const { start, endExclusive } = pktMonthRange(year, month);
+    expenseWhere = { date: { gte: start, lt: endExclusive } };
+    salaryWhere = { ...salaryWhere, year, month };
   }
 
-  const challans = await prisma.feeChallan.findMany({
-    where,
-    include: { allocations: { include: { payment: true } } },
-  });
+  const [challans, expenseAggr, salaryAggr, expenseCategoryGroups] = await Promise.all([
+    prisma.feeChallan.findMany({
+      where,
+      include: { allocations: { include: { payment: true } } },
+    }),
+    prisma.expense.aggregate({
+      where: expenseWhere,
+      _sum: { amount: true },
+    }),
+    prisma.salarySlip.aggregate({
+      where: salaryWhere,
+      _sum: { netSalary: true },
+    }),
+    prisma.expense.groupBy({
+      by: ['category'],
+      where: expenseWhere,
+      _sum: { amount: true },
+    }),
+  ]);
 
   let billed = ZERO;
   let collected = ZERO;
@@ -1262,11 +1293,29 @@ export async function feesSummary(
     const bal = money(c.amount).minus(cash).minus(c.staffCovered);
     if (bal.greaterThan(0)) {
       outstanding = outstanding.plus(bal);
-      if (c.status === ChallanStatus.OVERDUE) overdue++;
+      if (c.status === ChallanStatus.OVERDUE || c.status === ChallanStatus.UNPAID || c.status === ChallanStatus.PARTIAL || (c.dueDate && new Date(c.dueDate) < new Date())) overdue++;
     }
   }
   const totalSettled = collected.plus(staffCovered);
   const rate = billed.greaterThan(0) ? round2(totalSettled.dividedBy(billed).times(100)) : ZERO;
+
+  const rawExpense = expenseAggr._sum.amount || ZERO;
+  const rawSalary = salaryAggr._sum.netSalary || ZERO;
+  const totalExpenses = money(rawExpense).plus(rawSalary);
+  const netSurplus = totalSettled.minus(totalExpenses);
+
+  const expensesByCategory = expenseCategoryGroups.map((g) => ({
+    category: String(g.category),
+    amount: Number(g._sum.amount || 0),
+  }));
+
+  if (Number(rawSalary) > 0) {
+    expensesByCategory.push({
+      category: 'SALARIES',
+      amount: Number(rawSalary),
+    });
+  }
+
   return {
     year: year ?? new Date().getFullYear(),
     month: month ?? new Date().getMonth() + 1,
@@ -1274,6 +1323,11 @@ export async function feesSummary(
     collected: toMoneyString(collected),
     staffCovered: toMoneyString(round2(staffCovered)),
     outstanding: toMoneyString(round2(outstanding)),
+    totalExpenses: toMoneyString(totalExpenses),
+    totalSalaries: toMoneyString(rawSalary),
+    totalOperatingExpenses: toMoneyString(rawExpense),
+    netSurplus: toMoneyString(netSurplus),
+    expensesByCategory,
     overdueCount: overdue,
     collectionRate: Number(rate.toFixed(1)),
   };
@@ -1306,28 +1360,35 @@ export async function feesTrend(months?: number, startDate?: string, endDate?: s
   if (monthBuckets.length === 0) return [];
 
   const years = Array.from(new Set(monthBuckets.map((b) => b.year)));
-  const challans = await prisma.feeChallan.findMany({
-    where: {
-      year: { in: years },
-    },
-    select: {
-      year: true,
-      month: true,
-      amount: true,
-      staffCovered: true,
-      allocations: {
-        select: {
-          amountApplied: true,
-          payment: { select: { isReversed: true } },
+  const [challans, expenses, salarySlips] = await Promise.all([
+    prisma.feeChallan.findMany({
+      where: { year: { in: years } },
+      select: {
+        year: true,
+        month: true,
+        amount: true,
+        staffCovered: true,
+        allocations: {
+          select: {
+            amountApplied: true,
+            payment: { select: { isReversed: true } },
+          },
         },
       },
-    },
-  });
+    }),
+    prisma.expense.findMany({
+      select: { date: true, amount: true },
+    }),
+    prisma.salarySlip.findMany({
+      where: { year: { in: years }, status: SalaryStatus.PAID },
+      select: { year: true, month: true, netSalary: true },
+    }),
+  ]);
 
-  const map = new Map<string, { collected: Prisma.Decimal; pending: Prisma.Decimal }>();
+  const map = new Map<string, { collected: Prisma.Decimal; pending: Prisma.Decimal; expenses: Prisma.Decimal }>();
   for (const c of challans) {
     const key = `${c.year}-${c.month}`;
-    if (!map.has(key)) map.set(key, { collected: ZERO, pending: ZERO });
+    if (!map.has(key)) map.set(key, { collected: ZERO, pending: ZERO, expenses: ZERO });
     const bucket = map.get(key)!;
     const cash = sum(c.allocations.filter((a) => !a.payment.isReversed).map((a) => a.amountApplied));
     bucket.collected = bucket.collected.plus(cash);
@@ -1335,13 +1396,34 @@ export async function feesTrend(months?: number, startDate?: string, endDate?: s
     bucket.pending = bucket.pending.plus(pend);
   }
 
+  for (const e of expenses) {
+    const key = `${e.date.getUTCFullYear()}-${e.date.getUTCMonth() + 1}`;
+    if (!map.has(key)) map.set(key, { collected: ZERO, pending: ZERO, expenses: ZERO });
+    const bucket = map.get(key)!;
+    bucket.expenses = bucket.expenses.plus(e.amount);
+  }
+
+  for (const s of salarySlips) {
+    const key = `${s.year}-${s.month}`;
+    if (!map.has(key)) map.set(key, { collected: ZERO, pending: ZERO, expenses: ZERO });
+    const bucket = map.get(key)!;
+    bucket.expenses = bucket.expenses.plus(s.netSalary);
+  }
+
   return monthBuckets.map(({ year, month }) => {
     const b = map.get(`${year}-${month}`);
+    const collected = b ? b.collected : ZERO;
+    const pending = b ? round2(b.pending) : ZERO;
+    const exp = b ? round2(b.expenses) : ZERO;
+    const netSurplus = round2(money(collected).minus(exp));
+
     return {
       year,
       month,
-      collected: toMoneyString(b ? b.collected : ZERO),
-      pending: toMoneyString(b ? round2(b.pending) : ZERO),
+      collected: toMoneyString(collected),
+      pending: toMoneyString(pending),
+      expenses: toMoneyString(exp),
+      netSurplus: toMoneyString(netSurplus),
     };
   });
 }
