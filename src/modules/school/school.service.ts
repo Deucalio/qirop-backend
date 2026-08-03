@@ -179,6 +179,9 @@ export async function getPurgeCounts() {
     students,
     teachers,
     parents,
+    classesCount,
+    sectionsCount,
+    subjectsCount,
   ] = await Promise.all([
     prisma.feeChallan.count(),
     prisma.feePayment.count(),
@@ -193,6 +196,9 @@ export async function getPurgeCounts() {
     prisma.student.count(),
     prisma.teacherProfile.count(),
     prisma.parentProfile.count(),
+    prisma.class.count(),
+    prisma.section.count(),
+    prisma.subject.count(),
   ]);
 
   return {
@@ -208,6 +214,7 @@ export async function getPurgeCounts() {
     students: { count: students, label: 'Student Enrolments', sub: `${students} active students` },
     teachers: { count: teachers, label: 'Teacher Profiles', sub: `${teachers} teacher accounts` },
     parents: { count: parents, label: 'Parent Accounts', sub: `${parents} parent guardians` },
+    classes: { count: classesCount, label: 'Classes & Academic Structure', sub: `${classesCount} classes · ${sectionsCount} sections · ${subjectsCount} subjects` },
   };
 }
 
@@ -283,6 +290,12 @@ export async function purgeBatchData(actor: { userId: string; role: Role | strin
     deletedSummary['parents'] = await purgeParentsBatch(actor, allPps.map((p) => p.id));
   }
 
+  if (categories.includes('classes')) {
+    const allClasses = await prisma.class.findMany({ select: { id: true } });
+    deletedSummary['classes'] = await purgeClassesBatch(actor, allClasses.map((c) => c.id));
+    await prisma.subject.deleteMany();
+  }
+
   const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
 
   await prisma.auditLog.create({
@@ -326,6 +339,7 @@ export async function getPurgeDetailedItems() {
     rawStudents,
     rawTeachers,
     rawParents,
+    rawClasses,
   ] = await Promise.all([
     prisma.feeChallan.findMany({
       include: { student: { select: { firstName: true, lastName: true, admissionNo: true } } },
@@ -383,6 +397,10 @@ export async function getPurgeDetailedItems() {
       include: { user: { select: { fullName: true, phone: true } }, students: { select: { firstName: true } } },
       orderBy: { createdAt: 'desc' },
       take: 200,
+    }),
+    prisma.class.findMany({
+      include: { sections: true, classSubjects: { include: { subject: true } } },
+      orderBy: { order: 'asc' },
     }),
   ]);
 
@@ -524,6 +542,17 @@ export async function getPurgeDetailedItems() {
         timeStr: dt.timeStr,
       };
     }),
+
+    classes: rawClasses.map((c) => {
+      const dt = fmtDt(c.createdAt);
+      return {
+        id: c.id,
+        title: c.name,
+        subtitle: `${c.sections.length} section(s) (${c.sections.map((s) => s.name).join(', ') || 'None'}) · ${c.classSubjects.length} subject(s)`,
+        dateStr: dt.dateStr,
+        timeStr: dt.timeStr,
+      };
+    }),
   };
 }
 
@@ -626,6 +655,10 @@ export async function purgeSelectiveItemsMap(
     deletedCounts['parents'] = await purgeParentsBatch(actor, itemMap.parents);
   }
 
+  if (itemMap.classes?.length) {
+    deletedCounts['classes'] = await purgeClassesBatch(actor, itemMap.classes);
+  }
+
   await Promise.all(tasks);
 
   const totalItems = Object.values(deletedCounts).reduce((a, b) => a + b, 0);
@@ -725,5 +758,36 @@ export async function purgeParentsBatch(actor: { userId: string; role: Role | st
     await prisma.user.deleteMany({ where: { id: { in: uIds } } });
   }
 
+  return res.count;
+}
+
+export async function purgeClassesBatch(actor: { userId: string; role: Role | string }, ids: string[]): Promise<number> {
+  if (!ids || !ids.length) return 0;
+
+  const sections = await prisma.section.findMany({
+    where: { classId: { in: ids } },
+    select: { id: true },
+  });
+  const sectionIds = sections.map((s) => s.id);
+
+  if (sectionIds.length) {
+    await prisma.studentAttendance.deleteMany({ where: { sectionId: { in: sectionIds } } });
+    await prisma.teacherPeriodAttendance.deleteMany({ where: { sectionId: { in: sectionIds } } });
+    await prisma.homework.deleteMany({ where: { sectionId: { in: sectionIds } } });
+    await prisma.timetableSlot.deleteMany({ where: { sectionId: { in: sectionIds } } });
+    await prisma.teachingAssignment.deleteMany({ where: { sectionId: { in: sectionIds } } });
+
+    await prisma.feePayment.deleteMany({ where: { student: { sectionId: { in: sectionIds } } } });
+    await prisma.feeChallan.deleteMany({ where: { student: { sectionId: { in: sectionIds } } } });
+    await prisma.studentDocument.deleteMany({ where: { student: { sectionId: { in: sectionIds } } } });
+    await prisma.transportAssignment.deleteMany({ where: { student: { sectionId: { in: sectionIds } } } });
+    await prisma.student.deleteMany({ where: { sectionId: { in: sectionIds } } });
+  }
+
+  await prisma.classSubject.deleteMany({ where: { classId: { in: ids } } });
+  await prisma.feeStructure.deleteMany({ where: { classId: { in: ids } } });
+  await prisma.section.deleteMany({ where: { classId: { in: ids } } });
+
+  const res = await prisma.class.deleteMany({ where: { id: { in: ids } } });
   return res.count;
 }
