@@ -222,6 +222,7 @@ export async function listTeachers(query: ListTeachersQuery) {
       userId: p.userId,
       fullName: p.user.fullName,
       cnic: p.user.cnic,
+      parentCnic: p.parentCnic,
       employeeId: p.employeeId,
       phone: p.user.phone,
       status: p.status,
