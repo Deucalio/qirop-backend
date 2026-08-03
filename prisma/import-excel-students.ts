@@ -87,7 +87,12 @@ async function main() {
   // 1. Locate Excel file
   let filePath = process.argv[2];
   if (!filePath) {
-    filePath = path.join(__dirname, '../../important-docs/All Stunds.xlsx');
+    const candidates = [
+      path.join(__dirname, '../data/All Stunds.xlsx'),
+      path.join(process.cwd(), 'data/All Stunds.xlsx'),
+      path.join(__dirname, '../../important-docs/All Stunds.xlsx'),
+    ];
+    filePath = candidates.find((p) => fs.existsSync(p)) || candidates[0];
   }
 
   if (!fs.existsSync(filePath)) {
