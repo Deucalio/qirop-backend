@@ -4,6 +4,8 @@ import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { pktDay, pktDayString, parsePktDay, isFuturePktDay, pktMonthRange } from '../../utils/pktDate';
 import { money, sum, round2, toMoneyString, ZERO, type Money } from '../../utils/money';
 import type { Actor } from '../timetable/timetable.service';
+// Pure ledger arithmetic lives in its own IO-free module so it can be unit-tested.
+import { paidBreakdown, deriveStatus } from './fees.ledger';
 import type { GenerateChallansInput, ListChallansQuery, PatchChallanInput, RecordPaymentInput } from './fees.schema';
 
 type Tx = Prisma.TransactionClient;
@@ -73,23 +75,6 @@ async function nextChallanNo(tx: Tx, year: number): Promise<string> {
 type ChallanWithLedger = Prisma.FeeChallanGetPayload<{
   include: { items: true; allocations: { include: { payment: true } } };
 }>;
-
-/** Cash paid = non-reversed allocations; total settled also includes staff-salary coverage. */
-function paidBreakdown(c: ChallanWithLedger) {
-  const cash = sum(c.allocations.filter((a) => !a.payment.isReversed).map((a) => a.amountApplied));
-  const staff = money(c.staffCovered);
-  const settled = cash.plus(staff);
-  const balance = round2(money(c.amount).minus(settled));
-  return { cash, staff, settled: round2(settled), balance };
-}
-
-function deriveStatus(c: ChallanWithLedger): ChallanStatus {
-  const { settled, balance } = paidBreakdown(c);
-  if (balance.lessThanOrEqualTo(0)) return ChallanStatus.PAID;
-  if (settled.greaterThan(0)) return ChallanStatus.PARTIAL;
-  const pastDue = pktDay().getTime() > c.dueDate.getTime();
-  return pastDue ? ChallanStatus.OVERDUE : ChallanStatus.UNPAID;
-}
 
 /** Recompute and persist a challan's status from its current ledger. */
 export async function recomputeChallan(tx: Tx, challanId: string) {
@@ -1293,7 +1278,10 @@ export async function feesSummary(
     const bal = money(c.amount).minus(cash).minus(c.staffCovered);
     if (bal.greaterThan(0)) {
       outstanding = outstanding.plus(bal);
-      if (c.status === ChallanStatus.OVERDUE || c.status === ChallanStatus.UNPAID || c.status === ChallanStatus.PARTIAL || (c.dueDate && new Date(c.dueDate) < new Date())) overdue++;
+      // Genuinely overdue only — a challan that still has time to be paid is
+      // outstanding, not overdue. (This previously counted every UNPAID and
+      // PARTIAL challan, so "N overdue" overstated what needed chasing.)
+      if (c.status === ChallanStatus.OVERDUE || (c.dueDate && new Date(c.dueDate) < pktDay())) overdue++;
     }
   }
   const totalSettled = collected.plus(staffCovered);

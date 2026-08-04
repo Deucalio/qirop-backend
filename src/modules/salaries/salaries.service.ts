@@ -170,12 +170,14 @@ function shapeSlip(s: {
   notes: string | null;
   status: string;
   paidDate: Date | null;
-  teacher: { employeeId: string; user: { fullName: string; avatarUrl: string | null } };
+  teacher: { employeeId: string; user: { fullName: string; cnic: string; avatarUrl: string | null } };
 }) {
   return {
     id: s.id,
     teacherId: s.teacherId,
     teacherName: s.teacher.user.fullName,
+    // CNIC uniquely identifies the person — two staff can share a name.
+    cnic: s.teacher.user.cnic,
     avatarUrl: publicUrl(s.teacher.user.avatarUrl),
     employeeId: s.teacher.employeeId,
     year: s.year,
