@@ -37,6 +37,17 @@ export const updateClassSchema = z.object({
   order: z.coerce.number().int().min(0).optional(),
 });
 
+export const reorderClassesSchema = z.object({
+  orders: z
+    .array(
+      z.object({
+        id: z.string().min(1, 'Class ID is required'),
+        order: z.number().int(),
+      }),
+    )
+    .min(1, 'At least one class order is required'),
+});
+
 // ---- Sections ----
 /**
  * A section is a single letter (A, B, C…). The UI always renders it as

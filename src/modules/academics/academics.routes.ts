@@ -4,6 +4,7 @@ import * as c from './academics.controller';
 import {
   createClassSchema,
   updateClassSchema,
+  reorderClassesSchema,
   createSectionSchema,
   updateSectionSchema,
   createSubjectSchema,
@@ -25,6 +26,7 @@ classesRouter.use(requireAuth);
 
 classesRouter.get('/', canView, asyncHandler(c.listClasses));
 classesRouter.post('/', canEdit, validateBody(createClassSchema), asyncHandler(c.createClass));
+classesRouter.put('/reorder', canEdit, validateBody(reorderClassesSchema), asyncHandler(c.reorderClasses));
 classesRouter.put('/:id', canEdit, validateBody(updateClassSchema), asyncHandler(c.updateClass));
 classesRouter.delete('/:id', canEdit, asyncHandler(c.deleteClass));
 

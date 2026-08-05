@@ -24,6 +24,9 @@ export async function createClass(req: Request, res: Response): Promise<void> {
 export async function updateClass(req: Request, res: Response): Promise<void> {
   res.json(await svc.updateClass(req.params.id, req.body));
 }
+export async function reorderClasses(req: Request, res: Response): Promise<void> {
+  res.json(await svc.reorderClasses(req.body.orders, req.user?.userId));
+}
 export async function deleteClass(req: Request, res: Response): Promise<void> {
   await svc.deleteClass(req.params.id);
   res.json({ message: 'Class deleted' });

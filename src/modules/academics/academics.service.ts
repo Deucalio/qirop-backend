@@ -187,6 +187,27 @@ export async function updateClass(id: string, data: { name?: string; order?: num
   return updated;
 }
 
+export async function reorderClasses(orders: { id: string; order: number }[], actorId?: string) {
+  await prisma.$transaction(
+    orders.map((item) =>
+      prisma.class.update({
+        where: { id: item.id },
+        data: { order: item.order },
+      }),
+    ),
+  );
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'UPDATE',
+    module: 'TIMETABLE',
+    targetType: 'Class',
+    targetId: 'batch',
+    targetLabel: 'Classes Reordered',
+    details: `Reordered ${orders.length} class(es)`,
+  });
+  return { message: 'Classes reordered successfully' };
+}
+
 export async function deleteClass(id: string, actorId?: string) {
   const cls = await prisma.class.findUnique({
     where: { id },
