@@ -7,7 +7,7 @@ import { logAudit } from '../audit/audit.service';
 import { nextEmployeeId } from '../../utils/employeeId';
 import { replaceFile, publicUrl } from '../../services/storage';
 
-const ALL_MODULES = Object.values(PermissionModule);
+const ALL_MODULES = Object.values(PermissionModule).filter((m) => m !== PermissionModule.USERS);
 const ADMIN_TIER: Role[] = [Role.SUPERADMIN, Role.ADMIN];
 
 export interface Actor {
