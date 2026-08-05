@@ -319,12 +319,9 @@ export async function deleteSection(id: string) {
     include: { _count: { select: { students: true } } },
   });
   if (!section) throw NotFound('Section not found');
-  if (section._count.students > 0) {
-    throw conflict('Cannot delete a section that still has students.');
-  }
 
   // Removing the last section would leave the class with nowhere to hold its
-  // timetable, so it reverts to the implicit "no sections" one instead.
+  // timetable and students, so it reverts to the implicit "no sections" one instead.
   const siblings = await prisma.section.count({ where: { classId: section.classId } });
   if (siblings <= 1) {
     if (section.isDefault) {
@@ -335,6 +332,10 @@ export async function deleteSection(id: string) {
       data: { name: DEFAULT_SECTION_NAME, isDefault: true, classTeacherId: null },
     });
     return;
+  }
+
+  if (section._count.students > 0) {
+    throw conflict('Cannot delete a section that still has students. Move them to another section first.');
   }
 
   await prisma.section.delete({ where: { id } });
