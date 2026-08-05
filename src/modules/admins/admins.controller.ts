@@ -30,6 +30,10 @@ export async function updatePermissions(req: Request, res: Response): Promise<vo
   res.json(await adminsService.replacePermissions(getActor(req), req.params.id, req.body.permissions));
 }
 
+export async function detachStaffProfile(req: Request, res: Response): Promise<void> {
+  res.json(await adminsService.detachStaffProfile(getActor(req), req.params.id));
+}
+
 export async function attachStaffProfile(req: Request, res: Response): Promise<void> {
   res.status(201).json(await adminsService.attachStaffProfile(getActor(req), req.params.id, req.body));
 }

@@ -8,6 +8,10 @@ export async function list(req: Request, res: Response): Promise<void> {
   res.json(await parentsService.listParents(query));
 }
 
+export async function stats(_req: Request, res: Response): Promise<void> {
+  res.json(await parentsService.getParentStats());
+}
+
 export async function detail(req: Request, res: Response): Promise<void> {
   res.json(await parentsService.getParent(req.params.id));
 }

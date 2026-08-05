@@ -41,13 +41,12 @@ export const createAdminSchema = z.object({
 
 export const updateAdminSchema = z
   .object({
+    cnic: z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X').optional(),
     fullName: z.string().min(1).max(150).optional(),
     designation: z.string().max(100).nullable().optional(),
     phone: z.string().max(50).nullable().optional(),
   })
-  .refine((v) => v.fullName !== undefined || v.designation !== undefined || v.phone !== undefined, {
-    message: 'Nothing to update',
-  });
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 
 export const updatePermissionsSchema = z.object({
   permissions: z.array(permissionEntrySchema),

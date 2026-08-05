@@ -52,21 +52,21 @@ export async function create(req: Request, res: Response): Promise<void> {
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
-  res.json(await teachersService.updateTeacher(req.params.id, req.body, req.user?.userId));
+  res.json(await teachersService.updateTeacher(req.params.id, req.body, req.user?.userId, req.user?.role));
 }
 
 export async function updateStatus(req: Request, res: Response): Promise<void> {
-  res.json(await teachersService.setTeacherStatus(req.params.id, req.body.status, req.body.force));
+  res.json(await teachersService.setTeacherStatus(req.params.id, req.body.status, req.body.force, req.user?.role));
 }
 
 export async function resetPassword(req: Request, res: Response): Promise<void> {
-  await teachersService.resetPassword(req.params.id, req.body.newPassword);
+  await teachersService.resetPassword(req.params.id, req.body.newPassword, req.user?.role);
   res.json({ message: 'Password reset successfully' });
 }
 
 export async function uploadPhoto(req: Request, res: Response): Promise<void> {
   if (!req.file) throw new AppError('No photo file provided (field name: "photo")', 400, 'NO_FILE');
-  res.json(await teachersService.setPhoto(req.params.id, req.file.buffer, req.file.originalname, req.file.mimetype));
+  res.json(await teachersService.setPhoto(req.params.id, req.file.buffer, req.file.originalname, req.file.mimetype, req.user?.role));
 }
 
 export async function addDocument(req: Request, res: Response): Promise<void> {

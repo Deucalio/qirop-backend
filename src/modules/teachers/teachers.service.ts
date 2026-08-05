@@ -81,8 +81,10 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
   return {
     id: profile.id,
     userId: profile.userId,
+    role: profile.user.role,
     cnic: profile.user.cnic,
     fullName: profile.user.fullName,
+    designation: profile.user.designation,
     phone: profile.user.phone,
     avatarUrl: publicUrl(profile.user.avatarUrl),
     employeeId: profile.employeeId,
@@ -244,7 +246,18 @@ export async function listTeachers(query: ListTeachersQuery) {
       // False for a system login with no staff profile (no salary, no
       // assignments, and no teacher profile dialog to open).
       hasStaffProfile: !!tp,
-      designation: u.designation ?? (u.role === 'SUPERADMIN' ? 'Super Admin' : 'Admin'),
+      // Fall back to what the person actually is. The previous fallback only
+      // special-cased SUPERADMIN, so every teacher without a stored
+      // designation was displayed as "Admin".
+      designation:
+        u.designation ??
+        (u.role === Role.SUPERADMIN
+          ? 'Super Admin'
+          : u.role === Role.ADMIN
+            ? 'Admin'
+            : tp
+              ? 'Teacher'
+              : null),
       avatarUrl: publicUrl(u.avatarUrl),
       phone: u.phone,
       salary: tp?.salary ? tp.salary.toString() : null,
@@ -312,6 +325,7 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
     data: {
       cnic: input.cnic,
       fullName: input.fullName,
+      designation: input.designation ?? null,
       phone: input.phone ?? null,
       passwordHash,
       role: Role.TEACHER,
@@ -358,21 +372,40 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
   return teacherObj;
 }
 
-export async function updateTeacher(id: string, data: UpdateTeacherInput, actorId?: string) {
+export async function updateTeacher(id: string, data: UpdateTeacherInput, actorId?: string, actorRole?: Role) {
   const profile = await prisma.teacherProfile.findUnique({
     where: { id },
     include: { user: true },
   });
   if (!profile) throw NotFound('Teacher not found');
 
+  if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
+    throw Forbidden('Only Super Administrators can modify Administrator & System User profiles.');
+  }
+
   if (data.employeeId && data.employeeId !== profile.employeeId) {
     const clash = await prisma.teacherProfile.findUnique({ where: { employeeId: data.employeeId } });
     if (clash) throw new AppError('A teacher with this employee ID already exists', 409, 'EMPLOYEE_ID_TAKEN');
   }
 
+  // CNIC is the login identifier and unique across all users — report a clash
+  // clearly instead of letting it surface as a raw constraint violation.
+  if (data.cnic && data.cnic !== profile.user.cnic) {
+    const clash = await prisma.user.findUnique({ where: { cnic: data.cnic } });
+    if (clash) throw new AppError('A user with this CNIC already exists', 409, 'CNIC_TAKEN');
+  }
+
   const changes: Record<string, any> = {};
   const changedLabels: string[] = [];
 
+  if (data.cnic && data.cnic !== profile.user.cnic) {
+    changes.cnic = { before: profile.user.cnic, after: data.cnic };
+    changedLabels.push('CNIC');
+  }
+  if (data.designation !== undefined && (data.designation || null) !== profile.user.designation) {
+    changes.designation = { before: profile.user.designation ?? 'None', after: data.designation ?? 'None' };
+    changedLabels.push('Designation');
+  }
   if (data.fullName && data.fullName !== profile.user.fullName) {
     changes.fullName = { before: profile.user.fullName, after: data.fullName };
     changedLabels.push('Full Name');
@@ -422,7 +455,9 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput, actorI
         : {}),
       user: {
         update: {
+          cnic: data.cnic ?? undefined,
           fullName: data.fullName ?? undefined,
+          designation: data.designation === undefined ? undefined : data.designation,
           phone: data.phone === undefined ? undefined : data.phone,
         },
       },
@@ -456,8 +491,12 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput, actorI
   return updatedTeacher;
 }
 
-export async function setTeacherStatus(id: string, status: UserStatus, force: boolean) {
+export async function setTeacherStatus(id: string, status: UserStatus, force: boolean, actorRole?: Role) {
   const profile = await loadTeacherOr404(id);
+
+  if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
+    throw Forbidden('Only Super Administrators can modify Administrator & System User status.');
+  }
 
   if (status !== UserStatus.ACTIVE) {
     const hasAssignments = profile.teachingAssignments.length + profile.classTeacherSections.length > 0;
@@ -481,16 +520,22 @@ export async function setTeacherStatus(id: string, status: UserStatus, force: bo
   return getTeacher(id, true);
 }
 
-export async function resetPassword(id: string, newPassword: string) {
-  const profile = await prisma.teacherProfile.findUnique({ where: { id } });
+export async function resetPassword(id: string, newPassword: string, actorRole?: Role) {
+  const profile = await prisma.teacherProfile.findUnique({ where: { id }, include: { user: true } });
   if (!profile) throw NotFound('Teacher not found');
+  if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
+    throw Forbidden('Only Super Administrators can reset Administrator & System User passwords.');
+  }
   const passwordHash = await hashPassword(newPassword);
   await prisma.user.update({ where: { id: profile.userId }, data: { passwordHash } });
 }
 
-export async function setPhoto(id: string, buffer: Buffer, originalName: string, contentType: string) {
+export async function setPhoto(id: string, buffer: Buffer, originalName: string, contentType: string, actorRole?: Role) {
   const profile = await prisma.teacherProfile.findUnique({ where: { id }, include: { user: true } });
   if (!profile) throw NotFound('Teacher not found');
+  if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
+    throw Forbidden('Only Super Administrators can modify Administrator & System User photos.');
+  }
   const newPath = await replaceFile(profile.user.avatarUrl, buffer, originalName, `/teachers/${id}`, contentType);
   await prisma.user.update({ where: { id: profile.userId }, data: { avatarUrl: newPath } });
   return getTeacher(id, true);

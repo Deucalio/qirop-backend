@@ -7,6 +7,7 @@ import type { CreateParentInput, ListParentsQuery, UpdateParentInput } from './p
 import { studentDues, getStudentFeeDetails } from '../students/students.service';
 import { money, ZERO, toMoneyString } from '../../utils/money';
 import { formatPartialCnic } from '../../utils/cnic';
+import { publicUrl } from '../../services/storage';
 
 export async function listParents(query: ListParentsQuery) {
   const qCnic = query.search ? formatPartialCnic(query.search) : '';
@@ -69,6 +70,7 @@ export async function listParents(query: ListParentsQuery) {
       fullName: p.user.fullName,
       cnic: p.user.cnic,
       phone: p.user.phone,
+      avatarUrl: publicUrl(p.user.avatarUrl),
       status: p.user.status,
       occupation: p.occupation,
       motherName: p.motherName,
@@ -85,6 +87,16 @@ export async function listParents(query: ListParentsQuery) {
       teacherId: p.user.teacherProfile?.id ?? null,
     };
   });
+}
+
+export async function getParentStats() {
+  const [total, active, teacherParents, totalChildren] = await Promise.all([
+    prisma.parentProfile.count(),
+    prisma.parentProfile.count({ where: { user: { status: UserStatus.ACTIVE } } }),
+    prisma.parentProfile.count({ where: { user: { teacherProfile: { isNot: null } } } }),
+    prisma.student.count({ where: { status: UserStatus.ACTIVE } }),
+  ]);
+  return { total, active, teacherParents, totalChildren };
 }
 
 export async function getParent(id: string) {
@@ -107,6 +119,7 @@ export async function getParent(id: string) {
     fullName: parent.user.fullName,
     cnic: parent.user.cnic,
     phone: parent.user.phone,
+    avatarUrl: publicUrl(parent.user.avatarUrl),
     status: parent.user.status,
     occupation: parent.occupation,
     address: parent.address,

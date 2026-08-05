@@ -77,6 +77,13 @@ adminsRouter.post(
   asyncHandler(adminsController.attachStaffProfile),
 );
 
+// Take them off payroll without touching their login or permissions.
+adminsRouter.delete(
+  '/:id/staff-profile',
+  requireRole(Role.SUPERADMIN),
+  asyncHandler(adminsController.detachStaffProfile),
+);
+
 adminsRouter.delete(
   '/:id',
   requireRole(Role.SUPERADMIN),

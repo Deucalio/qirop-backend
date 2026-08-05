@@ -242,16 +242,24 @@ export async function createAdmin(actor: Actor, input: CreateAdminInput) {
 export async function updateAdmin(
   actor: Actor,
   id: string,
-  data: { fullName?: string; designation?: string | null; phone?: string | null },
+  data: { cnic?: string; fullName?: string; designation?: string | null; phone?: string | null },
 ) {
   const target = await loadAdminTarget(id);
   if (target.role === Role.SUPERADMIN && actor.role !== Role.SUPERADMIN) {
     throw Forbidden('You cannot modify a superadmin account');
   }
 
+  // CNIC is the login identifier and is unique across every user, so a clash
+  // must be reported clearly rather than surfacing as a raw constraint error.
+  if (data.cnic && data.cnic !== target.cnic) {
+    const taken = await prisma.user.findUnique({ where: { cnic: data.cnic } });
+    if (taken) throw new AppError('A user with this CNIC already exists', 409, 'CNIC_TAKEN');
+  }
+
   const updated = await prisma.user.update({
     where: { id: target.id },
     data: {
+      cnic: data.cnic ?? undefined,
       fullName: data.fullName ?? undefined,
       designation: data.designation === undefined ? undefined : data.designation,
       phone: data.phone === undefined ? undefined : data.phone,
@@ -262,6 +270,8 @@ export async function updateAdmin(
   const changes: Record<string, { before: unknown; after: unknown }> = {};
   if (data.fullName && data.fullName !== target.fullName) changes.fullName = { before: target.fullName, after: data.fullName };
   if (data.phone !== undefined && data.phone !== target.phone) changes.phone = { before: target.phone, after: data.phone };
+  // Worth an explicit audit line — this changes what they sign in with.
+  if (data.cnic && data.cnic !== target.cnic) changes.cnic = { before: target.cnic, after: data.cnic };
 
   if (Object.keys(changes).length > 0) {
     await logAudit(null, {
@@ -380,6 +390,67 @@ export async function attachStaffProfile(actor: Actor, id: string, input: StaffP
   });
 
   return { id: profile.id, employeeId: profile.employeeId };
+}
+
+/**
+ * Take a system user off the payroll by removing their staff record, leaving
+ * the login and its permissions untouched.
+ *
+ * Refused while anything real depends on the record — teaching duties, issued
+ * salary slips, a commute route, or children whose fees bill to this salary.
+ * Deleting through those would orphan payroll history and silently move the
+ * children's fees back to cash.
+ */
+export async function detachStaffProfile(actor: Actor, id: string) {
+  const target = await loadAdminTarget(id);
+
+  const profile = await prisma.teacherProfile.findUnique({
+    where: { userId: target.id },
+    include: {
+      _count: {
+        select: {
+          teachingAssignments: true,
+          classTeacherSections: true,
+          salarySlips: true,
+          staffChildren: true,
+        },
+      },
+      transportAssignment: true,
+    },
+  });
+  if (!profile) throw new AppError('This user has no staff record', 409, 'NO_STAFF_PROFILE');
+
+  const blockers: string[] = [];
+  const c = profile._count;
+  if (c.teachingAssignments > 0) blockers.push(`${c.teachingAssignments} subject assignment(s)`);
+  if (c.classTeacherSections > 0) blockers.push(`class teacher of ${c.classTeacherSections} section(s)`);
+  if (c.salarySlips > 0) blockers.push(`${c.salarySlips} salary slip(s) already generated`);
+  if (c.staffChildren > 0) blockers.push(`${c.staffChildren} child(ren) whose fees bill to this salary`);
+  if (profile.transportAssignment) blockers.push('an assigned commute route');
+
+  if (blockers.length > 0) {
+    throw new AppError(
+      `Cannot remove the staff record: ${blockers.join(', ')}. Clear these first.`,
+      409,
+      'STAFF_PROFILE_IN_USE',
+      { blockers },
+    );
+  }
+
+  await prisma.teacherProfile.delete({ where: { id: profile.id } });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'DELETE',
+    module: 'STAFF',
+    targetType: 'TeacherProfile',
+    targetId: profile.id,
+    targetLabel: `${target.fullName} (${profile.employeeId})`,
+    details: `Removed the staff record from ${target.fullName} — they are no longer on payroll. Their login and permissions are unchanged.`,
+    changes: { employeeId: { before: profile.employeeId, after: null } },
+  });
+
+  return { removed: true };
 }
 
 /**

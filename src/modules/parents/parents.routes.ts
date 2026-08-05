@@ -15,6 +15,7 @@ export const parentsRouter = Router();
 parentsRouter.use(requireAuth);
 
 parentsRouter.get('/', view, asyncHandler(c.list));
+parentsRouter.get('/stats', view, asyncHandler(c.stats));
 parentsRouter.get('/:id', view, asyncHandler(c.detail));
 parentsRouter.post('/', manage, validateBody(createParentSchema), asyncHandler(c.create));
 parentsRouter.put('/:id', manage, validateBody(updateParentSchema), asyncHandler(c.update));

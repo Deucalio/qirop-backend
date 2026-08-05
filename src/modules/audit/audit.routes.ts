@@ -1,16 +1,20 @@
 import { Router } from 'express';
-import { Role } from '@prisma/client';
+import { PermissionModule } from '@prisma/client';
 import { requireAuth } from '../../middleware/requireAuth';
-import { requireRole } from '../../middleware/requireRole';
+import { requirePermission } from '../../middleware/requirePermission';
 import { getAuditLogs, seedAuditLogs } from './audit.controller';
+
+const AUDIT = PermissionModule.AUDIT;
 
 const router = Router();
 
-// History / Audit Logs page is restricted to SUPERADMIN and ADMIN
+// The audit trail spans every module — who changed what, everywhere — so it is
+// gated on its own AUDIT permission rather than on being an admin. Oversight
+// can then be delegated without also handing over user management.
 router.use(requireAuth);
-router.use(requireRole(Role.SUPERADMIN, Role.ADMIN));
 
-router.get('/', getAuditLogs);
-router.post('/seed', seedAuditLogs);
+router.get('/', requirePermission(AUDIT, 'view'), getAuditLogs);
+// Seeding rewrites history, so it needs the strongest tier.
+router.post('/seed', requirePermission(AUDIT, 'manage'), seedAuditLogs);
 
 export default router;

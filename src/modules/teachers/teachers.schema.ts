@@ -25,6 +25,7 @@ const qualificationsArraySchema = z
 
 export const createTeacherSchema = z.object({
   cnic: z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X'),
+  designation: z.string().max(100).nullable().optional(),
   fullName: z.string().min(1, 'Full name is required').max(150),
   phone: z.string().max(50).nullable().optional(),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
@@ -43,6 +44,8 @@ export const createTeacherSchema = z.object({
 
 export const updateTeacherSchema = z
   .object({
+    cnic: z.string().regex(cnicRegex, 'CNIC must be in the format XXXXX-XXXXXXX-X').optional(),
+    designation: z.string().max(100).nullable().optional(),
     fullName: z.string().min(1).max(150).optional(),
     phone: z.string().max(50).nullable().optional(),
     employeeId: z.string().min(1).max(50).optional(),
