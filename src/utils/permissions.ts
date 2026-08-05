@@ -4,10 +4,14 @@ import { prisma } from '../config/prisma';
 export type PermAction = 'view' | 'edit' | 'manage';
 
 /**
- * Whether a user may perform `action` on `module`. SUPERADMIN always may; ADMIN
- * is checked against AdminPermission (hierarchical manage⇒edit⇒view); anyone
- * else may not. Mirrors the requirePermission middleware for use inside services
- * that also allow non-admin actors (e.g. a class teacher marking attendance).
+ * Whether a user may perform `action` on `module`. SUPERADMIN always may;
+ * everyone else is checked against their AdminPermission row (hierarchical
+ * manage⇒edit⇒view), regardless of role — a teacher who has been granted a
+ * module is a system user for that module.
+ *
+ * This MUST mirror the requirePermission middleware. Both deliberately key off
+ * the grant rather than the role, so staff can hold admin duties on one
+ * account; a user with no grant still resolves to false exactly as before.
  */
 export async function userHasPermission(
   userId: string,
@@ -16,7 +20,6 @@ export async function userHasPermission(
   action: PermAction,
 ): Promise<boolean> {
   if (role === Role.SUPERADMIN) return true;
-  if (role !== Role.ADMIN) return false;
   const p = await prisma.adminPermission.findUnique({ where: { userId_module: { userId, module } } });
   if (!p) return false;
   if (action === 'view') return p.canView || p.canEdit || p.canManage;

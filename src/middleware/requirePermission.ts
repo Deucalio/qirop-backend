@@ -26,11 +26,6 @@ export function requirePermission(module: PermissionModule, action: PermissionAc
       return;
     }
 
-    if (user.role !== Role.ADMIN) {
-      next(Forbidden());
-      return;
-    }
-
     try {
       const perm = await prisma.adminPermission.findUnique({
         where: { userId_module: { userId: user.userId, module } },

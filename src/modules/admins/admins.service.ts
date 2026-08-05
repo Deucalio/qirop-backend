@@ -2,8 +2,10 @@ import { Prisma, PermissionModule, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { hashPassword } from '../../utils/password';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
-import type { CreateAdminInput, ListAdminsQuery, PermissionEntry } from './admins.schema';
+import type { CreateAdminInput, ListAdminsQuery, PermissionEntry, StaffProfileInput } from './admins.schema';
 import { logAudit } from '../audit/audit.service';
+import { nextEmployeeId } from '../../utils/employeeId';
+import { replaceFile, publicUrl } from '../../services/storage';
 
 const ALL_MODULES = Object.values(PermissionModule);
 const ADMIN_TIER: Role[] = [Role.SUPERADMIN, Role.ADMIN];
@@ -62,8 +64,8 @@ async function loadAdminTarget(id: string) {
     where: { id },
     include: { adminPermissions: true },
   });
-  if (!target || !ADMIN_TIER.includes(target.role)) {
-    throw NotFound('Admin user not found');
+  if (!target) {
+    throw NotFound('User not found');
   }
   return target;
 }
@@ -167,26 +169,54 @@ export async function createAdmin(actor: Actor, input: CreateAdminInput) {
   }
 
   const passwordHash = await hashPassword(input.password);
+  const staff = input.staffProfile;
 
-  const created = await prisma.user.create({
-    data: {
-      cnic: input.cnic,
-      fullName: input.fullName,
-      designation: input.designation ?? null,
-      phone: input.phone ?? null,
-      passwordHash,
-      role: Role.ADMIN, // never SUPERADMIN — no promotion via this endpoint
-      createdById: actor.userId,
-      adminPermissions: {
-        create: permissions.map((p) => ({
-          module: p.module,
-          canView: p.canView,
-          canEdit: p.canEdit,
-          canManage: p.canManage,
-        })),
+  const created = await prisma.$transaction(async (tx) => {
+    // A staff profile is what puts someone on the payroll — without it they are
+    // a login only, and their children's fees can't be settled from a salary.
+    let employeeId: string | undefined;
+    if (staff) {
+      employeeId = staff.employeeId?.trim() || (await nextEmployeeId(tx));
+      const taken = await tx.teacherProfile.findUnique({ where: { employeeId } });
+      if (taken) throw new AppError('A staff member with this employee ID already exists', 409, 'EMPLOYEE_ID_TAKEN');
+    }
+
+    return tx.user.create({
+      data: {
+        cnic: input.cnic,
+        fullName: input.fullName,
+        designation: input.designation ?? null,
+        phone: input.phone ?? null,
+        passwordHash,
+        role: Role.ADMIN, // never SUPERADMIN — no promotion via this endpoint
+        createdById: actor.userId,
+        adminPermissions: {
+          create: permissions.map((p) => ({
+            module: p.module,
+            canView: p.canView,
+            canEdit: p.canEdit,
+            canManage: p.canManage,
+          })),
+        },
+        ...(staff && employeeId
+          ? {
+              teacherProfile: {
+                create: {
+                  employeeId,
+                  gender: staff.gender,
+                  fatherName: staff.fatherName,
+                  joiningDate: staff.joiningDate,
+                  salary: staff.salary.toFixed(2),
+                  qualification: staff.qualification ?? null,
+                  address: staff.address ?? null,
+                  parentCnic: staff.parentCnic ?? null,
+                },
+              },
+            }
+          : {}),
       },
-    },
-    include: { adminPermissions: true },
+      include: { adminPermissions: true },
+    });
   });
 
   await logAudit(null, {
@@ -196,7 +226,9 @@ export async function createAdmin(actor: Actor, input: CreateAdminInput) {
     targetType: 'User',
     targetId: created.id,
     targetLabel: `${created.fullName} (${created.cnic})`,
-    details: `Created new Admin user account for ${created.fullName}`,
+    details: staff
+      ? `Created system user ${created.fullName} with a staff profile (on payroll)`
+      : `Created login-only system user ${created.fullName} (no staff profile, not on payroll)`,
     changes: {
       fullName: { before: null, after: created.fullName },
       cnic: { before: null, after: created.cnic },
@@ -294,6 +326,89 @@ export async function replacePermissions(actor: Actor, id: string, entries: Perm
   });
 
   return toDetail(updated);
+}
+
+/**
+ * Give an existing system user a staff record.
+ *
+ * Accounts created before staff profiles were attachable are login-only: they
+ * never appear in payroll, and their children's fees can't be settled from a
+ * salary. This backfills that without recreating the account (which would break
+ * every audit-log and record reference pointing at their user id).
+ */
+export async function attachStaffProfile(actor: Actor, id: string, input: StaffProfileInput) {
+  const target = await loadAdminTarget(id);
+
+  const existing = await prisma.teacherProfile.findUnique({ where: { userId: target.id } });
+  if (existing) {
+    throw new AppError('This user already has a staff record', 409, 'STAFF_PROFILE_EXISTS');
+  }
+
+  const profile = await prisma.$transaction(async (tx) => {
+    const employeeId = input.employeeId?.trim() || (await nextEmployeeId(tx));
+    const taken = await tx.teacherProfile.findUnique({ where: { employeeId } });
+    if (taken) throw new AppError('A staff member with this employee ID already exists', 409, 'EMPLOYEE_ID_TAKEN');
+
+    return tx.teacherProfile.create({
+      data: {
+        userId: target.id,
+        employeeId,
+        gender: input.gender,
+        fatherName: input.fatherName,
+        joiningDate: input.joiningDate,
+        salary: input.salary.toFixed(2),
+        qualification: input.qualification ?? null,
+        address: input.address ?? null,
+        parentCnic: input.parentCnic ?? null,
+        status: target.status,
+      },
+    });
+  });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'CREATE',
+    module: 'STAFF',
+    targetType: 'TeacherProfile',
+    targetId: profile.id,
+    targetLabel: `${target.fullName} (${profile.employeeId})`,
+    details: `Attached a staff record to ${target.fullName} — they now appear in payroll`,
+    changes: {
+      employeeId: { before: null, after: profile.employeeId },
+      salary: { before: null, after: profile.salary.toString() },
+    },
+  });
+
+  return { id: profile.id, employeeId: profile.employeeId };
+}
+
+/**
+ * Set a system user's profile picture. Stored on `User.avatarUrl`, the same
+ * field the teacher photo upload writes to, so one account has one picture
+ * wherever it appears.
+ */
+export async function setAvatar(
+  actor: Actor,
+  id: string,
+  buffer: Buffer,
+  originalName: string,
+  contentType: string,
+) {
+  const target = await loadAdminTarget(id);
+  const newPath = await replaceFile(target.avatarUrl, buffer, originalName, `/users/${target.id}`, contentType);
+  await prisma.user.update({ where: { id: target.id }, data: { avatarUrl: newPath } });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'UPDATE',
+    module: 'USERS',
+    targetType: 'User',
+    targetId: target.id,
+    targetLabel: `${target.fullName} (${target.cnic})`,
+    details: `Updated profile picture for ${target.fullName}`,
+  });
+
+  return { avatarUrl: publicUrl(newPath) };
 }
 
 export async function resetPassword(actor: Actor, id: string, newPassword: string) {

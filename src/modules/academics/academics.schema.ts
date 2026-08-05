@@ -13,9 +13,9 @@ const moneyInput = () =>
   });
 
 // ---- Classes ----
-// `order` is derived automatically from the number in the class name.
 export const createClassSchema = z.object({
   name: z.string().min(1, 'Class name is required').max(100),
+  order: z.coerce.number().int().min(0).optional(),
   /** Optional single-letter section names; omit if the class isn't split. */
   sections: z
     .array(
@@ -33,7 +33,8 @@ export const createClassSchema = z.object({
 });
 
 export const updateClassSchema = z.object({
-  name: z.string().min(1, 'Class name is required').max(100),
+  name: z.string().min(1, 'Class name is required').max(100).optional(),
+  order: z.coerce.number().int().min(0).optional(),
 });
 
 // ---- Sections ----

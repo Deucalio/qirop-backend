@@ -44,16 +44,17 @@ export async function getPermissionsForUser(userId: string, role: Role): Promise
   if (role === Role.SUPERADMIN) {
     return fullPermissionSet();
   }
-  if (role === Role.ADMIN) {
-    const rows = await prisma.adminPermission.findMany({ where: { userId } });
-    return rows.map((r) => ({
-      module: r.module,
-      canView: r.canView,
-      canEdit: r.canEdit,
-      canManage: r.canManage,
-    }));
-  }
-  return [];
+  // Any role may hold module grants — staff carry one account, so a teacher can
+  // also be e.g. the accountant. Returning [] for non-ADMIN roles would leave
+  // the UI blind (hidden sidebar, ProtectedRoute redirect) even though the API
+  // now authorises them. Users with no grants still get an empty list.
+  const rows = await prisma.adminPermission.findMany({ where: { userId } });
+  return rows.map((r) => ({
+    module: r.module,
+    canView: r.canView,
+    canEdit: r.canEdit,
+    canManage: r.canManage,
+  }));
 }
 
 export interface LoginResult {

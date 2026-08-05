@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import {
@@ -52,7 +52,7 @@ export async function listClasses() {
             timetableFrom: true,
             timetableUntil: true,
             classTeacher: { include: { user: { select: { fullName: true } } } },
-            _count: { select: { students: true, timetableSlots: true } },
+            _count: { select: { students: { where: { status: UserStatus.ACTIVE } }, timetableSlots: true } },
           },
         },
       },
@@ -61,17 +61,7 @@ export async function listClasses() {
   ]);
   const weeklySlots = totalWeeklySlots(periodConfig);
 
-  // Self-heal: `order` is now always derived from the name. Fix any stale rows
-  // (created before auto-ordering) so every query sorting on `order` agrees.
-  const stale = classes.filter((c) => c.order !== classOrderFromName(c.name));
-  if (stale.length > 0) {
-    await prisma.$transaction(
-      stale.map((c) =>
-        prisma.class.update({ where: { id: c.id }, data: { order: classOrderFromName(c.name) } }),
-      ),
-    );
-    for (const c of stale) c.order = classOrderFromName(c.name);
-  }
+
 
   return classes
     .map((c) => ({
@@ -122,6 +112,7 @@ export async function createClass(
   sectionNames: string[] = [],
   fees?: { monthlyFee?: string; admissionFee?: string },
   actorId?: string,
+  order?: number,
 ) {
   await assertClassNameFree(name);
 
@@ -131,7 +122,7 @@ export async function createClass(
   const cls = await prisma.class.create({
     data: {
       name,
-      order: classOrderFromName(name),
+      order: order != null ? order : classOrderFromName(name),
       sections: {
         create: cleaned.length
           ? cleaned.map((n) => ({ name: n }))
@@ -161,18 +152,22 @@ export async function createClass(
   return cls;
 }
 
-export async function updateClass(id: string, data: { name: string }, actorId?: string) {
+export async function updateClass(id: string, data: { name?: string; order?: number }, actorId?: string) {
   const cls = await prisma.class.findUnique({ where: { id } });
   if (!cls) throw NotFound('Class not found');
-  if (data.name !== cls.name) {
+  if (data.name && data.name !== cls.name) {
     await assertClassNameFree(data.name, id);
   }
+  const updateData: Prisma.ClassUpdateInput = {};
+  if (data.name) updateData.name = data.name;
+  if (data.order != null) updateData.order = data.order;
+
   const updated = await prisma.class.update({
     where: { id },
-    data: { name: data.name, order: classOrderFromName(data.name) },
+    data: updateData,
   });
 
-  if (cls.name !== data.name) {
+  if (data.name && cls.name !== data.name) {
     const oldLabel = cls.name.trim().toLowerCase().startsWith('class') ? cls.name.trim() : `Class ${cls.name.trim()}`;
     const newLabel = data.name.trim().toLowerCase().startsWith('class') ? data.name.trim() : `Class ${data.name.trim()}`;
     await logAudit(null, {
@@ -247,7 +242,7 @@ export async function listSections(classId: string) {
     prisma.section.findMany({
       where: { classId },
       orderBy: { name: 'asc' },
-      include: { _count: { select: { students: true, timetableSlots: true } } },
+      include: { _count: { select: { students: { where: { status: UserStatus.ACTIVE } }, timetableSlots: true } } },
     }),
     getTimetableLayout(),
   ]);

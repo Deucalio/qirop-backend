@@ -7,12 +7,14 @@ import {
   updatePermissionsSchema,
   resetPasswordSchema,
   updateStatusSchema,
+  staffProfileSchema,
 } from './admins.schema';
 import { requireAuth } from '../../middleware/requireAuth';
 import { requireRole } from '../../middleware/requireRole';
 import { requirePermission } from '../../middleware/requirePermission';
 import { validateBody } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { imageUpload } from '../../config/upload';
 
 const USERS = PermissionModule.USERS;
 
@@ -56,6 +58,23 @@ adminsRouter.patch(
   requireRole(Role.SUPERADMIN),
   validateBody(updateStatusSchema),
   asyncHandler(adminsController.updateStatus),
+);
+
+// Profile picture — stored on User.avatarUrl, so it works with or without a
+// staff profile (the /teachers photo route needs one).
+adminsRouter.post(
+  '/:id/avatar',
+  requireRole(Role.SUPERADMIN),
+  imageUpload.single('photo'),
+  asyncHandler(adminsController.uploadAvatar),
+);
+
+// Backfill a staff record onto a login-only account so it joins the payroll.
+adminsRouter.post(
+  '/:id/staff-profile',
+  requireRole(Role.SUPERADMIN),
+  validateBody(staffProfileSchema),
+  asyncHandler(adminsController.attachStaffProfile),
 );
 
 adminsRouter.delete(

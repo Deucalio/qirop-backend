@@ -11,6 +11,7 @@ import type { CreateTeacherInput, ListTeachersQuery, UpdateTeacherInput } from '
 import { studentDues, getStudentFeeDetails } from '../students/students.service';
 import { money, ZERO, toMoneyString } from '../../utils/money';
 import { formatPartialCnic } from '../../utils/cnic';
+import { nextEmployeeId } from '../../utils/employeeId';
 import type { Response } from 'express';
 
 export interface Actor {
@@ -139,71 +140,86 @@ async function applyTeacherTransport(teacherId: string, routeId: string | null |
   }
 }
 
+/**
+ * Resolve a staff profile by its own id, falling back to the owning User id.
+ * The unified staff list keys rows by `teacherProfile.id ?? user.id`, so both
+ * forms reach this; a system user with no staff profile still 404s, and the UI
+ * uses `hasStaffProfile` to avoid asking in the first place.
+ */
 async function loadTeacherOr404(id: string): Promise<TeacherWithRels> {
-  const profile = await prisma.teacherProfile.findUnique({ where: { id }, include: teacherInclude });
+  const profile =
+    (await prisma.teacherProfile.findUnique({ where: { id }, include: teacherInclude })) ??
+    (await prisma.teacherProfile.findFirst({ where: { userId: id }, include: teacherInclude }));
   if (!profile) throw NotFound('Teacher not found');
   return profile;
 }
 
 export async function listTeachers(query: ListTeachersQuery) {
   const qCnic = query.search ? formatPartialCnic(query.search) : '';
-  const profiles = await prisma.teacherProfile.findMany({
+  const users = await prisma.user.findMany({
+    // Both clauses are ORs, so they must be AND-ed explicitly — as two `OR`
+    // keys on one object the search would overwrite the staff filter and the
+    // list would start returning parents.
     where: {
       status: query.status,
-      ...(query.hasKidsEnrolled
-        ? {
-            OR: [
-              { staffChildren: { some: {} } },
-              { user: { parentProfile: { students: { some: {} } } } },
-            ],
-          }
-        : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { user: { fullName: { contains: query.search, mode: 'insensitive' } } },
-              { employeeId: { contains: query.search, mode: 'insensitive' } },
-              { user: { cnic: { contains: query.search, mode: 'insensitive' } } },
-              { user: { cnic: { contains: qCnic, mode: 'insensitive' } } },
-              { parentCnic: { contains: query.search, mode: 'insensitive' } },
-              { parentCnic: { contains: qCnic, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
+      AND: [
+        {
+          OR: [
+            { role: { in: [Role.SUPERADMIN, Role.ADMIN] } },
+            { teacherProfile: { isNot: null } },
+          ],
+        },
+        ...(query.search
+          ? [
+              {
+                OR: [
+                  { fullName: { contains: query.search, mode: 'insensitive' as const } },
+                  { cnic: { contains: query.search, mode: 'insensitive' as const } },
+                  { cnic: { contains: qCnic, mode: 'insensitive' as const } },
+                  { teacherProfile: { employeeId: { contains: query.search, mode: 'insensitive' as const } } },
+                  { teacherProfile: { parentCnic: { contains: query.search, mode: 'insensitive' as const } } },
+                  { teacherProfile: { parentCnic: { contains: qCnic, mode: 'insensitive' as const } } },
+                ],
+              },
+            ]
+          : []),
+      ],
     },
     include: {
-      user: {
+      adminPermissions: true,
+      teacherProfile: {
         include: {
-          parentProfile: {
-            include: {
-              students: { select: { id: true } },
-            },
-          },
+          staffChildren: { select: { id: true } },
+          _count: { select: { teachingAssignments: true, classTeacherSections: true } },
         },
       },
-      staffChildren: { select: { id: true } },
-      _count: { select: { teachingAssignments: true, classTeacherSections: true } },
+      parentProfile: {
+        include: {
+          students: { select: { id: true } },
+        },
+      },
     },
-    orderBy: { user: { fullName: 'asc' } },
+    orderBy: { fullName: 'asc' },
   });
 
   const allStudentIds: string[] = [];
-  for (const p of profiles) {
-    if (p.user.parentProfile?.students) {
-      for (const s of p.user.parentProfile.students) allStudentIds.push(s.id);
+  for (const u of users) {
+    if (u.parentProfile?.students) {
+      for (const s of u.parentProfile.students) allStudentIds.push(s.id);
     }
-    if (p.staffChildren) {
-      for (const s of p.staffChildren) allStudentIds.push(s.id);
+    if (u.teacherProfile?.staffChildren) {
+      for (const s of u.teacherProfile.staffChildren) allStudentIds.push(s.id);
     }
   }
 
   const duesMap = await studentDues(allStudentIds);
 
-  return profiles.map((p) => {
+  return users.map((u) => {
+    const tp = u.teacherProfile;
     const studentIds = Array.from(
       new Set([
-        ...(p.user.parentProfile?.students.map((s) => s.id) || []),
-        ...(p.staffChildren?.map((s) => s.id) || []),
+        ...(u.parentProfile?.students.map((s) => s.id) || []),
+        ...(tp?.staffChildren?.map((s) => s.id) || []),
       ])
     );
 
@@ -218,16 +234,25 @@ export async function listTeachers(query: ListTeachersQuery) {
     }
 
     return {
-      id: p.id,
-      userId: p.userId,
-      fullName: p.user.fullName,
-      cnic: p.user.cnic,
-      parentCnic: p.parentCnic,
-      employeeId: p.employeeId,
-      phone: p.user.phone,
-      status: p.status,
-      subjectCount: p._count.teachingAssignments,
-      classTeacherCount: p._count.classTeacherSections,
+      id: tp?.id || u.id,
+      userId: u.id,
+      role: u.role,
+      fullName: u.fullName,
+      cnic: u.cnic,
+      parentCnic: tp?.parentCnic ?? null,
+      employeeId: tp?.employeeId ?? `USR-${u.id.slice(-4).toUpperCase()}`,
+      // False for a system login with no staff profile (no salary, no
+      // assignments, and no teacher profile dialog to open).
+      hasStaffProfile: !!tp,
+      designation: u.designation ?? (u.role === 'SUPERADMIN' ? 'Super Admin' : 'Admin'),
+      avatarUrl: publicUrl(u.avatarUrl),
+      phone: u.phone,
+      salary: tp?.salary ? tp.salary.toString() : null,
+      status: u.status,
+      subjectCount: tp?._count.teachingAssignments ?? 0,
+      classTeacherCount: tp?._count.classTeacherSections ?? 0,
+      moduleCount: u.role === 'SUPERADMIN' ? 10 : (u.adminPermissions?.length ?? 0),
+      adminPermissions: u.adminPermissions ?? [],
       kidsEnrolledCount: studentIds.length,
       collectiveDues: {
         outstanding: toMoneyString(totalDues),
@@ -263,25 +288,7 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
 
   let employeeId = input.employeeId;
   if (!employeeId || !employeeId.trim()) {
-    const latestTeacher = await prisma.teacherProfile.findFirst({
-      where: {
-        employeeId: {
-          startsWith: 'EMP-',
-        },
-      },
-      orderBy: {
-        employeeId: 'desc',
-      },
-    });
-    let nextNum = 101;
-    if (latestTeacher) {
-      const lastPart = latestTeacher.employeeId.replace('EMP-', '');
-      const parsed = parseInt(lastPart, 10);
-      if (!isNaN(parsed)) {
-        nextNum = parsed + 1;
-      }
-    }
-    employeeId = `EMP-${nextNum}`;
+    employeeId = await nextEmployeeId(prisma);
   }
 
   const empTaken = await prisma.teacherProfile.findUnique({ where: { employeeId } });

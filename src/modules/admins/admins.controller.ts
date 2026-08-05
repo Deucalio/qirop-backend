@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import * as adminsService from './admins.service';
 import { listAdminsQuerySchema } from './admins.schema';
-import { Unauthorized } from '../../utils/apiResponse';
+import { AppError, Unauthorized } from '../../utils/apiResponse';
 import type { Actor } from './admins.service';
 
 function getActor(req: Request): Actor {
@@ -28,6 +28,23 @@ export async function update(req: Request, res: Response): Promise<void> {
 
 export async function updatePermissions(req: Request, res: Response): Promise<void> {
   res.json(await adminsService.replacePermissions(getActor(req), req.params.id, req.body.permissions));
+}
+
+export async function attachStaffProfile(req: Request, res: Response): Promise<void> {
+  res.status(201).json(await adminsService.attachStaffProfile(getActor(req), req.params.id, req.body));
+}
+
+export async function uploadAvatar(req: Request, res: Response): Promise<void> {
+  if (!req.file) throw new AppError('No image uploaded', 400, 'NO_FILE');
+  res.json(
+    await adminsService.setAvatar(
+      getActor(req),
+      req.params.id,
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+    ),
+  );
 }
 
 export async function resetPassword(req: Request, res: Response): Promise<void> {

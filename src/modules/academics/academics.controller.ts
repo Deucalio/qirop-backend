@@ -9,10 +9,16 @@ export async function listClasses(_req: Request, res: Response): Promise<void> {
 }
 export async function createClass(req: Request, res: Response): Promise<void> {
   res.status(201).json(
-    await svc.createClass(req.body.name, req.body.sections, {
-      monthlyFee: req.body.monthlyFee,
-      admissionFee: req.body.admissionFee,
-    }),
+    await svc.createClass(
+      req.body.name,
+      req.body.sections,
+      {
+        monthlyFee: req.body.monthlyFee,
+        admissionFee: req.body.admissionFee,
+      },
+      req.user?.userId,
+      req.body.order != null ? Number(req.body.order) : undefined,
+    ),
   );
 }
 export async function updateClass(req: Request, res: Response): Promise<void> {
