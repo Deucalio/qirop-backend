@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma';
 import { parsePktDay, pktDayString, pktTime12HourString } from '../../utils/pktDate';
 import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
+import { outstandingAcross } from '../fees/fees.ledger';
 import { AppError } from '../../utils/apiResponse';
 import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus } from '@prisma/client';
 
@@ -96,9 +97,15 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
     include: {
       section: { include: { class: true } },
       parent: { include: { user: { select: { fullName: true, phone: true, teacherProfile: { select: { id: true } } } } } },
+      /*
+       * Deliberately NOT filtered on the stored `status`. That column is a
+       * cache of `deriveStatus`, and this report decides who gets chased for
+       * money — so it re-derives every balance from the ledger itself rather
+       * than trusting a denormalised field. `payment.isReversed` is pulled in
+       * because `paidBreakdown` must discount reversed receipts.
+       */
       challans: {
-        where: { status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] } },
-        include: { allocations: true },
+        include: { allocations: { include: { payment: { select: { isReversed: true } } } } },
         orderBy: [{ year: 'desc' }, { month: 'desc' }],
       },
       payments: {
@@ -111,21 +118,15 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
 
   const defaulters = students
     .map((s) => {
-      let totalUnpaid = ZERO;
-      let unpaidChallanCount = 0;
-      const unpaidMonths: string[] = [];
+      // `balance = amount − non-reversed cash − staffCovered`. The arithmetic
+      // that used to live here subtracted cash only, which billed staff parents
+      // for fees already recovered from their salary.
+      const dues = outstandingAcross(s.challans);
+      const totalUnpaid = dues.outstanding;
+      const unpaidChallanCount = dues.unpaidCount;
+      const unpaidMonths = dues.unpaid.map((c) => `${c.month}/${c.year}`);
 
-      for (const c of s.challans) {
-        const paid = sum(c.allocations.map((a) => a.amountApplied));
-        const rem = c.amount.minus(paid);
-        if (rem.greaterThan(0)) {
-          totalUnpaid = totalUnpaid.plus(rem);
-          unpaidChallanCount += 1;
-          unpaidMonths.push(`${c.month}/${c.year}`);
-        }
-      }
-
-      if (totalUnpaid.equals(0)) return null;
+      if (totalUnpaid.lessThanOrEqualTo(0)) return null;
 
       return {
         id: s.id,
@@ -138,6 +139,8 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
         unpaidChallanCount,
         unpaidMonths,
         totalOutstanding: toMoneyString(totalUnpaid),
+        /** Already recovered from a staff parent's salary — not owed in cash. */
+        staffCovered: toMoneyString(dues.staffCovered),
         lastPaymentDate: s.payments[0] ? pktDayString(s.payments[0].paymentDate) : 'No payments',
         photoUrl: s.photoUrl,
         isStaffParent: !!s.teacherParentId || !!s.parent.user.teacherProfile,
@@ -531,10 +534,19 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
   let lateFeeTotal = ZERO;
   let cashTotal = ZERO;
   let bankTotal = ZERO;
+  // Money received that is not applied to any challan — an advance paid before
+  // the bill existed, or a receipt whose challans were later deleted. It is
+  // real cash, but it belongs to no fee head, so without tracking it here the
+  // tuition/transport/admission split silently fails to add up to the total.
+  let unallocatedTotal = ZERO;
 
   const rows = payments.map((p) => {
     if (p.method === 'CASH') cashTotal = cashTotal.plus(p.amount);
     else bankTotal = bankTotal.plus(p.amount);
+
+    const applied = sum(p.allocations.map((a) => a.amountApplied));
+    const rowUnallocated = round2(money(p.amount).minus(applied));
+    if (rowUnallocated.greaterThan(0)) unallocatedTotal = unallocatedTotal.plus(rowUnallocated);
 
     for (const alloc of p.allocations) {
       const c = alloc.challan;
@@ -560,6 +572,8 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       method: p.method,
       receivedBy: p.receivedBy.fullName,
       note: p.note ?? '—',
+      /** Part of this receipt not applied to any challan. '0.00' when fully applied. */
+      unallocated: toMoneyString(rowUnallocated.greaterThan(0) ? rowUnallocated : ZERO),
     };
   });
 
@@ -575,6 +589,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       transportTotal: toMoneyString(transportTotal),
       admissionTotal: toMoneyString(admissionTotal),
       lateFeeTotal: toMoneyString(lateFeeTotal),
+      unallocatedTotal: toMoneyString(unallocatedTotal),
       cashTotal: toMoneyString(cashTotal),
       bankTotal: toMoneyString(bankTotal),
     },

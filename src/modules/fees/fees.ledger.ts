@@ -7,7 +7,7 @@
  * exactly as the rest of the system calls them.
  */
 import { ChallanStatus } from '@prisma/client';
-import { money, sum, round2, type Money } from '../../utils/money';
+import { money, sum, round2, ZERO, type Money } from '../../utils/money';
 import { pktDay } from '../../utils/pktDate';
 
 /**
@@ -40,6 +40,39 @@ export function paidBreakdown(c: LedgerChallan) {
  * is held as student credit elsewhere); PARTIAL when some money has landed;
  * otherwise UNPAID, or OVERDUE once the due date has passed.
  */
+/**
+ * Roll a student's challans into what they actually still owe.
+ *
+ * Used by the defaulters report, which decides who gets chased for money — so
+ * it has to agree with `paidBreakdown` exactly. It previously kept its own copy
+ * of the arithmetic that subtracted cash but not salary coverage, and billed
+ * staff parents for fees already taken out of their pay.
+ *
+ * Generic in the challan type so callers get their own rows back in `unpaid`
+ * and can read month/year off them without this module knowing about periods.
+ */
+export function outstandingAcross<T extends LedgerChallan>(challans: T[]) {
+  let outstanding = ZERO;
+  let staffCovered = ZERO;
+  const unpaid: T[] = [];
+
+  for (const c of challans) {
+    const { balance, staff } = paidBreakdown(c);
+    staffCovered = staffCovered.plus(staff);
+    if (balance.greaterThan(0)) {
+      outstanding = outstanding.plus(balance);
+      unpaid.push(c);
+    }
+  }
+
+  return {
+    outstanding: round2(outstanding),
+    staffCovered: round2(staffCovered),
+    unpaid,
+    unpaidCount: unpaid.length,
+  };
+}
+
 export function deriveStatus(c: LedgerChallan): ChallanStatus {
   const { settled, balance } = paidBreakdown(c);
   if (balance.lessThanOrEqualTo(0)) return ChallanStatus.PAID;

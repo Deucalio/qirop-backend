@@ -9,7 +9,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { paidBreakdown, deriveStatus, type LedgerChallan } from './fees.ledger';
+import { paidBreakdown, deriveStatus, outstandingAcross, type LedgerChallan } from './fees.ledger';
 
 const DAY = 86_400_000;
 const future = () => new Date(Date.now() + 30 * DAY);
@@ -135,5 +135,73 @@ describe('deriveStatus', () => {
     const c = challan({ staffCovered: '2000.00' });
     assert.equal(deriveStatus(c), 'PARTIAL');
     assert.equal(paidBreakdown(c).balance.toFixed(2), '3000.00');
+  });
+});
+
+/**
+ * The defaulters report decides who gets chased for money. It used to keep its
+ * own copy of this arithmetic that subtracted cash but not salary coverage,
+ * which billed staff parents for fees already taken out of their pay.
+ */
+describe('outstandingAcross', () => {
+  const month = (m: number, over: Partial<LedgerChallan> = {}) =>
+    ({ ...challan(over), month: m, year: 2026 });
+
+  test('no challans means nothing owed', () => {
+    const r = outstandingAcross([]);
+    assert.equal(r.outstanding.toFixed(2), '0.00');
+    assert.equal(r.unpaidCount, 0);
+  });
+
+  test('sums the balances of several unpaid months', () => {
+    const r = outstandingAcross([month(1), month(2), month(3)]);
+    assert.equal(r.outstanding.toFixed(2), '15000.00');
+    assert.equal(r.unpaidCount, 3);
+  });
+
+  test('a fully staff-covered child owes NOTHING — the salary already paid it', () => {
+    const r = outstandingAcross([
+      month(1, { staffCovered: '5000.00' }),
+      month(2, { staffCovered: '5000.00' }),
+    ]);
+    assert.equal(r.outstanding.toFixed(2), '0.00');
+    assert.equal(r.unpaidCount, 0, 'a staff parent must not appear as a defaulter');
+    assert.equal(r.staffCovered.toFixed(2), '10000.00');
+  });
+
+  test('partial salary coverage leaves only the shortfall owing', () => {
+    const r = outstandingAcross([month(1, { staffCovered: '3000.00' })]);
+    assert.equal(r.outstanding.toFixed(2), '2000.00');
+    assert.equal(r.unpaidCount, 1);
+    assert.equal(r.staffCovered.toFixed(2), '3000.00');
+  });
+
+  test('cash and salary coverage combine across months', () => {
+    const r = outstandingAcross([
+      month(1, { staffCovered: '2000.00', allocations: [paid('3000.00')] }), // settled
+      month(2, { staffCovered: '1000.00' }),                                 // owes 4000
+    ]);
+    assert.equal(r.outstanding.toFixed(2), '4000.00');
+    assert.equal(r.unpaidCount, 1);
+  });
+
+  test('a reversed receipt puts the money back on the bill', () => {
+    const r = outstandingAcross([month(1, { allocations: [reversed('5000.00')] })]);
+    assert.equal(r.outstanding.toFixed(2), '5000.00');
+    assert.equal(r.unpaidCount, 1);
+  });
+
+  test('over-payment on one month never cancels out dues from another', () => {
+    const r = outstandingAcross([
+      month(1, { allocations: [paid('9000.00')] }), // 4000 surplus
+      month(2),                                     // owes 5000
+    ]);
+    assert.equal(r.outstanding.toFixed(2), '5000.00', 'credit is held separately, not netted off');
+    assert.equal(r.unpaidCount, 1);
+  });
+
+  test('unpaid rows come back so the caller can list the months', () => {
+    const r = outstandingAcross([month(3), month(4, { staffCovered: '5000.00' }), month(5)]);
+    assert.deepEqual(r.unpaid.map((c) => c.month), [3, 5]);
   });
 });
