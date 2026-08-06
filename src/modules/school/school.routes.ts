@@ -12,6 +12,16 @@ export const schoolRouter = Router();
 
 schoolRouter.use(requireAuth);
 
+/**
+ * Name and logo only, for any signed-in user.
+ *
+ * The masthead is printed on certificates, ID cards and challans, so anyone who
+ * can produce those documents needs it — CERTIFICATES and FEES holders, not
+ * just SCHOOL_SETUP. It is also not secret: it goes home with every student.
+ * Must stay above `GET /` so the literal path wins the match.
+ */
+schoolRouter.get('/branding', asyncHandler(schoolController.getBranding));
+
 schoolRouter.get(
   '/',
   requirePermission(PermissionModule.SCHOOL_SETUP, 'view'),

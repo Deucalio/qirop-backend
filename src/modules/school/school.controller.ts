@@ -3,6 +3,11 @@ import * as schoolService from './school.service';
 import * as storage from '../../services/storage';
 import { AppError } from '../../utils/apiResponse';
 
+export async function getBranding(_req: Request, res: Response): Promise<void> {
+  const branding = await schoolService.getBranding();
+  res.json(branding);
+}
+
 export async function getSchool(_req: Request, res: Response): Promise<void> {
   const school = await schoolService.getSchool();
   res.json(school);

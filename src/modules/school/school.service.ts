@@ -28,6 +28,26 @@ async function ensureSchool() {
   });
 }
 
+/**
+ * Just the masthead: name, logo and contact line.
+ *
+ * Separate from `getSchool` because this is what certificates, ID cards,
+ * challans and report headers print. Those are produced by people holding
+ * CERTIFICATES or FEES — not SCHOOL_SETUP — so gating the branding behind the
+ * setup module made their documents silently fall back to a placeholder crest
+ * and the hard-coded school name. Deliberately omits `settings` and the
+ * academic year, which stay behind SCHOOL_SETUP.
+ */
+export async function getBranding() {
+  const school = await ensureSchool();
+  return {
+    name: school.name,
+    logoUrl: publicUrl(school.logoUrl),
+    address: school.address,
+    phone: school.phone,
+  };
+}
+
 export async function getSchool() {
   return shape(await ensureSchool());
 }
