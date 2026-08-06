@@ -193,6 +193,17 @@ export async function listTeachers(query: ListTeachersQuery) {
         include: {
           staffChildren: { select: { id: true } },
           _count: { select: { teachingAssignments: true, classTeacherSections: true } },
+          // What they actually teach and where — so pickers can show real
+          // context ("English · Class 1-A") instead of a bare count.
+          teachingAssignments: {
+            select: {
+              subject: { select: { name: true, colorHex: true } },
+              section: { select: { name: true, isDefault: true, class: { select: { name: true } } } },
+            },
+          },
+          classTeacherSections: {
+            select: { name: true, isDefault: true, class: { select: { name: true } } },
+          },
         },
       },
       parentProfile: {
@@ -264,6 +275,18 @@ export async function listTeachers(query: ListTeachersQuery) {
       status: u.status,
       subjectCount: tp?._count.teachingAssignments ?? 0,
       classTeacherCount: tp?._count.classTeacherSections ?? 0,
+      teaches:
+        tp?.teachingAssignments.map((ta) => ({
+          subject: ta.subject.name,
+          color: ta.subject.colorHex,
+          className: ta.section.class.name,
+          sectionName: ta.section.isDefault ? null : ta.section.name,
+        })) ?? [],
+      classTeacherOf:
+        tp?.classTeacherSections.map((s) => ({
+          className: s.class.name,
+          sectionName: s.isDefault ? null : s.name,
+        })) ?? [],
       moduleCount: u.role === 'SUPERADMIN' ? 10 : (u.adminPermissions?.length ?? 0),
       adminPermissions: u.adminPermissions ?? [],
       kidsEnrolledCount: studentIds.length,
