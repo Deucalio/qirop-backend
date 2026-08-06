@@ -107,6 +107,7 @@ enum PermissionModule {
   REPORTS
   TIMETABLE // sub-permission of CLASSES in the UI (weekly section timetables)
   AUDIT     // the History page: who changed what, across every module
+  CERTIFICATES
 }
 
 // School days for the weekly timetable (Mon–Sat; Sunday off).

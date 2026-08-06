@@ -1,24 +1,44 @@
+import { PermissionModule } from '@prisma/client';
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../../config/prisma';
 import { requireAuth } from '../../middleware/requireAuth';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { formatPartialCnic } from '../../utils/cnic';
+import { userHasPermission } from '../../utils/permissions';
+import { Unauthorized } from '../../utils/apiResponse';
 
 export const searchRouter = Router();
+
+const EMPTY = { students: [], teachers: [], parents: [], classes: [], challans: [] };
 
 searchRouter.get(
   '/',
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
+    const actor = req.user;
+    if (!actor) throw Unauthorized();
+
     const q = (req.query.q as string || '').trim();
     if (!q || q.length < 1) {
-      return res.json({ students: [], teachers: [], parents: [], classes: [], challans: [] });
+      return res.json(EMPTY);
     }
 
     const qCnic = formatPartialCnic(q);
 
+    // Global search spans the whole school, so each section is gated on the
+    // same module that guards its page. Without this any signed-in user —
+    // including a parent — could enumerate every student, guardian and challan.
+    // Unpermitted sections are skipped entirely, so the rows are never read.
+    const [mayStudents, mayTeachers, mayParents, mayClasses, mayFees] = await Promise.all([
+      userHasPermission(actor.userId, actor.role, PermissionModule.STUDENTS, 'view'),
+      userHasPermission(actor.userId, actor.role, PermissionModule.STAFF, 'view'),
+      userHasPermission(actor.userId, actor.role, PermissionModule.PARENTS, 'view'),
+      userHasPermission(actor.userId, actor.role, PermissionModule.CLASSES, 'view'),
+      userHasPermission(actor.userId, actor.role, PermissionModule.FEES, 'view'),
+    ]);
+
     const [students, teachers, parents, classes, challans] = await Promise.all([
-      prisma.student.findMany({
+      !mayStudents ? [] : prisma.student.findMany({
         where: {
           OR: [
             { firstName: { contains: q, mode: 'insensitive' } },
@@ -42,7 +62,7 @@ searchRouter.get(
           section: { select: { name: true, class: { select: { name: true } } } },
         },
       }),
-      prisma.teacherProfile.findMany({
+      !mayTeachers ? [] : prisma.teacherProfile.findMany({
         where: {
           OR: [
             { user: { fullName: { contains: q, mode: 'insensitive' } } },
@@ -59,7 +79,7 @@ searchRouter.get(
           user: { select: { fullName: true, avatarUrl: true, designation: true } },
         },
       }),
-      prisma.parentProfile.findMany({
+      !mayParents ? [] : prisma.parentProfile.findMany({
         where: {
           OR: [
             { user: { fullName: { contains: q, mode: 'insensitive' } } },
@@ -77,12 +97,12 @@ searchRouter.get(
           _count: { select: { students: true } },
         },
       }),
-      prisma.class.findMany({
+      !mayClasses ? [] : prisma.class.findMany({
         where: { name: { contains: q, mode: 'insensitive' } },
         take: 10,
         select: { id: true, name: true, sections: { select: { id: true, name: true } } },
       }),
-      prisma.feeChallan.findMany({
+      !mayFees ? [] : prisma.feeChallan.findMany({
         where: {
           OR: [
             { challanNo: { contains: q, mode: 'insensitive' } },
