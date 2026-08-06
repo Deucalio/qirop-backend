@@ -74,6 +74,18 @@ export const listTeachersQuerySchema = z.object({
   status: z.nativeEnum(UserStatus).optional(),
   search: z.string().trim().max(150).optional(),
   hasKidsEnrolled: z.preprocess((val) => val === 'true' || val === true, z.boolean()).optional(),
+  /**
+   * Who the caller wants:
+   *  - `all` (default) — the whole staff roster, admins included. Used by the
+   *    Staff page, which shows both tabs.
+   *  - `payrolled` — anyone with a TeacherProfile, whatever their role. These
+   *    are the people a salary can be deducted from, so this is the right
+   *    scope for transport and other payroll-linked pickers.
+   *  - `teaching` — people who can be assigned to teach: a TeacherProfile AND
+   *    not administrative staff. A teacher granted admin modules keeps
+   *    `role: TEACHER`, so they correctly remain in scope.
+   */
+  scope: z.enum(['all', 'payrolled', 'teaching']).optional(),
 });
 
 /** ?year=&month= for the month-scoped attendance snapshot (defaults to the current PKT month). */

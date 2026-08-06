@@ -16,14 +16,24 @@ import { validateBody } from '../../middleware/validate';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { imageUpload } from '../../config/upload';
 
-const USERS = PermissionModule.USERS;
+/**
+ * These reads are gated on STAFF, not the retired USERS module.
+ *
+ * User management moved onto the Staff page's "Admins & System Roles" tab when
+ * the standalone Users & Roles page was removed, so STAFF is where the
+ * capability now lives. USERS is no longer offered in the permission matrix,
+ * which meant gating on it left non-superadmins with a dead end: they couldn't
+ * open the permissions dialog and couldn't be granted the module to fix it.
+ * Writes below stay SUPERADMIN-only regardless.
+ */
+const STAFF = PermissionModule.STAFF;
 
 export const adminsRouter = Router();
 
 adminsRouter.use(requireAuth);
 
-adminsRouter.get('/', requirePermission(USERS, 'view'), asyncHandler(adminsController.list));
-adminsRouter.get('/:id', requirePermission(USERS, 'view'), asyncHandler(adminsController.detail));
+adminsRouter.get('/', requirePermission(STAFF, 'view'), asyncHandler(adminsController.list));
+adminsRouter.get('/:id', requirePermission(STAFF, 'view'), asyncHandler(adminsController.detail));
 
 adminsRouter.post(
   '/',

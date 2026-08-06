@@ -165,12 +165,20 @@ export async function listTeachers(query: ListTeachersQuery) {
     where: {
       status: query.status,
       AND: [
-        {
-          OR: [
-            { role: { in: [Role.SUPERADMIN, Role.ADMIN] } },
-            { teacherProfile: { isNot: null } },
-          ],
-        },
+        query.scope === 'teaching'
+          ? // Assignable teaching staff: a TeacherProfile is required
+            // (assignments key off it) and administrators are excluded.
+            { role: Role.TEACHER, teacherProfile: { isNot: null } }
+          : query.scope === 'payrolled'
+            ? // Anyone a salary can be deducted from — an admin on payroll may
+              // legitimately ride a school route.
+              { teacherProfile: { isNot: null } }
+            : {
+                OR: [
+                  { role: { in: [Role.SUPERADMIN, Role.ADMIN] } },
+                  { teacherProfile: { isNot: null } },
+                ],
+              },
         ...(query.search
           ? [
               {

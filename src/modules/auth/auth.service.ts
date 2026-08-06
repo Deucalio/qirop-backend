@@ -24,7 +24,14 @@ export interface AuthenticatedUser {
 // so login can't be used to enumerate valid accounts by response time.
 const DUMMY_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEeO3f6i0Xb5s.9m0aBk1t6i5uJ5m5g8yqK';
 
-const ALL_MODULES = Object.values(PermissionModule);
+/**
+ * Grantable modules. USERS is retired — user management now lives behind STAFF
+ * (see admins.routes) and the permission matrix no longer offers it, so it must
+ * not appear in a superadmin's permission set either. The enum value is kept so
+ * existing AdminPermission rows and audit entries stay readable; it simply
+ * grants nothing.
+ */
+const ALL_MODULES = Object.values(PermissionModule).filter((m) => m !== PermissionModule.USERS);
 
 function fullPermissionSet(): PermissionDTO[] {
   return ALL_MODULES.map((module) => ({
