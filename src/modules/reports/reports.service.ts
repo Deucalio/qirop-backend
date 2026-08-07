@@ -5,6 +5,7 @@ import { outstandingAcross } from '../fees/fees.ledger';
 import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll';
 import { AppError } from '../../utils/apiResponse';
 import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus } from '@prisma/client';
+import { publicUrl } from '../../services/storage';
 
 export interface RosterQuery {
   classId?: string;
@@ -90,7 +91,7 @@ export async function getStudentRosterReport(query: RosterQuery) {
       parentPhone: s.parent.user.phone ?? '—',
       motherName: s.parent.motherName ?? '—',
       transportRoute: s.transportAssignment?.route.name ?? 'None',
-      photoUrl: s.photoUrl,
+      photoUrl: publicUrl(s.photoUrl),
       isStaffParent: !!s.teacherParentId || !!s.parent.user.teacherProfile,
     })),
   };
@@ -186,7 +187,7 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
         /** Already recovered from a staff parent's salary — not owed in cash. */
         staffCovered: toMoneyString(dues.staffCovered),
         lastPaymentDate: s.payments[0] ? pktDayString(s.payments[0].paymentDate) : 'No payments',
-        photoUrl: s.photoUrl,
+        photoUrl: publicUrl(s.photoUrl),
         isStaffParent: !!s.teacherParentId || !!s.parent.user.teacherProfile,
       };
     })
@@ -335,7 +336,7 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
       leave: counts.leave,
       late: counts.late,
       attendancePct,
-      photoUrl: s.photoUrl,
+      photoUrl: publicUrl(s.photoUrl),
       monthlyBreakdown,
       dailyLogs,
     };
@@ -451,6 +452,8 @@ export async function getStaffAttendanceSummaryReport(query: { year: number; mon
       id: t.id,
       employeeId: t.employeeId,
       name: t.user.fullName,
+      /** Teaching vs support staff, so the register can tell them apart. */
+      staffRole: t.staffRole,
       phone: t.user.phone ?? '—',
       cnic: t.user.cnic ?? '—',
       totalMarkedDays: totalMarked,
@@ -459,7 +462,7 @@ export async function getStaffAttendanceSummaryReport(query: { year: number; mon
       leave: counts.leave,
       late: counts.late,
       attendancePct,
-      avatarUrl: t.user.avatarUrl,
+      avatarUrl: publicUrl(t.user.avatarUrl),
       monthlyBreakdown,
       dailyLogs,
     };
@@ -525,7 +528,7 @@ export async function getDailyAbsenteeReport(query: { date?: string; from?: stri
     contactPhone: a.student.parent.user.phone ?? '—',
     isStaffParent: !!a.student.teacherParentId || !!a.student.parent.user.teacherProfile,
     note: a.note ?? 'No note',
-    photoUrl: a.student.photoUrl,
+    photoUrl: publicUrl(a.student.photoUrl),
   }));
 
   const staff = teacherAbsentees.map((a) => ({
@@ -540,7 +543,7 @@ export async function getDailyAbsenteeReport(query: { date?: string; from?: stri
     contactPhone: a.teacher.user.phone ?? '—',
     isStaffParent: true,
     note: 'Staff absence',
-    avatarUrl: a.teacher.user.avatarUrl,
+    avatarUrl: publicUrl(a.teacher.user.avatarUrl),
   }));
 
   return {
@@ -730,6 +733,7 @@ export async function getPayrollRegisterReport(query: { year: number; month?: nu
       id: head.id,
       employeeId: head.teacher.employeeId,
       name: head.teacher.user.fullName,
+      staffRole: head.teacher.staffRole,
       phone: head.teacher.user.phone ?? '—',
       basicSalary: toMoneyString(t.basic),
       allowances: toMoneyString(t.allowances),
@@ -738,7 +742,7 @@ export async function getPayrollRegisterReport(query: { year: number; month?: nu
       netSalary: toMoneyString(t.net),
       status: t.status,
       paidDate: group.length === 1 && head.paidDate ? pktDayString(head.paidDate) : '—',
-      avatarUrl: head.teacher.user.avatarUrl,
+      avatarUrl: publicUrl(head.teacher.user.avatarUrl),
       /** Slips behind these totals — 1 monthly, up to 12 yearly. */
       monthsCovered: t.monthsCovered,
       paidMonths: t.paidCount,

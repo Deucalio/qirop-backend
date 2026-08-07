@@ -1,4 +1,4 @@
-import { Prisma, Role, UserStatus, FeeItemType, PermissionModule } from '@prisma/client';
+import { StaffRole, Prisma, Role, UserStatus, FeeItemType, PermissionModule } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, NotFound, Forbidden } from '../../utils/apiResponse';
 import { money, sum, round2, toMoneyString, ZERO, Decimal, type Money } from '../../utils/money';
@@ -170,12 +170,14 @@ function shapeSlip(s: {
   notes: string | null;
   status: string;
   paidDate: Date | null;
-  teacher: { employeeId: string; user: { fullName: string; cnic: string; avatarUrl: string | null } };
+  teacher: { employeeId: string; staffRole: StaffRole; user: { fullName: string; cnic: string; avatarUrl: string | null } };
 }) {
   return {
     id: s.id,
     teacherId: s.teacherId,
     teacherName: s.teacher.user.fullName,
+    /** So the payroll table can say who is teaching vs support staff. */
+    staffRole: s.teacher.staffRole,
     // CNIC uniquely identifies the person — two staff can share a name.
     cnic: s.teacher.user.cnic,
     avatarUrl: publicUrl(s.teacher.user.avatarUrl),

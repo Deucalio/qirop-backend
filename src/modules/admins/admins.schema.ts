@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Gender, PermissionModule, UserStatus } from '@prisma/client';
+import { StaffRole, Gender, PermissionModule, UserStatus } from '@prisma/client';
 
 const cnicRegex = /^\d{5}-\d{7}-\d$/;
 
@@ -11,6 +11,9 @@ const cnicRegex = /^\d{5}-\d{7}-\d$/;
  */
 export const staffProfileSchema = z.object({
   gender: z.nativeEnum(Gender),
+  // What the person actually does. Without this an admin joining the payroll
+  // silently became TEACHER by column default.
+  staffRole: z.nativeEnum(StaffRole).default(StaffRole.OTHER),
   fatherName: z.string().min(1, "Father's/mother's name is required").max(150),
   joiningDate: z.coerce.date(),
   // Optional: an owner or unpaid office-holder can hold a staff record with no

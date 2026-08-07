@@ -35,7 +35,7 @@ export async function listParents(query: ListParentsQuery) {
         : {}),
     },
     include: {
-      user: { include: { teacherProfile: { select: { id: true } } } },
+      user: { include: { teacherProfile: { select: { id: true, staffRole: true } } } },
       students: { select: { id: true } },
       _count: { select: { students: true } },
     },
@@ -82,9 +82,12 @@ export async function listParents(query: ListParentsQuery) {
         outstanding: toMoneyString(totalDues),
         unpaidCount,
       },
-      // This parent is also a teacher → their children's fees bill to their salary.
+      // This parent is also staff → their children's fees bill to their salary.
+      // True for ANY payroll role: a peon's children get the concession too.
       isTeacher: p.user.teacherProfile !== null,
       teacherId: p.user.teacherProfile?.id ?? null,
+      /** What they do, so callers can label them accurately rather than guessing. */
+      staffRole: p.user.teacherProfile?.staffRole ?? null,
     };
   });
 }
@@ -129,6 +132,7 @@ export async function getParent(id: string) {
     motherOccupation: parent.motherOccupation,
     isTeacher: !!teacher,
     teacherId: teacher?.id ?? null,
+    staffRole: teacher?.staffRole ?? null,
     createdAt: parent.createdAt,
     children: parent.students.map((s) => ({
       id: s.id,
@@ -138,7 +142,7 @@ export async function getParent(id: string) {
       gender: s.gender,
       dob: s.dob ? s.dob.toISOString() : null,
       admissionDate: s.admissionDate ? s.admissionDate.toISOString() : null,
-      photoUrl: s.photoUrl,
+      photoUrl: publicUrl(s.photoUrl),
       className: s.section.class.name,
       sectionName: s.section.name,
       status: s.status,

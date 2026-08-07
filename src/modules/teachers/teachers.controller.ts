@@ -56,11 +56,11 @@ export async function update(req: Request, res: Response): Promise<void> {
 }
 
 export async function updateStatus(req: Request, res: Response): Promise<void> {
-  res.json(await teachersService.setTeacherStatus(req.params.id, req.body.status, req.body.force, req.user?.role));
+  res.json(await teachersService.setTeacherStatus(req.params.id, req.body.status, req.body.force, req.user?.role, req.user?.userId));
 }
 
 export async function resetPassword(req: Request, res: Response): Promise<void> {
-  await teachersService.resetPassword(req.params.id, req.body.newPassword, req.user?.role);
+  await teachersService.resetPassword(req.params.id, req.body.newPassword, req.user?.role, req.user?.userId);
   res.json({ message: 'Password reset successfully' });
 }
 

@@ -37,13 +37,13 @@ export async function listSections(req: Request, res: Response): Promise<void> {
   res.json(await svc.listSections(req.params.classId));
 }
 export async function createSection(req: Request, res: Response): Promise<void> {
-  res.status(201).json(await svc.createSection(req.params.classId, req.body.name));
+  res.status(201).json(await svc.createSection(req.params.classId, req.body.name, req.user?.userId));
 }
 export async function updateSection(req: Request, res: Response): Promise<void> {
-  res.json(await svc.updateSection(req.params.id, req.body.name));
+  res.json(await svc.updateSection(req.params.id, req.body.name, req.user?.userId));
 }
 export async function deleteSection(req: Request, res: Response): Promise<void> {
-  await svc.deleteSection(req.params.id);
+  await svc.deleteSection(req.params.id, req.user?.userId);
   res.json({ message: 'Section deleted' });
 }
 
@@ -52,13 +52,13 @@ export async function listSubjects(_req: Request, res: Response): Promise<void> 
   res.json(await svc.listSubjects());
 }
 export async function createSubject(req: Request, res: Response): Promise<void> {
-  res.status(201).json(await svc.createSubject(req.body.name));
+  res.status(201).json(await svc.createSubject(req.body.name, req.user?.userId));
 }
 export async function updateSubject(req: Request, res: Response): Promise<void> {
-  res.json(await svc.updateSubject(req.params.id, { name: req.body.name, color: req.body.color }));
+  res.json(await svc.updateSubject(req.params.id, { name: req.body.name, color: req.body.color }, req.user?.userId));
 }
 export async function deleteSubject(req: Request, res: Response): Promise<void> {
-  await svc.deleteSubject(req.params.id);
+  await svc.deleteSubject(req.params.id, req.user?.userId);
   res.json({ message: 'Subject deleted' });
 }
 export async function subjectDetails(req: Request, res: Response): Promise<void> {
@@ -73,5 +73,5 @@ export async function getClassSubjects(req: Request, res: Response): Promise<voi
   res.json(await svc.getClassSubjects(req.params.classId));
 }
 export async function setClassSubjects(req: Request, res: Response): Promise<void> {
-  res.json(await svc.setClassSubjects(req.params.classId, req.body.subjectIds));
+  res.json(await svc.setClassSubjects(req.params.classId, req.body.subjectIds, req.user?.userId));
 }

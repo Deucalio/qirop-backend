@@ -203,12 +203,38 @@ model School {
 // Staff & Parent profiles
 // ============================================================================
 
+/// What a staff member actually does. Distinct from `User.designation`, which is
+/// free text for the printed title ("Senior Teacher", "Head Clerk").
+///
+/// Only the teaching roles appear in academic pickers — class teacher, subject
+/// assignment, timetable, homework. A driver or gardener is real staff with a
+/// salary, attendance and a staff-child fee concession, but must never be
+/// offered as the teacher of a class.
+enum StaffRole {
+  TEACHER
+  QARI // religious instruction — teaches, so counts as teaching staff
+  PRINCIPAL
+  CLERK
+  ACCOUNTANT
+  LIBRARIAN
+  PEON
+  GUARD
+  DRIVER
+  GARDENER
+  COOK
+  CLEANER
+  OTHER
+}
+
 model TeacherProfile {
   id            String     @id @default(cuid())
   userId        String     @unique
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   employeeId    String     @unique
   gender        Gender
+  /// Defaults to TEACHER so existing rows keep behaving exactly as before the
+  /// column existed; non-teaching staff are reclassified explicitly.
+  staffRole     StaffRole  @default(TEACHER)
   qualification String?
   address       String?
   joiningDate   DateTime

@@ -272,6 +272,11 @@ export async function updateAdmin(
   if (data.phone !== undefined && data.phone !== target.phone) changes.phone = { before: target.phone, after: data.phone };
   // Worth an explicit audit line — this changes what they sign in with.
   if (data.cnic && data.cnic !== target.cnic) changes.cnic = { before: target.cnic, after: data.cnic };
+  // `designation` is accepted by updateAdminSchema but was never diffed, so
+  // changing only the job title saved silently — the same gap staffRole had.
+  if (data.designation !== undefined && (data.designation || null) !== target.designation) {
+    changes.designation = { before: target.designation ?? 'None', after: data.designation ?? 'None' };
+  }
 
   if (Object.keys(changes).length > 0) {
     await logAudit(null, {
@@ -363,6 +368,7 @@ export async function attachStaffProfile(actor: Actor, id: string, input: StaffP
       data: {
         userId: target.id,
         employeeId,
+        staffRole: input.staffRole,
         gender: input.gender,
         fatherName: input.fatherName,
         joiningDate: input.joiningDate,

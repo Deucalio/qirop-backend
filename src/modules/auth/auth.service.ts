@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword } from '../../utils/password';
 import { signToken } from '../../utils/jwt';
 import { publicUrl } from '../../services/storage';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
+import { isTeachingRole } from '../../utils/staffRoles';
 
 export interface PermissionDTO {
   module: PermissionModule;
@@ -69,6 +70,38 @@ export interface LoginResult {
   user: AuthenticatedUser;
 }
 
+/**
+ * Whether an account has any reason to sign in.
+ *
+ * Non-teaching staff — a peon, gardener or driver — are on the payroll and have
+ * attendance recorded for them by the office, but nothing in the app is theirs
+ * to do, so their login is disabled.
+ *
+ * The check is deliberately NOT just "staffRole isn't teaching". An admin who
+ * joins the payroll gets a staff profile too (defaulting to OTHER), and keying
+ * on the role alone would lock the accountant out of their own system. Access
+ * survives if they hold ANY module grant, or an admin role.
+ */
+async function maySignIn(user: { id: string; role: Role }): Promise<boolean> {
+  if (user.role === Role.SUPERADMIN || user.role === Role.ADMIN || user.role === Role.PARENT) return true;
+
+  const profile = await prisma.teacherProfile.findUnique({
+    where: { userId: user.id },
+    select: { staffRole: true },
+  });
+  // No staff profile means we cannot call them non-teaching staff.
+  if (!profile || isTeachingRole(profile.staffRole)) return true;
+
+  const grants = await prisma.adminPermission.count({
+    where: { userId: user.id, OR: [{ canView: true }, { canEdit: true }, { canManage: true }] },
+  });
+  return grants > 0;
+}
+
+const NO_LOGIN_MESSAGE =
+  'This account is registered as non-teaching staff, so it does not have system access. ' +
+  'Speak to the office if you believe this is wrong.';
+
 export async function login(cnic: string, password: string): Promise<LoginResult> {
   const user = await prisma.user.findUnique({ where: { cnic } });
 
@@ -87,6 +120,10 @@ export async function login(cnic: string, password: string): Promise<LoginResult
 
   if (user.status !== 'ACTIVE') {
     throw Forbidden('Your account is not active. Please contact an administrator.');
+  }
+
+  if (!(await maySignIn(user))) {
+    throw Forbidden(NO_LOGIN_MESSAGE);
   }
 
   await prisma.user.update({
@@ -127,6 +164,12 @@ export async function getMe(userId: string) {
 
   if (!user) {
     throw NotFound('User not found');
+  }
+
+  // Re-checked here, not only at login: reclassifying someone as non-teaching
+  // would otherwise leave their existing token working until it expired.
+  if (!(await maySignIn(user))) {
+    throw Forbidden(NO_LOGIN_MESSAGE);
   }
 
   const permissions = await getPermissionsForUser(user.id, user.role);

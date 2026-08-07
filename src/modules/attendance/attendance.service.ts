@@ -348,6 +348,7 @@ export async function getTeachersMonthlyAttendance(yearNum?: number, monthNum?: 
         id: t.id,
         name: t.user.fullName,
         employeeId: t.employeeId,
+        staffRole: t.staffRole,
         photoUrl: publicUrl(t.user.avatarUrl),
         days,
         summary: {

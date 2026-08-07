@@ -96,6 +96,7 @@ export async function getRoute(id: string) {
       id: a.teacher!.id,
       name: a.teacher!.user.fullName,
       employeeId: a.teacher!.employeeId,
+      staffRole: a.teacher!.staffRole,
     }));
 
   return {

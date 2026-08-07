@@ -6,6 +6,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { formatPartialCnic } from '../../utils/cnic';
 import { userHasPermission } from '../../utils/permissions';
 import { Unauthorized } from '../../utils/apiResponse';
+import { publicUrl } from '../../services/storage';
 
 export const searchRouter = Router();
 
@@ -129,21 +130,21 @@ searchRouter.get(
         title: `${s.firstName} ${s.lastName}`,
         subtitle: `Roll: ${s.rollNo || 'N/A'} · Adm: ${s.admissionNo} · ${s.section.class.name}-${s.section.name}`,
         url: `/students?search=${encodeURIComponent(s.admissionNo)}`,
-        photoUrl: s.photoUrl,
+        photoUrl: publicUrl(s.photoUrl),
       })),
       teachers: teachers.map((t) => ({
         id: t.id,
         title: t.user.fullName,
         subtitle: `${t.user.designation || 'Staff'} · Emp ID: ${t.employeeId}`,
         url: `/staff?search=${encodeURIComponent(t.employeeId)}`,
-        avatarUrl: t.user.avatarUrl,
+        avatarUrl: publicUrl(t.user.avatarUrl),
       })),
       parents: parents.map((p) => ({
         id: p.id,
         title: p.user.fullName,
         subtitle: `Phone: ${p.user.phone || 'N/A'} · ${p._count.students} Children`,
         url: `/parents?search=${encodeURIComponent(p.user.fullName)}`,
-        avatarUrl: p.user.avatarUrl,
+        avatarUrl: publicUrl(p.user.avatarUrl),
       })),
       classes: classes.map((c) => ({
         id: c.id,

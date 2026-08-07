@@ -7,6 +7,7 @@ import type { Actor } from '../timetable/timetable.service';
 // Pure ledger arithmetic lives in its own IO-free module so it can be unit-tested.
 import { paidBreakdown, deriveStatus } from './fees.ledger';
 import type { GenerateChallansInput, ListChallansQuery, PatchChallanInput, RecordPaymentInput } from './fees.schema';
+import { publicUrl } from '../../services/storage';
 
 type Tx = Prisma.TransactionClient;
 
@@ -603,7 +604,7 @@ export async function getStaffChildrenForTeacher(userId: string) {
         admissionNo: s.admissionNo,
         className: s.section.class.name,
         sectionName: s.section.name,
-        photoUrl: s.photoUrl,
+        photoUrl: publicUrl(s.photoUrl),
         arrears: toMoneyString(arrears),
         latestChallan,
         attendance: {

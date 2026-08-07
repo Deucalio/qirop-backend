@@ -280,8 +280,8 @@ export async function listSections(classId: string) {
   }));
 }
 
-export async function createSection(classId: string, name: string) {
-  await loadClassOr404(classId);
+export async function createSection(classId: string, name: string, actorId?: string) {
+  const cls = await loadClassOr404(classId);
   const existing = await prisma.section.findUnique({
     where: { classId_name: { classId, name } },
   });
@@ -292,17 +292,37 @@ export async function createSection(classId: string, name: string) {
   const sections = await prisma.section.findMany({ where: { classId } });
   const onlyDefault = sections.length === 1 && sections[0].isDefault;
   if (onlyDefault) {
-    return prisma.section.update({
+    const converted = await prisma.section.update({
       where: { id: sections[0].id },
       data: { name, isDefault: false },
     });
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'CREATE',
+      module: 'CLASSES',
+      targetType: 'Section',
+      targetId: converted.id,
+      targetLabel: `${cls.name} — Section ${name}`,
+      details: `Split ${cls.name} into sections, converting its whole-class roster into Section ${name}`,
+    });
+    return converted;
   }
 
-  return prisma.section.create({ data: { classId, name } });
+  const created = await prisma.section.create({ data: { classId, name } });
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'CREATE',
+    module: 'CLASSES',
+    targetType: 'Section',
+    targetId: created.id,
+    targetLabel: `${cls.name} — Section ${name}`,
+    details: `Added Section ${name} to ${cls.name}`,
+  });
+  return created;
 }
 
-export async function updateSection(id: string, name: string) {
-  const section = await prisma.section.findUnique({ where: { id } });
+export async function updateSection(id: string, name: string, actorId?: string) {
+  const section = await prisma.section.findUnique({ where: { id }, include: { class: true } });
   if (!section) throw NotFound('Section not found');
   if (name !== section.name) {
     const clash = await prisma.section.findUnique({
@@ -310,13 +330,26 @@ export async function updateSection(id: string, name: string) {
     });
     if (clash) throw conflict(`Section "${name}" already exists in this class`);
   }
-  return prisma.section.update({ where: { id }, data: { name } });
+  const updated = await prisma.section.update({ where: { id }, data: { name } });
+  if (name !== section.name) {
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'UPDATE',
+      module: 'CLASSES',
+      targetType: 'Section',
+      targetId: id,
+      targetLabel: `${section.class.name} — Section ${name}`,
+      details: `Renamed section ${section.name} to ${name} in ${section.class.name}`,
+      changes: { name: { before: section.name, after: name } },
+    });
+  }
+  return updated;
 }
 
-export async function deleteSection(id: string) {
+export async function deleteSection(id: string, actorId?: string) {
   const section = await prisma.section.findUnique({
     where: { id },
-    include: { _count: { select: { students: true } } },
+    include: { _count: { select: { students: true } }, class: true },
   });
   if (!section) throw NotFound('Section not found');
 
@@ -331,6 +364,18 @@ export async function deleteSection(id: string) {
       where: { id },
       data: { name: DEFAULT_SECTION_NAME, isDefault: true, classTeacherId: null },
     });
+    // This also clears the class teacher, which is worth saying out loud.
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'DELETE',
+      module: 'CLASSES',
+      targetType: 'Section',
+      targetId: id,
+      targetLabel: `${section.class.name} — Section ${section.name}`,
+      details:
+        `Removed the last section of ${section.class.name}; the class reverted to a single ` +
+        `whole-class roster and its class teacher was cleared`,
+    });
     return;
   }
 
@@ -339,6 +384,15 @@ export async function deleteSection(id: string) {
   }
 
   await prisma.section.delete({ where: { id } });
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'DELETE',
+    module: 'CLASSES',
+    targetType: 'Section',
+    targetId: id,
+    targetLabel: `${section.class.name} — Section ${section.name}`,
+    details: `Deleted Section ${section.name} from ${section.class.name}`,
+  });
 }
 
 // ===========================================================================
@@ -368,12 +422,22 @@ async function assertSubjectNameFree(name: string, exceptId?: string) {
   }
 }
 
-export async function createSubject(name: string) {
+export async function createSubject(name: string, actorId?: string) {
   await assertSubjectNameFree(name);
-  return prisma.subject.create({ data: { name } });
+  const created = await prisma.subject.create({ data: { name } });
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'CREATE',
+    module: 'CLASSES',
+    targetType: 'Subject',
+    targetId: created.id,
+    targetLabel: name,
+    details: `Created the subject ${name}`,
+  });
+  return created;
 }
 
-export async function updateSubject(id: string, data: { name?: string; color?: string | null }) {
+export async function updateSubject(id: string, data: { name?: string; color?: string | null }, actorId?: string) {
   const subject = await prisma.subject.findUnique({ where: { id } });
   if (!subject) throw NotFound('Subject not found');
   if (data.name && data.name !== subject.name) await assertSubjectNameFree(data.name, id);
@@ -401,10 +465,28 @@ export async function updateSubject(id: string, data: { name?: string; color?: s
       ...(colorHex !== undefined ? { colorHex } : {}),
     },
   });
+
+  const changes: Record<string, { before: unknown; after: unknown }> = {};
+  if (data.name && data.name !== subject.name) changes.name = { before: subject.name, after: data.name };
+  if (colorHex !== undefined && colorHex !== subject.colorHex) {
+    changes.colour = { before: subject.colorHex ?? 'Automatic', after: colorHex ?? 'Automatic' };
+  }
+  if (Object.keys(changes).length > 0) {
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'UPDATE',
+      module: 'CLASSES',
+      targetType: 'Subject',
+      targetId: id,
+      targetLabel: data.name ?? subject.name,
+      details: `Updated ${Object.keys(changes).join(' and ')} for the subject ${subject.name}`,
+      changes,
+    });
+  }
   return listSubjects();
 }
 
-export async function deleteSubject(id: string) {
+export async function deleteSubject(id: string, actorId?: string) {
   const subject = await prisma.subject.findUnique({
     where: { id },
     include: { _count: { select: { classSubjects: true } } },
@@ -414,6 +496,15 @@ export async function deleteSubject(id: string) {
     throw conflict('Cannot delete a subject that is mapped to one or more classes.');
   }
   await prisma.subject.delete({ where: { id } });
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'DELETE',
+    module: 'CLASSES',
+    targetType: 'Subject',
+    targetId: id,
+    targetLabel: subject.name,
+    details: `Deleted the subject ${subject.name}`,
+  });
 }
 
 /**
@@ -473,8 +564,8 @@ export async function getClassSubjects(classId: string) {
   return links.map((l) => ({ id: l.subject.id, name: l.subject.name }));
 }
 
-export async function setClassSubjects(classId: string, subjectIds: string[]) {
-  await loadClassOr404(classId);
+export async function setClassSubjects(classId: string, subjectIds: string[], actorId?: string) {
+  const cls = await loadClassOr404(classId);
   const uniqueIds = [...new Set(subjectIds)];
 
   if (uniqueIds.length > 0) {
@@ -507,6 +598,42 @@ export async function setClassSubjects(classId: string, subjectIds: string[]) {
       ? [prisma.classSubject.createMany({ data: toAdd.map((subjectId) => ({ classId, subjectId })) })]
       : []),
   ]);
+
+  /*
+   * Worth auditing even though it looks like a mapping change: removing a
+   * subject also deletes every per-section teaching assignment for it, so a
+   * teacher can lose classes without any other record of why.
+   */
+  if (toAdd.length > 0 || toRemove.length > 0) {
+    const names = await prisma.subject.findMany({
+      where: { id: { in: [...toAdd, ...toRemove] } },
+      select: { id: true, name: true },
+    });
+    const nameOf = new Map(names.map((n) => [n.id, n.name]));
+    const added = toAdd.map((id) => nameOf.get(id) ?? id);
+    const removed = toRemove.map((id) => nameOf.get(id) ?? id);
+
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'UPDATE',
+      module: 'CLASSES',
+      targetType: 'Class',
+      targetId: classId,
+      targetLabel: cls.name,
+      details:
+        `Updated subjects for ${cls.name}: ` +
+        [
+          added.length ? `added ${added.join(', ')}` : '',
+          removed.length ? `removed ${removed.join(', ')} (their teacher assignments were dropped)` : '',
+        ]
+          .filter(Boolean)
+          .join('; '),
+      changes: {
+        added: { before: null, after: added },
+        removed: { before: removed, after: null },
+      },
+    });
+  }
 
   return getClassSubjects(classId);
 }

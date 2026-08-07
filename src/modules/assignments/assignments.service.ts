@@ -2,15 +2,29 @@ import { UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import { logAudit } from '../audit/audit.service';
+import { isTeachingRole, STAFF_ROLE_LABELS } from '../../utils/staffRoles';
 
 const conflict = (message: string, code = 'CONFLICT') => new AppError(message, 409, code);
 
+/**
+ * Both assignment paths — class teacher and subject teacher — go through here,
+ * so this is the one place that has to refuse non-teaching staff. The UI already
+ * filters the picker to `scope=teaching`; this makes the rule real rather than
+ * cosmetic, since a stale page or a direct API call would otherwise slip a
+ * driver into a classroom.
+ */
 async function loadActiveTeacherOr404(teacherId: string) {
   const teacher = await prisma.teacherProfile.findUnique({
     where: { id: teacherId },
     include: { user: true },
   });
   if (!teacher) throw NotFound('Teacher not found');
+  if (!isTeachingRole(teacher.staffRole)) {
+    throw conflict(
+      `${teacher.user.fullName} is ${STAFF_ROLE_LABELS[teacher.staffRole]} staff, not teaching staff, and cannot be assigned to a class.`,
+      'NOT_TEACHING_STAFF',
+    );
+  }
   return teacher;
 }
 

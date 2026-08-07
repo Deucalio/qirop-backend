@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Gender, MarkingType, QualificationLevel, UserStatus } from '@prisma/client';
+import { StaffRole, Gender, MarkingType, QualificationLevel, UserStatus } from '@prisma/client';
 
 const cnicRegex = /^\d{5}-\d{7}-\d$/;
 
@@ -30,6 +30,8 @@ export const createTeacherSchema = z.object({
   phone: z.string().max(50).nullable().optional(),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
   employeeId: z.string().max(50).optional(),
+  // Defaults to TEACHER so existing callers keep working unchanged.
+  staffRole: z.nativeEnum(StaffRole).default(StaffRole.TEACHER),
   gender: z.nativeEnum(Gender),
   qualification: z.string().max(200).nullable().optional(),
   qualifications: qualificationsArraySchema.optional(),
@@ -49,6 +51,7 @@ export const updateTeacherSchema = z
     fullName: z.string().min(1).max(150).optional(),
     phone: z.string().max(50).nullable().optional(),
     employeeId: z.string().min(1).max(50).optional(),
+    staffRole: z.nativeEnum(StaffRole).optional(),
     gender: z.nativeEnum(Gender).optional(),
     qualification: z.string().max(200).nullable().optional(),
     qualifications: qualificationsArraySchema.optional(),

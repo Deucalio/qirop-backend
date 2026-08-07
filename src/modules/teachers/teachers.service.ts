@@ -13,6 +13,7 @@ import { money, ZERO, toMoneyString } from '../../utils/money';
 import { formatPartialCnic } from '../../utils/cnic';
 import { nextEmployeeId } from '../../utils/employeeId';
 import type { Response } from 'express';
+import { TEACHING_STAFF_ROLES, isTeachingRole, STAFF_ROLE_LABELS } from '../../utils/staffRoles';
 
 export interface Actor {
   userId: string;
@@ -88,6 +89,7 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
     phone: profile.user.phone,
     avatarUrl: publicUrl(profile.user.avatarUrl),
     employeeId: profile.employeeId,
+    staffRole: profile.staffRole,
     gender: profile.gender,
     qualification: profile.qualification,
     address: profile.address,
@@ -166,9 +168,10 @@ export async function listTeachers(query: ListTeachersQuery) {
       status: query.status,
       AND: [
         query.scope === 'teaching'
-          ? // Assignable teaching staff: a TeacherProfile is required
-            // (assignments key off it) and administrators are excluded.
-            { role: Role.TEACHER, teacherProfile: { isNot: null } }
+          ? // Assignable teaching staff. Keyed on `staffRole`, not the account
+            // role: a driver or gardener also carries `role: TEACHER` with a
+            // profile, and used to appear in every class-teacher dropdown.
+            { role: Role.TEACHER, teacherProfile: { staffRole: { in: TEACHING_STAFF_ROLES } } }
           : query.scope === 'payrolled'
             ? // Anyone a salary can be deducted from — an admin on payroll may
               // legitimately ride a school route.
@@ -262,12 +265,16 @@ export async function listTeachers(query: ListTeachersQuery) {
       cnic: u.cnic,
       parentCnic: tp?.parentCnic ?? null,
       employeeId: tp?.employeeId ?? `USR-${u.id.slice(-4).toUpperCase()}`,
+      /** What they do. Null for a login-only account with no staff profile. */
+      staffRole: tp?.staffRole ?? null,
+      /** Whether they may be put in front of a class. */
+      isTeachingStaff: isTeachingRole(tp?.staffRole),
       // False for a system login with no staff profile (no salary, no
       // assignments, and no teacher profile dialog to open).
       hasStaffProfile: !!tp,
-      // Fall back to what the person actually is. The previous fallback only
-      // special-cased SUPERADMIN, so every teacher without a stored
-      // designation was displayed as "Admin".
+      // Fall back to what the person actually is. Reads `staffRole` rather than
+      // assuming a staff profile means teaching — a clerk or gardener was being
+      // labelled "Teacher" under their own non-teaching badge.
       designation:
         u.designation ??
         (u.role === Role.SUPERADMIN
@@ -275,7 +282,7 @@ export async function listTeachers(query: ListTeachersQuery) {
           : u.role === Role.ADMIN
             ? 'Admin'
             : tp
-              ? 'Teacher'
+              ? STAFF_ROLE_LABELS[tp.staffRole]
               : null),
       avatarUrl: publicUrl(u.avatarUrl),
       phone: u.phone,
@@ -364,6 +371,7 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
       teacherProfile: {
         create: {
           employeeId: employeeId,
+          staffRole: input.staffRole,
           gender: input.gender,
           qualification: input.qualification ?? null,
           address: input.address ?? null,
@@ -403,12 +411,77 @@ export async function createTeacher(actorId: string, input: CreateTeacherInput) 
   return teacherObj;
 }
 
+/**
+ * The scalar fields of a staff record, flattened for comparison.
+ *
+ * Relations, timestamps and the password hash are excluded: they either change
+ * on every write or must never appear in an audit payload.
+ */
+function scalarSnapshot(row: {
+  [k: string]: unknown;
+  user?: { [k: string]: unknown } | null;
+}): Record<string, string | null> {
+  const SKIP = new Set([
+    'id', 'userId', 'createdAt', 'updatedAt', 'passwordHash', 'avatarUrl', 'lastLoginAt',
+  ]);
+  const out: Record<string, string | null> = {};
+  const take = (src: Record<string, unknown> | null | undefined, prefix = '') => {
+    if (!src) return;
+    for (const [k, v] of Object.entries(src)) {
+      if (SKIP.has(k) || v === null || typeof v === 'object') {
+        // Dates are objects but do carry meaning, so keep them as ISO days.
+        if (v instanceof Date && !SKIP.has(k)) out[prefix + k] = v.toISOString().slice(0, 10);
+        else if (v === null && !SKIP.has(k)) out[prefix + k] = null;
+        continue;
+      }
+      out[prefix + k] = String(v);
+    }
+  };
+  take(row as Record<string, unknown>);
+  take(row.user as Record<string, unknown> | null | undefined);
+  return out;
+}
+
 export async function updateTeacher(id: string, data: UpdateTeacherInput, actorId?: string, actorRole?: Role) {
   const profile = await prisma.teacherProfile.findUnique({
     where: { id },
     include: { user: true },
   });
   if (!profile) throw NotFound('Teacher not found');
+
+  /*
+   * Moving someone out of teaching would otherwise strand their academic work:
+   * a "Peon" left sitting as class teacher of 5-A, still owning timetable slots
+   * and homework. Those records don't disappear on their own and no picker
+   * would offer the person again, so the tie could never be undone from the UI.
+   * Refuse the change and say exactly what has to be reassigned first.
+   */
+  if (data.staffRole && data.staffRole !== profile.staffRole && !isTeachingRole(data.staffRole)) {
+    const [classOf, teaches, homework] = await Promise.all([
+      prisma.section.findMany({
+        where: { classTeacherId: id },
+        select: { name: true, class: { select: { name: true } } },
+      }),
+      prisma.teachingAssignment.count({ where: { teacherId: id } }),
+      prisma.homework.count({ where: { teacherId: id } }),
+    ]);
+
+    const blockers: string[] = [];
+    if (classOf.length > 0) {
+      blockers.push(`class teacher of ${classOf.map((c) => `${c.class.name}-${c.name}`).join(', ')}`);
+    }
+    if (teaches > 0) blockers.push(`${teaches} subject assignment${teaches === 1 ? '' : 's'}`);
+    if (homework > 0) blockers.push(`${homework} homework record${homework === 1 ? '' : 's'}`);
+
+    if (blockers.length > 0) {
+      throw new AppError(
+        `${profile.user.fullName} still holds academic duties (${blockers.join('; ')}). ` +
+          `Reassign those before changing them to ${STAFF_ROLE_LABELS[data.staffRole]}.`,
+        409,
+        'HAS_TEACHING_DUTIES',
+      );
+    }
+  }
 
   if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
     throw Forbidden('Only Super Administrators can modify Administrator & System User profiles.');
@@ -428,6 +501,9 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput, actorI
 
   const changes: Record<string, any> = {};
   const changedLabels: string[] = [];
+
+  // Scalar snapshot taken BEFORE the write, for the safety sweep further down.
+  const beforeSnapshot = scalarSnapshot(profile);
 
   if (data.cnic && data.cnic !== profile.user.cnic) {
     changes.cnic = { before: profile.user.cnic, after: data.cnic };
@@ -457,6 +533,42 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput, actorI
     changes.fatherName = { before: profile.fatherName, after: data.fatherName };
     changedLabels.push('Father/Husband Name');
   }
+  /*
+   * Everything below was editable but untracked, so changing only one of them
+   * produced an empty diff — and because the audit call is gated on that diff,
+   * the change was saved with no history entry at all. Reclassifying someone
+   * from Teacher to Gardener is the case that surfaced it.
+   */
+  if (data.staffRole && data.staffRole !== profile.staffRole) {
+    changes.staffRole = {
+      before: STAFF_ROLE_LABELS[profile.staffRole],
+      after: STAFF_ROLE_LABELS[data.staffRole],
+    };
+    changedLabels.push('Staff Role');
+  }
+  if (data.gender && data.gender !== profile.gender) {
+    changes.gender = { before: profile.gender, after: data.gender };
+    changedLabels.push('Gender');
+  }
+  if (data.address !== undefined && (data.address || null) !== profile.address) {
+    changes.address = { before: profile.address ?? 'None', after: data.address ?? 'None' };
+    changedLabels.push('Address');
+  }
+  if (data.joiningDate && new Date(data.joiningDate).getTime() !== profile.joiningDate.getTime()) {
+    changes.joiningDate = {
+      before: profile.joiningDate.toISOString().slice(0, 10),
+      after: new Date(data.joiningDate).toISOString().slice(0, 10),
+    };
+    changedLabels.push('Joining Date');
+  }
+  if (data.parentCnic !== undefined && (data.parentCnic || null) !== profile.parentCnic) {
+    changes.parentCnic = { before: profile.parentCnic ?? 'None', after: data.parentCnic ?? 'None' };
+    changedLabels.push('Parent CNIC');
+  }
+  if (data.employeeId && data.employeeId !== profile.employeeId) {
+    changes.employeeId = { before: profile.employeeId, after: data.employeeId };
+    changedLabels.push('Employee ID');
+  }
 
   // Shape qualification rows for Prisma create (replace-all)
   const qualRows = data.qualifications?.map((q) => ({
@@ -474,6 +586,7 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput, actorI
     where: { id },
     data: {
       employeeId: data.employeeId ?? undefined,
+      staffRole: data.staffRole ?? undefined,
       gender: data.gender ?? undefined,
       qualification: data.qualification === undefined ? undefined : data.qualification,
       address: data.address === undefined ? undefined : data.address,
@@ -496,6 +609,26 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput, actorI
   });
   await applyTeacherTransport(id, data.transportRouteId);
   const updatedTeacher = await getTeacher(id, true);
+
+  /*
+   * Safety net. The explicit diff above names each field, which means a field
+   * added later is silent until someone remembers to extend the list — exactly
+   * how a staff-role change came to be saved with no history entry.
+   *
+   * Re-reading the row and comparing it against the pre-write snapshot catches
+   * anything the named checks missed, so a new column is audited by default
+   * rather than by remembering.
+   */
+  const afterRow = await prisma.teacherProfile.findUnique({ where: { id }, include: { user: true } });
+  if (afterRow) {
+    const afterSnapshot = scalarSnapshot(afterRow);
+    for (const [key, after] of Object.entries(afterSnapshot)) {
+      const before = beforeSnapshot[key];
+      if (before === after || key in changes) continue;
+      changes[key] = { before: before ?? 'None', after: after ?? 'None' };
+      changedLabels.push(key);
+    }
+  }
 
   if (changedLabels.length > 0) {
     const name = updatedTeacher.fullName;
@@ -522,7 +655,7 @@ export async function updateTeacher(id: string, data: UpdateTeacherInput, actorI
   return updatedTeacher;
 }
 
-export async function setTeacherStatus(id: string, status: UserStatus, force: boolean, actorRole?: Role) {
+export async function setTeacherStatus(id: string, status: UserStatus, force: boolean, actorRole?: Role, actorId?: string) {
   const profile = await loadTeacherOr404(id);
 
   if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
@@ -544,14 +677,32 @@ export async function setTeacherStatus(id: string, status: UserStatus, force: bo
     }
   }
 
+  const before = profile.status;
   await prisma.$transaction([
     prisma.teacherProfile.update({ where: { id }, data: { status } }),
     prisma.user.update({ where: { id: profile.userId }, data: { status } }),
   ]);
+
+  // Deactivating staff removes their access and stops their payroll, so it
+  // needs to be attributable. `force` is recorded because it means the operator
+  // overrode the "still holds assignments" guard.
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: status === UserStatus.ACTIVE ? 'ACTIVATE' : 'DEACTIVATE',
+    module: 'STAFF',
+    targetType: 'Teacher',
+    targetId: id,
+    targetLabel: `${profile.user.fullName} (${profile.employeeId})`,
+    details:
+      `Set ${profile.user.fullName} to ${status}` +
+      (force && status !== UserStatus.ACTIVE ? ' — forced despite existing assignments' : ''),
+    changes: { status: { before, after: status } },
+  });
+
   return getTeacher(id, true);
 }
 
-export async function resetPassword(id: string, newPassword: string, actorRole?: Role) {
+export async function resetPassword(id: string, newPassword: string, actorRole?: Role, actorId?: string) {
   const profile = await prisma.teacherProfile.findUnique({ where: { id }, include: { user: true } });
   if (!profile) throw NotFound('Teacher not found');
   if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
@@ -559,6 +710,18 @@ export async function resetPassword(id: string, newPassword: string, actorRole?:
   }
   const passwordHash = await hashPassword(newPassword);
   await prisma.user.update({ where: { id: profile.userId }, data: { passwordHash } });
+
+  // One person taking over another's credentials is exactly what an audit trail
+  // is for. The password is never recorded — only that a reset happened.
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'PASSWORD_RESET',
+    module: 'STAFF',
+    targetType: 'Teacher',
+    targetId: id,
+    targetLabel: `${profile.user.fullName} (${profile.employeeId})`,
+    details: `Reset the login password for ${profile.user.fullName}`,
+  });
 }
 
 export async function setPhoto(id: string, buffer: Buffer, originalName: string, contentType: string, actorRole?: Role) {
