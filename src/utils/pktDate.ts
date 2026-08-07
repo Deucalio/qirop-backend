@@ -64,3 +64,26 @@ export function pktMonthRange(year: number, month: number): { start: Date; endEx
     endExclusive: new Date(Date.UTC(year, month, 1)),
   };
 }
+
+/**
+ * The [start, end] window a report covers.
+ *
+ * `month` 0 (or absent) means the whole year — that is how a yearly report asks
+ * for its range. Getting this wrong is silent: a yearly request that resolves to
+ * a single month still renders under a "Year XXXX" title, which is exactly how
+ * the payroll and attendance summaries came to hold January only.
+ *
+ * `end` is inclusive and carries 23:59:59 so records stamped during the last day
+ * are not dropped by a `lte` bound.
+ */
+export function periodWindow(year: number, month?: number | null): { start: Date; end: Date; isYearly: boolean } {
+  const isYearly = !month;
+  return isYearly
+    ? { start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year, 11, 31, 23, 59, 59)), isYearly: true }
+    : {
+        start: new Date(Date.UTC(year, (month as number) - 1, 1)),
+        // Day 0 of the NEXT month is the last day of this one — handles 28/29/30/31.
+        end: new Date(Date.UTC(year, month as number, 0, 23, 59, 59)),
+        isYearly: false,
+      };
+}

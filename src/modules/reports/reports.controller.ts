@@ -4,6 +4,18 @@ import { pktDay, pktDayString } from '../../utils/pktDate';
 import { prisma } from '../../config/prisma';
 import { logAudit } from '../audit/audit.service';
 
+/**
+ * Month from the query string, where an explicit `month=0` means "whole year".
+ * `Number(x) || fallback` cannot express that — 0 is falsy, so a yearly request
+ * silently collapsed to the current month.
+ */
+function monthParam(raw: unknown, fallback: number): number {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 12 ? n : fallback;
+}
+
+
 function currentYm() {
   const d = pktDay();
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
@@ -50,7 +62,7 @@ export async function feeDefaulters(req: Request, res: Response) {
 export async function studentAttendanceSummary(req: Request, res: Response) {
   const ym = currentYm();
   const year = Number(req.query.year) || ym.year;
-  const month = Number(req.query.month) || ym.month;
+  const month = monthParam(req.query.month, ym.month);
 
   const data = await svc.getStudentAttendanceSummaryReport({
     year,
@@ -73,7 +85,7 @@ export async function studentAttendanceSummary(req: Request, res: Response) {
 export async function staffAttendanceSummary(req: Request, res: Response) {
   const ym = currentYm();
   const year = Number(req.query.year) || ym.year;
-  const month = Number(req.query.month) || ym.month;
+  const month = monthParam(req.query.month, ym.month);
 
   const data = await svc.getStaffAttendanceSummaryReport({ year, month });
 
@@ -150,7 +162,7 @@ export async function expenseLedgerAudit(req: Request, res: Response) {
 export async function payrollRegister(req: Request, res: Response) {
   const ym = currentYm();
   const year = Number(req.query.year) || ym.year;
-  const month = Number(req.query.month) || ym.month;
+  const month = monthParam(req.query.month, ym.month);
 
   const data = await svc.getPayrollRegisterReport({ year, month });
 

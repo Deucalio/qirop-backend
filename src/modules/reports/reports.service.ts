@@ -1,7 +1,8 @@
 import { prisma } from '../../config/prisma';
-import { parsePktDay, pktDayString, pktTime12HourString } from '../../utils/pktDate';
+import { parsePktDay, pktDayString, pktTime12HourString, periodWindow } from '../../utils/pktDate';
 import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
 import { outstandingAcross } from '../fees/fees.ledger';
+import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll';
 import { AppError } from '../../utils/apiResponse';
 import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus } from '@prisma/client';
 
@@ -176,9 +177,7 @@ const MONTH_NAMES_LIST = [
 ];
 
 export async function getStudentAttendanceSummaryReport(query: StudentAttendanceSummaryQuery) {
-  const isYearly = !query.month || query.month === 0;
-  const start = isYearly ? new Date(Date.UTC(query.year, 0, 1)) : new Date(Date.UTC(query.year, query.month - 1, 1));
-  const end = isYearly ? new Date(Date.UTC(query.year, 11, 31, 23, 59, 59)) : new Date(Date.UTC(query.year, query.month, 0, 23, 59, 59));
+  const { start, end } = periodWindow(query.year, query.month);
 
   const whereStudent: Prisma.StudentWhereInput = {
     status: 'ACTIVE',
@@ -314,9 +313,7 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
 }
 
 export async function getStaffAttendanceSummaryReport(query: { year: number; month: number }) {
-  const isYearly = !query.month || query.month === 0;
-  const start = isYearly ? new Date(Date.UTC(query.year, 0, 1)) : new Date(Date.UTC(query.year, query.month - 1, 1));
-  const end = isYearly ? new Date(Date.UTC(query.year, 11, 31, 23, 59, 59)) : new Date(Date.UTC(query.year, query.month, 0, 23, 59, 59));
+  const { start, end } = periodWindow(query.year, query.month);
 
   const [teachers, attendanceRecords] = await Promise.all([
     prisma.teacherProfile.findMany({
@@ -657,59 +654,67 @@ export async function getExpenseLedgerAuditReport(query: { from: string; to: str
   };
 }
 
-export async function getPayrollRegisterReport(query: { year: number; month: number }) {
+/**
+ * Payroll register for one month, or for a whole year when `month` is omitted
+ * or 0.
+ *
+ * Yearly collapses each employee's twelve slips into a single row of annual
+ * totals — otherwise a "Year 2026" register would just be a list of twelve
+ * separate rows per person. `monthsCovered` says how many slips a total is
+ * built from, so a mid-year joiner is visibly on 7 months rather than looking
+ * underpaid against colleagues on 12.
+ */
+export async function getPayrollRegisterReport(query: { year: number; month?: number | null }) {
+  const isYearly = !query.month;
+
   const slips = await prisma.salarySlip.findMany({
-    where: { year: query.year, month: query.month },
+    where: { year: query.year, ...(isYearly ? {} : { month: query.month as number }) },
     include: {
       teacher: { include: { user: { select: { fullName: true, phone: true, avatarUrl: true } } } },
       generatedBy: { select: { fullName: true } },
     },
-    orderBy: { teacher: { user: { fullName: 'asc' } } },
+    orderBy: [{ teacher: { user: { fullName: 'asc' } } }, { month: 'asc' }],
   });
 
-  let totalBasic = ZERO;
-  let totalDeductions = ZERO;
-  let totalStaffFeeDeductions = ZERO;
-  let totalNetPaid = ZERO;
-  let paidCount = 0;
-  let pendingCount = 0;
+  const overall = payrollTotals(slips);
 
-  const rows = slips.map((s) => {
-    totalBasic = totalBasic.plus(s.basicSalary);
-    totalDeductions = totalDeductions.plus(s.deductions);
-    totalStaffFeeDeductions = totalStaffFeeDeductions.plus(s.staffFeeDeduction);
-    totalNetPaid = totalNetPaid.plus(s.netSalary);
-
-    if (s.status === 'PAID') paidCount += 1;
-    else pendingCount += 1;
-
+  const rows = groupForRegister(slips, isYearly).map((group) => {
+    const head = group[0];
+    const t = groupTotals(group);
     return {
-      id: s.id,
-      employeeId: s.teacher.employeeId,
-      name: s.teacher.user.fullName,
-      phone: s.teacher.user.phone ?? '—',
-      basicSalary: toMoneyString(s.basicSalary),
-      allowances: toMoneyString(s.allowances),
-      deductions: toMoneyString(s.deductions),
-      staffFeeDeduction: toMoneyString(s.staffFeeDeduction),
-      netSalary: toMoneyString(s.netSalary),
-      status: s.status,
-      paidDate: s.paidDate ? pktDayString(s.paidDate) : '—',
-      avatarUrl: s.teacher.user.avatarUrl,
+      id: head.id,
+      employeeId: head.teacher.employeeId,
+      name: head.teacher.user.fullName,
+      phone: head.teacher.user.phone ?? '—',
+      basicSalary: toMoneyString(t.basic),
+      allowances: toMoneyString(t.allowances),
+      deductions: toMoneyString(t.deductions),
+      staffFeeDeduction: toMoneyString(t.staffFeeDeduction),
+      netSalary: toMoneyString(t.net),
+      status: t.status,
+      paidDate: group.length === 1 && head.paidDate ? pktDayString(head.paidDate) : '—',
+      avatarUrl: head.teacher.user.avatarUrl,
+      /** Slips behind these totals — 1 monthly, up to 12 yearly. */
+      monthsCovered: t.monthsCovered,
+      paidMonths: t.paidCount,
+      months: t.months,
     };
   });
 
   return {
     summary: {
       year: query.year,
-      month: query.month,
-      count: slips.length,
-      paidCount,
-      pendingCount,
-      totalBasic: toMoneyString(totalBasic),
-      totalDeductions: toMoneyString(totalDeductions),
-      totalStaffFeeDeductions: toMoneyString(totalStaffFeeDeductions),
-      totalNetPaid: toMoneyString(totalNetPaid),
+      month: isYearly ? 0 : (query.month as number),
+      isYearly,
+      /** Employees on the register — NOT slip count, which differs when yearly. */
+      count: rows.length,
+      slipCount: slips.length,
+      paidCount: overall.paidCount,
+      pendingCount: overall.pendingCount,
+      totalBasic: toMoneyString(overall.basic),
+      totalDeductions: toMoneyString(overall.deductions),
+      totalStaffFeeDeductions: toMoneyString(overall.staffFeeDeduction),
+      totalNetPaid: toMoneyString(overall.net),
     },
     rows,
   };
@@ -746,6 +751,14 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
   const monthLabel = q.month ? MONTHS[q.month] : '';
   const periodLabel = q.periodType === 'monthly' ? `${monthLabel} ${q.year}` : `Year ${q.year}`;
 
+  /*
+   * Yearly reaches the period-aware reports as month 0, which they all read as
+   * "the whole year". The previous `q.month ?? 1` turned a yearly request into
+   * January and still titled it "Year XXXX", so a yearly payroll or attendance
+   * snapshot silently held one month of data.
+   */
+  const yearly = q.periodType === 'yearly';
+
   // Generate data based on report type
   if (q.reportType === 'roster') {
     title = `Student Roster & Directory (${periodLabel})`;
@@ -763,7 +776,7 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
     title = `Student Attendance Summary (${periodLabel})`;
     data = await getStudentAttendanceSummaryReport({
       year: q.year,
-      month: q.month ?? 1,
+      month: yearly ? 0 : (q.month ?? 1),
       classId: q.classId ?? undefined,
       sectionId: q.sectionId ?? undefined,
     });
@@ -771,7 +784,7 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
     title = `Staff Attendance Summary (${periodLabel})`;
     data = await getStaffAttendanceSummaryReport({
       year: q.year,
-      month: q.month ?? 1,
+      month: yearly ? 0 : (q.month ?? 1),
     });
   } else if (q.reportType === 'daily-absentees') {
     const from = q.periodType === 'monthly' ? `${q.year}-${String(q.month).padStart(2, '0')}-01` : `${q.year}-01-01`;
@@ -795,7 +808,7 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
     title = `Payroll Register (${periodLabel})`;
     data = await getPayrollRegisterReport({
       year: q.year,
-      month: q.month ?? 1,
+      month: yearly ? 0 : (q.month ?? 1),
     });
   } else {
     throw new AppError('Unknown report type', 400);
