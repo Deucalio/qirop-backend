@@ -59,6 +59,12 @@ function shapeListItem(s: StudentWithRels) {
       name: s.parent.user.fullName,
       phone: s.parent.user.phone,
       cnic: s.parent.user.cnic,
+      occupation: s.parent.occupation,
+      address: s.parent.address,
+      motherName: s.parent.motherName,
+      motherCnic: s.parent.motherCnic,
+      motherPhone: s.parent.motherPhone,
+      motherOccupation: s.parent.motherOccupation,
       // The guardian's own account is also a teacher here.
       isTeacher: s.parent.user.teacherProfile !== null,
     },
@@ -244,31 +250,87 @@ export async function listStudents(query: ListStudentsQuery, actor?: Actor) {
   }));
 }
 
-/** Outstanding balance + count of unsettled challans, per student id. */
-export async function studentDues(ids: string[]): Promise<Map<string, { outstanding: string; unpaidCount: number }>> {
-  const map = new Map<string, { outstanding: string; unpaidCount: number }>();
+/** Outstanding balance + count of unsettled challans + per-month breakdown, per student id. */
+export async function studentDues(ids: string[]): Promise<
+  Map<
+    string,
+    {
+      outstanding: string;
+      unpaidCount: number;
+      monthlyChallans: Record<string, { status: 'PAID' | 'UNPAID' | 'PARTIAL'; balance: string; totalAmount: string }>;
+    }
+  >
+> {
+  const map = new Map<
+    string,
+    {
+      outstanding: string;
+      unpaidCount: number;
+      monthlyChallans: Record<string, { status: 'PAID' | 'UNPAID' | 'PARTIAL'; balance: string; totalAmount: string }>;
+    }
+  >();
   if (ids.length === 0) return map;
+
   const challans = await prisma.feeChallan.findMany({
     where: { studentId: { in: ids } },
     select: {
       studentId: true,
+      month: true,
+      year: true,
       amount: true,
       staffCovered: true,
       allocations: { where: { payment: { isReversed: false } }, select: { amountApplied: true } },
     },
+    orderBy: [{ year: 'asc' }, { month: 'asc' }],
   });
-  const acc = new Map<string, { outstanding: ReturnType<typeof money>; unpaidCount: number }>();
+
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  for (const id of ids) {
+    map.set(id, { outstanding: '0.00', unpaidCount: 0, monthlyChallans: {} });
+  }
+
+  const acc = new Map<
+    string,
+    {
+      outstanding: ReturnType<typeof money>;
+      unpaidCount: number;
+      monthlyChallans: Record<string, { status: 'PAID' | 'UNPAID' | 'PARTIAL'; balance: string; totalAmount: string }>;
+    }
+  >();
+
   for (const c of challans) {
     const cash = c.allocations.reduce((sum, a) => sum.plus(a.amountApplied), ZERO);
-    const balance = round2(money(c.amount).minus(c.staffCovered).minus(cash));
-    if (balance.greaterThan(0)) {
-      const cur = acc.get(c.studentId) ?? { outstanding: ZERO, unpaidCount: 0 };
+    const payable = round2(money(c.amount).minus(c.staffCovered));
+    const balance = round2(payable.minus(cash));
+    const isUnpaid = balance.greaterThan(0);
+    const isPartial = cash.greaterThan(0) && balance.greaterThan(0);
+
+    const monthLabel = `${MONTH_NAMES[c.month - 1]} ${c.year}`;
+    const cur = acc.get(c.studentId) ?? { outstanding: ZERO, unpaidCount: 0, monthlyChallans: {} };
+
+    if (isUnpaid) {
       cur.outstanding = cur.outstanding.plus(balance);
       cur.unpaidCount += 1;
-      acc.set(c.studentId, cur);
     }
+
+    cur.monthlyChallans[monthLabel] = {
+      status: balance.lessThanOrEqualTo(0) ? 'PAID' : isPartial ? 'PARTIAL' : 'UNPAID',
+      balance: toMoneyString(balance),
+      totalAmount: toMoneyString(payable),
+    };
+
+    acc.set(c.studentId, cur);
   }
-  for (const [id, v] of acc) map.set(id, { outstanding: toMoneyString(v.outstanding), unpaidCount: v.unpaidCount });
+
+  for (const [id, v] of acc) {
+    map.set(id, {
+      outstanding: toMoneyString(v.outstanding),
+      unpaidCount: v.unpaidCount,
+      monthlyChallans: v.monthlyChallans,
+    });
+  }
+
   return map;
 }
 

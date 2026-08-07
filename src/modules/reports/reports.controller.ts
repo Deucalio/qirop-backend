@@ -28,6 +28,8 @@ export async function studentRoster(req: Request, res: Response) {
     gender: req.query.gender as string | undefined,
     status: req.query.status as string | undefined,
     search: req.query.search as string | undefined,
+    // Optional: absent means "everyone today"; month=0 means the whole year.
+    ...(req.query.year ? { year: Number(req.query.year), month: monthParam(req.query.month, 0) } : {}),
   });
 
   void logAudit(req, {
@@ -46,6 +48,8 @@ export async function feeDefaulters(req: Request, res: Response) {
     classId: req.query.classId as string | undefined,
     sectionId: req.query.sectionId as string | undefined,
     search: req.query.search as string | undefined,
+    // Optional: absent means "everything owed today"; month=0 means the whole year.
+    ...(req.query.year ? { year: Number(req.query.year), month: monthParam(req.query.month, 0) } : {}),
   });
 
   void logAudit(req, {

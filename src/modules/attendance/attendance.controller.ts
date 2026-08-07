@@ -10,9 +10,6 @@ function actor(req: Request): Actor {
 }
 
 // ---- teacher self ----
-export async function checkIn(req: Request, res: Response): Promise<void> {
-  res.json(await svc.checkIn(actor(req).userId));
-}
 export async function myTeacherAttendance(req: Request, res: Response): Promise<void> {
   const { year, month } = monthQuerySchema.parse(req.query);
   res.json(await svc.getMyTeacherAttendance(actor(req).userId, year, month));
@@ -31,9 +28,13 @@ export async function listTeachersMonthly(req: Request, res: Response): Promise<
   const { year, month } = monthQuerySchema.parse(req.query);
   res.json(await svc.getTeachersMonthlyAttendance(year, month));
 }
+export async function listTeachersYearly(req: Request, res: Response): Promise<void> {
+  const year = Number(req.query.year) || undefined;
+  res.json(await svc.getTeachersYearlyAttendance(year));
+}
 export async function markTeachersBatch(req: Request, res: Response): Promise<void> {
   const { records } = req.body;
-  res.json(await svc.markTeachersBatch(records));
+  res.json(await svc.markTeachersBatch(records, actor(req).userId));
 }
 
 // ---- student attendance (section) ----
@@ -71,4 +72,17 @@ export async function myChildren(req: Request, res: Response): Promise<void> {
 export async function childAttendance(req: Request, res: Response): Promise<void> {
   const { year, month } = monthQuerySchema.parse(req.query);
   res.json(await svc.getChildAttendance(actor(req).userId, req.params.studentId, year, month));
+}
+
+// ---- school holidays ----
+export async function listHolidays(req: Request, res: Response): Promise<void> {
+  const { year, month } = monthQuerySchema.parse(req.query);
+  res.json(await svc.listHolidays(year ?? new Date().getFullYear(), month ?? null));
+}
+export async function createHoliday(req: Request, res: Response): Promise<void> {
+  const { date, title } = req.body;
+  res.json(await svc.createHoliday(date, title, actor(req).userId));
+}
+export async function deleteHoliday(req: Request, res: Response): Promise<void> {
+  res.json(await svc.deleteHoliday(req.params.id, actor(req).userId));
 }

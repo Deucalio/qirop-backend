@@ -163,3 +163,56 @@ describe('groupMonths / monthsCovered', () => {
     assert.equal(groupTotals(group).monthsCovered, 1);
   });
 });
+
+/**
+ * `totalNetPaid` used to hold EVERY slip, so payroll that had been generated
+ * but never disbursed was reported as money that left the school — and the
+ * cash-flow chart consumed that figure as an outflow.
+ */
+describe('paid vs pending net', () => {
+  const mixed: PayrollLine[] = [
+    slip({ month: 1, status: 'PAID', netSalary: '31000.00' }),
+    slip({ month: 2, status: 'PAID', netSalary: '31000.00' }),
+    slip({ month: 3, status: 'PENDING', netSalary: '31000.00' }),
+    slip({ month: 4, status: 'PENDING', netSalary: '35000.00' }),
+  ];
+
+  test('netPaid counts only disbursed slips', () => {
+    assert.equal(payrollTotals(mixed).netPaid.toFixed(2), '62000.00');
+  });
+
+  test('netPending carries the rest', () => {
+    assert.equal(payrollTotals(mixed).netPending.toFixed(2), '66000.00');
+  });
+
+  test('paid + pending always reconciles to the full commitment', () => {
+    const t = payrollTotals(mixed);
+    assert.equal(t.netPaid.plus(t.netPending).toFixed(2), t.net.toFixed(2));
+    assert.equal(t.net.toFixed(2), '128000.00');
+  });
+
+  test('nothing disbursed yet means zero cash out, not the full payroll', () => {
+    const t = payrollTotals(mixed.map((l) => ({ ...l, status: 'PENDING' })));
+    assert.equal(t.netPaid.toFixed(2), '0.00', 'undisbursed payroll must not read as money spent');
+    assert.equal(t.netPending.toFixed(2), '128000.00');
+  });
+
+  test('a fully settled register has nothing pending', () => {
+    const t = payrollTotals(mixed.map((l) => ({ ...l, status: 'PAID' })));
+    assert.equal(t.netPending.toFixed(2), '0.00');
+    assert.equal(t.netPaid.toFixed(2), t.net.toFixed(2));
+  });
+
+  test('an empty register is zero on every measure', () => {
+    const t = payrollTotals([]);
+    assert.equal(t.netPaid.toFixed(2), '0.00');
+    assert.equal(t.netPending.toFixed(2), '0.00');
+    assert.equal(t.net.toFixed(2), '0.00');
+  });
+
+  test('a whole pending year does not inflate disbursed pay', () => {
+    const t = payrollTotals(yearFor('T1', { status: 'PENDING' }));
+    assert.equal(t.pendingCount, 12);
+    assert.equal(t.netPaid.toFixed(2), '0.00');
+  });
+});

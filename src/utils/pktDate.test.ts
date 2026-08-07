@@ -10,7 +10,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { periodWindow } from './pktDate';
+import { periodWindow, periodKey, isOnOrBeforePeriod } from './pktDate';
 
 const iso = (d: Date) => d.toISOString();
 
@@ -80,5 +80,51 @@ describe('periodWindow — monthly', () => {
       assert.ok(a.end < b.start, `month ${m} overlaps ${m + 1}`);
       assert.ok(b.start.getTime() - a.end.getTime() <= 1000, `gap between ${m} and ${m + 1}`);
     }
+  });
+});
+
+/**
+ * Billing periods live as separate year/month columns, so "on or before
+ * August 2026" is not a comparison either column can make alone.
+ */
+describe('periodKey / isOnOrBeforePeriod', () => {
+  const upTo = (y: number, m: number) => (cy: number, cm: number) => isOnOrBeforePeriod(cy, cm, y, m);
+
+  test('an earlier month in the same year is included', () => {
+    assert.equal(upTo(2026, 8)(2026, 3), true);
+  });
+
+  test('the boundary month itself is included', () => {
+    assert.equal(upTo(2026, 8)(2026, 8), true);
+  });
+
+  test('a later month in the same year is excluded', () => {
+    assert.equal(upTo(2026, 8)(2026, 9), false);
+  });
+
+  test('December of the PREVIOUS year is included despite 12 > 8', () => {
+    assert.equal(upTo(2026, 8)(2025, 12), true, 'the classic year/month comparison bug');
+  });
+
+  test('January of the NEXT year is excluded despite 1 < 8', () => {
+    assert.equal(upTo(2026, 8)(2027, 1), false, 'the same bug in the other direction');
+  });
+
+  test('every month of a prior year is included', () => {
+    for (let m = 1; m <= 12; m++) assert.equal(upTo(2026, 6)(2025, m), true, `${m}/2025`);
+  });
+
+  test('no month of a later year is included', () => {
+    for (let m = 1; m <= 12; m++) assert.equal(upTo(2026, 6)(2027, m), false, `${m}/2027`);
+  });
+
+  test('a whole-year bound (month 12) takes every month of that year', () => {
+    for (let m = 1; m <= 12; m++) assert.equal(upTo(2026, 12)(2026, m), true, `${m}/2026`);
+    assert.equal(upTo(2026, 12)(2027, 1), false);
+  });
+
+  test('keys are strictly ordered across a year boundary', () => {
+    assert.ok(periodKey(2025, 12) < periodKey(2026, 1));
+    assert.equal(periodKey(2026, 1) - periodKey(2025, 12), 1, 'consecutive months differ by exactly 1');
   });
 });

@@ -27,20 +27,38 @@ export interface PayrollTotals {
   allowances: Money;
   deductions: Money;
   staffFeeDeduction: Money;
+  /** Every slip — the payroll committed for the period, paid or not. */
   net: Money;
+  /** Only PAID slips: money that has actually left the school. */
+  netPaid: Money;
+  /** Generated but not yet disbursed. */
+  netPending: Money;
   paidCount: number;
   pendingCount: number;
 }
 
+const isPaid = (l: PayrollLine) => l.status === 'PAID';
+
+/**
+ * `net` counts every slip; `netPaid` counts only disbursed ones.
+ *
+ * The distinction is not cosmetic: the summary field was named `totalNetPaid`
+ * but held the total of ALL slips, so undisbursed payroll was reported as money
+ * that had left the school — and the cash-flow chart consumed that figure.
+ */
 export function payrollTotals(lines: PayrollLine[]): PayrollTotals {
+  const paid = lines.filter(isPaid);
+  const pending = lines.filter((l) => !isPaid(l));
   return {
     basic: round2(sum(lines.map((l) => l.basicSalary))),
     allowances: round2(sum(lines.map((l) => l.allowances))),
     deductions: round2(sum(lines.map((l) => l.deductions))),
     staffFeeDeduction: round2(sum(lines.map((l) => l.staffFeeDeduction))),
     net: round2(sum(lines.map((l) => l.netSalary))),
-    paidCount: lines.filter((l) => l.status === 'PAID').length,
-    pendingCount: lines.filter((l) => l.status !== 'PAID').length,
+    netPaid: round2(sum(paid.map((l) => l.netSalary))),
+    netPending: round2(sum(pending.map((l) => l.netSalary))),
+    paidCount: paid.length,
+    pendingCount: pending.length,
   };
 }
 
@@ -81,6 +99,8 @@ export const ZERO_TOTALS: PayrollTotals = {
   deductions: ZERO,
   staffFeeDeduction: ZERO,
   net: ZERO,
+  netPaid: ZERO,
+  netPending: ZERO,
   paidCount: 0,
   pendingCount: 0,
 };

@@ -1,5 +1,5 @@
 import { prisma } from '../../config/prisma';
-import { parsePktDay, pktDayString, pktTime12HourString, periodWindow } from '../../utils/pktDate';
+import { parsePktDay, pktDayString, pktTime12HourString, periodWindow, isOnOrBeforePeriod } from '../../utils/pktDate';
 import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
 import { outstandingAcross } from '../fees/fees.ledger';
 import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll';
@@ -12,10 +12,24 @@ export interface RosterQuery {
   gender?: string;
   status?: string;
   search?: string;
+  /**
+   * Exclude students admitted after this period. Omit for "everyone today".
+   *
+   * NOTE: `Student` records no leaving date, so a roster for a past period
+   * cannot reconstruct who had already left — it reports current status for
+   * everyone admitted by then. `asOf` in the response says so.
+   */
+  year?: number;
+  /** 0 or absent with a `year` means the whole of that year. */
+  month?: number | null;
 }
 
 export async function getStudentRosterReport(query: RosterQuery) {
+  // Someone admitted in November cannot appear on an August roster.
+  const admittedBy = query.year ? periodWindow(query.year, query.month).end : null;
+
   const where: Prisma.StudentWhereInput = {
+    ...(admittedBy ? { admissionDate: { lte: admittedBy } } : {}),
     ...(query.classId && query.classId !== 'all' ? { section: { classId: query.classId } } : {}),
     ...(query.sectionId && query.sectionId !== 'all' ? { sectionId: query.sectionId } : {}),
     ...(query.gender && query.gender !== 'all' ? { gender: query.gender as Gender } : {}),
@@ -49,7 +63,18 @@ export async function getStudentRosterReport(query: RosterQuery) {
   const withTransport = students.filter((s) => !!s.transportAssignment).length;
 
   return {
-    summary: { total, active, inactive: total - active, male, female, withTransport },
+    summary: {
+      total, active, inactive: total - active, male, female, withTransport,
+      /**
+       * Enrolment cut-off applied, or null when the roster is "as of today".
+       * Formatted from the UTC components rather than via `pktDayString`: the
+       * window ends at 23:59:59 UTC, so adding the +5 PKT offset would roll the
+       * label into the following day (January reading as 01 February).
+       */
+      admittedBy: admittedBy ? admittedBy.toISOString().slice(0, 10) : null,
+      /** True when statuses are current rather than historical — see RosterQuery. */
+      statusIsCurrent: !!admittedBy,
+    },
     students: students.map((s) => ({
       id: s.id,
       admissionNo: s.admissionNo,
@@ -75,6 +100,14 @@ export interface DefaultersQuery {
   classId?: string;
   sectionId?: string;
   search?: string;
+  /**
+   * Count only bills raised up to this period. Omit for "everything owed
+   * today". A snapshot titled "August 2026" previously ignored its own period
+   * entirely and stored whatever was outstanding at the moment it was taken.
+   */
+  year?: number;
+  /** 0 or absent with a `year` means the whole of that year. */
+  month?: number | null;
 }
 
 export async function getFeeDefaultersReport(query: DefaultersQuery) {
@@ -117,12 +150,22 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
     },
   });
 
+  /*
+   * Bills raised up to the end of the requested period. Payments are NOT
+   * date-limited: a March bill settled in August is settled, whenever the cash
+   * arrived. So this answers "who is behind on bills up to <period>", which is
+   * what selecting a period should mean.
+   */
+  const upToMonth = query.year ? (query.month || 12) : null;
+  const inPeriod = (c: { year: number; month: number }) =>
+    query.year == null || isOnOrBeforePeriod(c.year, c.month, query.year, upToMonth as number);
+
   const defaulters = students
     .map((s) => {
       // `balance = amount − non-reversed cash − staffCovered`. The arithmetic
       // that used to live here subtracted cash only, which billed staff parents
       // for fees already recovered from their salary.
-      const dues = outstandingAcross(s.challans);
+      const dues = outstandingAcross(s.challans.filter(inPeriod));
       const totalUnpaid = dues.outstanding;
       const unpaidChallanCount = dues.unpaidCount;
       const unpaidMonths = dues.unpaid.map((c) => `${c.month}/${c.year}`);
@@ -159,6 +202,8 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
       totalDefaulters,
       totalOutstandingAmount: toMoneyString(totalOutstandingAmount),
       averageDuesPerDefaulter: toMoneyString(avgDues),
+      /** Latest billing period counted, or null when this is "everything owed today". */
+      billedUpTo: query.year ? `${String(upToMonth).padStart(2, '0')}/${query.year}` : null,
     },
     defaulters,
   };
@@ -714,7 +759,14 @@ export async function getPayrollRegisterReport(query: { year: number; month?: nu
       totalBasic: toMoneyString(overall.basic),
       totalDeductions: toMoneyString(overall.deductions),
       totalStaffFeeDeductions: toMoneyString(overall.staffFeeDeduction),
-      totalNetPaid: toMoneyString(overall.net),
+      /**
+       * `totalNetPaid` now means what its name always claimed — disbursed only.
+       * It previously held every slip, so pending payroll was reported as money
+       * that had left the school. `totalNet` carries the full commitment.
+       */
+      totalNetPaid: toMoneyString(overall.netPaid),
+      totalNetPending: toMoneyString(overall.netPending),
+      totalNet: toMoneyString(overall.net),
     },
     rows,
   };
@@ -765,12 +817,16 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
     data = await getStudentRosterReport({
       classId: q.classId ?? undefined,
       sectionId: q.sectionId ?? undefined,
+      year: q.year,
+      month: yearly ? 0 : (q.month ?? 1),
     });
   } else if (q.reportType === 'defaulters') {
     title = `Fee Defaulters Audit (${periodLabel})`;
     data = await getFeeDefaultersReport({
       classId: q.classId ?? undefined,
       sectionId: q.sectionId ?? undefined,
+      year: q.year,
+      month: yearly ? 0 : (q.month ?? 1),
     });
   } else if (q.reportType === 'student-summary') {
     title = `Student Attendance Summary (${periodLabel})`;

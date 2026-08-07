@@ -87,3 +87,20 @@ export function periodWindow(year: number, month?: number | null): { start: Date
         isYearly: false,
       };
 }
+
+/**
+ * A (year, month) pair collapsed to one comparable integer.
+ *
+ * Billing periods are stored as separate `year` and `month` columns, so
+ * "on or before August 2026" cannot be expressed by comparing either alone —
+ * December 2025 is earlier than August 2026 despite 12 > 8. Ordering on this
+ * key makes the comparison a single `<=`.
+ */
+export function periodKey(year: number, month: number): number {
+  return year * 12 + (month - 1);
+}
+
+/** True when (year, month) falls on or before the given period. */
+export function isOnOrBeforePeriod(year: number, month: number, upToYear: number, upToMonth: number): boolean {
+  return periodKey(year, month) <= periodKey(upToYear, upToMonth);
+}

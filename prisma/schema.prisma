@@ -162,6 +162,7 @@ model User {
   @@index([role])
   @@index([status])
   @@index([createdById])
+  createdHolidays SchoolHoliday[] @relation("SchoolHolidayCreatedBy")
 }
 
 model AdminPermission {
@@ -921,3 +922,20 @@ model SavedReport {
 }
 
 
+
+/// A non-teaching day beyond the weekly Sunday off — Eid, Independence Day, a
+/// declared closure. Attendance is neither expected nor markable on these days,
+/// so they must not drag the attendance percentage down as unmarked absences.
+model SchoolHoliday {
+  id    String   @id @default(cuid())
+  date  DateTime @unique
+  title String
+
+  createdById String?
+  createdBy   User?   @relation("SchoolHolidayCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}

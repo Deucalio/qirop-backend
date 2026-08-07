@@ -27,6 +27,7 @@ import {
   meTeacherAttendanceRouter,
   attendanceTeachersRouter,
   teacherAttendanceRouter,
+  holidaysRouter,
   sectionAttendanceRouter,
   attendanceRouter,
   meChildrenRouter,
@@ -130,6 +131,7 @@ export function createApp(): Express {
   app.use('/api/search', searchRouter);
   app.use('/api/teaching-assignments', teachingAssignmentsRouter);
   app.use('/api/teacher-attendance', teacherAttendanceRouter);
+  app.use('/api/holidays', holidaysRouter);
   app.use('/api/attendance', attendanceRouter);
   app.use('/api/homework', homeworkRouter);
   app.use('/api/me/teacher/attendance', meTeacherAttendanceRouter);

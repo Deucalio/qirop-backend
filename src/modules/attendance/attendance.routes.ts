@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { PermissionModule, Role } from '@prisma/client';
 import * as c from './attendance.controller';
-import { markSectionSchema, setTeacherAttendanceSchema } from './attendance.schema';
+import { markSectionSchema, setTeacherAttendanceSchema, markTeachersBatchSchema, createHolidaySchema } from './attendance.schema';
 import { requireAuth } from '../../middleware/requireAuth';
 import { requireRole } from '../../middleware/requireRole';
 import { requirePermission } from '../../middleware/requirePermission';
@@ -12,10 +12,11 @@ const ATT = PermissionModule.ATTENDANCE;
 const canView = requirePermission(ATT, 'view');
 const canEdit = requirePermission(ATT, 'edit');
 
-// ---- /api/me/teacher/attendance (TEACHER self) ----
+// ---- /api/me/teacher/attendance (TEACHER self, READ-ONLY) ----
+// Staff attendance is recorded by an admin holding ATTENDANCE edit, so there is
+// no self check-in. Teachers may still review their own record.
 export const meTeacherAttendanceRouter = Router();
 meTeacherAttendanceRouter.use(requireAuth, requireRole(Role.TEACHER));
-meTeacherAttendanceRouter.post('/check-in', asyncHandler(c.checkIn));
 meTeacherAttendanceRouter.get('/', asyncHandler(c.myTeacherAttendance));
 
 // ---- /api/teachers/:id/attendance (admin set/correct) ----
@@ -28,7 +29,8 @@ export const teacherAttendanceRouter = Router();
 teacherAttendanceRouter.use(requireAuth, canView);
 teacherAttendanceRouter.get('/', asyncHandler(c.listTeacherAttendance));
 teacherAttendanceRouter.get('/monthly', asyncHandler(c.listTeachersMonthly));
-teacherAttendanceRouter.post('/mark', canEdit, asyncHandler(c.markTeachersBatch));
+teacherAttendanceRouter.get('/yearly', asyncHandler(c.listTeachersYearly));
+teacherAttendanceRouter.post('/mark', canEdit, validateBody(markTeachersBatchSchema), asyncHandler(c.markTeachersBatch));
 
 // ---- /api/sections/:sectionId/attendance (class teacher or admin) ----
 export const sectionAttendanceRouter = Router();
@@ -49,3 +51,12 @@ export const meChildrenRouter = Router();
 meChildrenRouter.use(requireAuth, requireRole(Role.PARENT));
 meChildrenRouter.get('/', asyncHandler(c.myChildren));
 meChildrenRouter.get('/:studentId/attendance', asyncHandler(c.childAttendance));
+
+// ---- /api/holidays (school calendar) ----
+// Anyone who may see attendance may see the calendar; declaring or removing a
+// holiday changes what counts as a working day, so it needs edit.
+export const holidaysRouter = Router();
+holidaysRouter.use(requireAuth);
+holidaysRouter.get('/', canView, asyncHandler(c.listHolidays));
+holidaysRouter.post('/', canEdit, validateBody(createHolidaySchema), asyncHandler(c.createHoliday));
+holidaysRouter.delete('/:id', canEdit, asyncHandler(c.deleteHoliday));
