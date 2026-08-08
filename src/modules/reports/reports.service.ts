@@ -110,11 +110,18 @@ export interface DefaultersQuery {
   year?: number;
   /** 0 or absent with a `year` means the whole of that year. */
   month?: number | null;
+  /**
+   * Whose debt to list. Defaults to everyone, including students who have
+   * left: a leaver's arrears are still owed and still get chased, and
+   * restricting this to ACTIVE hid them from the one report used to chase
+   * money. Pass 'ACTIVE' explicitly to get the old behaviour.
+   */
+  studentStatus?: 'all' | 'ACTIVE' | 'INACTIVE';
 }
 
 export async function getFeeDefaultersReport(query: DefaultersQuery) {
   const whereStudent: Prisma.StudentWhereInput = {
-    status: 'ACTIVE',
+    ...(query.studentStatus && query.studentStatus !== 'all' ? { status: query.studentStatus } : {}),
     ...(query.classId && query.classId !== 'all' ? { section: { classId: query.classId } } : {}),
     ...(query.sectionId && query.sectionId !== 'all' ? { sectionId: query.sectionId } : {}),
     ...(query.search
@@ -190,6 +197,8 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
         lastPaymentDate: s.payments[0] ? pktDayString(s.payments[0].paymentDate) : 'No payments',
         photoUrl: publicUrl(s.photoUrl),
         isStaffParent: !!s.teacherParentId || !!s.parent.user.teacherProfile,
+        /** A leaver still owes what they owe — flagged so chasing can differ. */
+        studentStatus: s.status,
       };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -206,6 +215,11 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
       averageDuesPerDefaulter: toMoneyString(avgDues),
       /** Latest billing period counted, or null when this is "everything owed today". */
       billedUpTo: query.year ? `${String(upToMonth).padStart(2, '0')}/${query.year}` : null,
+      /** Called out separately: a leaver's debt is harder to recover. */
+      inactiveCount: defaulters.filter((d) => d.studentStatus !== 'ACTIVE').length,
+      inactiveOutstanding: toMoneyString(
+        sum(defaulters.filter((d) => d.studentStatus !== 'ACTIVE').map((d) => d.totalOutstanding)),
+      ),
     },
     defaulters,
   };
@@ -895,22 +909,20 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
     },
   });
 
-  // A snapshot is a frozen financial or attendance record that others will read
-  // back later, so who compiled it — and whether it silently replaced an
-  // earlier one for the same period — belongs in the trail.
-  await logAudit(null, {
-    actorId: generatedBy,
-    action: 'CREATE',
-    module: 'REPORTS',
-    targetType: 'SavedReport',
-    targetId: saved.id,
-    targetLabel: title,
-    details: existing
-      ? `Recompiled "${title}", replacing the snapshot taken earlier`
-      : `Compiled the snapshot "${title}"`,
-  });
-
-  return saved;
+  /*
+   * Audited by the caller (reports.controller `createSaved`), which has the
+   * request for IP capture and the real actor id — same arrangement as
+   * `deleteSavedReport` below.
+   *
+   * This used to log here as well, which produced two entries per snapshot.
+   * The second was also misattributed: `generatedBy` is a display name, so
+   * passing it as `actorId` resolved to no user and the row was stamped
+   * "System Admin"/ADMIN, crediting the action to someone who never took it.
+   *
+   * `replacedPrevious` is returned rather than logged so the caller can still
+   * record that a snapshot silently overwrote an earlier one for the period.
+   */
+  return { report: saved, replacedPrevious: Boolean(existing) };
 }
 
 /** Deletion is audited by the caller (reports.controller `removeSaved`), which

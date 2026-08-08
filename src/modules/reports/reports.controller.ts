@@ -44,10 +44,17 @@ export async function studentRoster(req: Request, res: Response) {
 }
 
 export async function feeDefaulters(req: Request, res: Response) {
+  // Validated, not cast: an unrecognised value falls back to "everyone" rather
+  // than reaching Prisma as a bogus status and throwing.
+  const statusParam = req.query.studentStatus;
+  const studentStatus =
+    statusParam === 'ACTIVE' || statusParam === 'INACTIVE' ? statusParam : ('all' as const);
+
   const data = await svc.getFeeDefaultersReport({
     classId: req.query.classId as string | undefined,
     sectionId: req.query.sectionId as string | undefined,
     search: req.query.search as string | undefined,
+    studentStatus,
     // Optional: absent means "everything owed today"; month=0 means the whole year.
     ...(req.query.year ? { year: Number(req.query.year), month: monthParam(req.query.month, 0) } : {}),
   });
@@ -216,7 +223,7 @@ export async function createSaved(req: Request, res: Response) {
     }
   }
 
-  const report = await svc.createSavedReport(
+  const { report, replacedPrevious } = await svc.createSavedReport(
     {
       reportType,
       periodType,
@@ -234,7 +241,9 @@ export async function createSaved(req: Request, res: Response) {
     targetType: 'SavedReport',
     targetId: report.id,
     targetLabel: report.title,
-    details: `Compiled & archived snapshot: "${report.title}"`,
+    details: replacedPrevious
+      ? `Recompiled & archived snapshot: "${report.title}", replacing the one taken earlier for the same period`
+      : `Compiled & archived snapshot: "${report.title}"`,
     changes: {
       reportType: report.reportType,
       periodType: report.periodType,
