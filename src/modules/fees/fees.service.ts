@@ -8,6 +8,7 @@ import type { Actor } from '../timetable/timetable.service';
 import { paidBreakdown, deriveStatus } from './fees.ledger';
 import type { GenerateChallansInput, ListChallansQuery, PatchChallanInput, RecordPaymentInput } from './fees.schema';
 import { publicUrl } from '../../services/storage';
+import { logAudit } from '../audit/audit.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -203,8 +204,8 @@ export async function setStudentDiscount(actor: Actor, studentId: string, feeDis
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
 
     await audit(tx, actor.userId, 'DISCOUNT', 'Student', studentId, {
-      targetLabel: `${student.firstName} ${student.lastName} (Roll ${student.rollNo})`,
-      details: `${actorUser?.fullName ?? 'Admin'} set Rs ${newDiscount} monthly fee discount for ${student.firstName} ${student.lastName}`,
+      targetLabel: `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''} (Roll ${student.rollNo})`,
+      details: `${actorUser?.fullName ?? 'Admin'} set Rs ${newDiscount} monthly fee discount for ${student.firstName}${student.lastName ? ` ${student.lastName}` : ''}`,
       changes: {
         feeDiscount: { before: oldDiscount, after: newDiscount },
         discountNote: { before: student.discountNote ?? '—', after: discountNote ?? '—' },
@@ -401,8 +402,8 @@ export async function recordPayment(actor: Actor, input: RecordPaymentInput) {
 
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
     await audit(tx, actor.userId, 'PAYMENT', 'FeePayment', payment.id, {
-      targetLabel: `${student.firstName} ${student.lastName} (Receipt #${payment.id.slice(0, 8)})`,
-      details: `${actorUser?.fullName ?? 'Admin'} recorded Rs ${toMoneyString(amount)} fee payment for ${student.firstName} ${student.lastName} via ${input.method}`,
+      targetLabel: `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''} (Receipt #${payment.id.slice(0, 8)})`,
+      details: `${actorUser?.fullName ?? 'Admin'} recorded Rs ${toMoneyString(amount)} fee payment for ${student.firstName}${student.lastName ? ` ${student.lastName}` : ''} via ${input.method}`,
       changes: {
         amountPaid: { before: '0.00', after: toMoneyString(amount) },
         paymentMethod: { before: null, after: input.method },
@@ -429,8 +430,8 @@ export async function reversePayment(actor: Actor, paymentId: string, reason: st
 
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
     await audit(tx, actor.userId, 'REVERSE', 'FeePayment', paymentId, {
-      targetLabel: `${payment.student.firstName} ${payment.student.lastName} (Receipt #${payment.id.slice(0, 8)})`,
-      details: `${actorUser?.fullName ?? 'Admin'} reversed Rs ${payment.amount} payment for ${payment.student.firstName} ${payment.student.lastName} (Reason: ${reason})`,
+      targetLabel: `${payment.student.firstName}${payment.student.lastName ? ` ${payment.student.lastName}` : ''} (Receipt #${payment.id.slice(0, 8)})`,
+      details: `${actorUser?.fullName ?? 'Admin'} reversed Rs ${payment.amount} payment for ${payment.student.firstName}${payment.student.lastName ? ` ${payment.student.lastName}` : ''} (Reason: ${reason})`,
       changes: {
         isReversed: { before: false, after: true },
         reversalReason: { before: null, after: reason },
@@ -600,7 +601,7 @@ export async function getStaffChildrenForTeacher(userId: string) {
 
       return {
         id: s.id,
-        name: `${s.firstName} ${s.lastName}`,
+        name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
         admissionNo: s.admissionNo,
         className: s.section.class.name,
         sectionName: s.section.name,
@@ -729,7 +730,7 @@ export async function listChallans(query: ListChallansQuery) {
     previousBalance: toMoneyString(previousBalanceFor(c.studentId, c.year, c.month)),
     student: {
       id: c.student.id,
-      name: `${c.student.firstName} ${c.student.lastName}`,
+      name: `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}`,
       admissionNo: c.student.admissionNo,
       rollNo: c.student.rollNo,
       className: c.student.section.class.name,
@@ -849,10 +850,77 @@ export async function generatePreview(query: {
     .sort((a, b) => a.order - b.order)
     .map(({ _est, ...r }) => ({ ...r, estimatedTotal: toMoneyString(_est) }));
 
+  /*
+   * Credit that generation will silently spend.
+   *
+   * `allocateAvailable` settles a new challan from any payment money not yet
+   * applied to a bill. That is correct for a genuine advance, but the preview
+   * used to say only "advance is applied" without saying how much or to whom —
+   * so a run could come back with challans already marked PAID and no
+   * indication why. Quantifying it here lets the dialog warn BEFORE the click.
+   */
+  const eligibleIds = new Set<string>();
+  for (const s of students) {
+    if (billedThisMonth.has(s.id)) continue;
+    const cls = s.section.class;
+    const monthly = money(cls.feeStructure?.monthlyFee ?? 0);
+    const route = s.transportAssignment?.route;
+    const transport = route?.active ? money(route.monthlyFee) : ZERO;
+    const admission = money(cls.feeStructure?.admissionFee ?? 0);
+    const isFirst = !everBilled.has(s.id);
+    if (monthly.greaterThan(0) || transport.greaterThan(0) || (isFirst && admission.greaterThan(0))) {
+      eligibleIds.add(s.id);
+    }
+  }
+
+  const creditPayments = eligibleIds.size
+    ? await prisma.feePayment.findMany({
+        where: { studentId: { in: [...eligibleIds] }, isReversed: false },
+        select: {
+          studentId: true,
+          amount: true,
+          allocations: { select: { amountApplied: true } },
+          student: { select: { firstName: true, lastName: true, admissionNo: true } },
+        },
+      })
+    : [];
+
+  const creditByStudent = new Map<string, { amount: Money; name: string; admissionNo: string }>();
+  for (const p of creditPayments) {
+    const spare = round2(money(p.amount).minus(sum(p.allocations.map((a) => a.amountApplied))));
+    if (spare.lessThanOrEqualTo(0)) continue;
+    const cur = creditByStudent.get(p.studentId);
+    creditByStudent.set(p.studentId, {
+      amount: (cur?.amount ?? ZERO).plus(spare),
+      name: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''}`,
+      admissionNo: p.student.admissionNo,
+    });
+  }
+
+  const creditStudents = [...creditByStudent.entries()]
+    .map(([studentId, v]) => ({
+      studentId,
+      name: v.name,
+      admissionNo: v.admissionNo,
+      credit: toMoneyString(round2(v.amount)),
+    }))
+    .sort((a, b) => Number(b.credit) - Number(a.credit));
+
+  const creditTotal = round2(sum([...creditByStudent.values()].map((v) => v.amount)));
+
   return {
     year,
     month,
     classes: rows,
+    /**
+     * Unallocated payment money held by students this run would bill. It will
+     * be applied automatically, so some challans may be created already PAID.
+     */
+    existingCredit: {
+      studentCount: creditStudents.length,
+      total: toMoneyString(creditTotal),
+      students: creditStudents.slice(0, 50),
+    },
     totals: {
       classes: rows.length,
       totalStudents: rows.reduce((n, r) => n + r.totalStudents, 0),
@@ -921,7 +989,7 @@ export async function getChallan(id: string) {
     ...shaped,
     student: {
       id: c.student.id,
-      name: `${c.student.firstName} ${c.student.lastName}`,
+      name: `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}`,
       admissionNo: c.student.admissionNo,
       rollNo: c.student.rollNo,
       className: c.student.section.class.name,
@@ -1032,7 +1100,7 @@ export async function deleteChallan(actor: Actor, id: string) {
       throw new AppError('This challan has payments against it and cannot be deleted. Reverse the payments first.', 409, 'HAS_PAYMENTS');
     }
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
-    const studentName = c.student ? `${c.student.firstName} ${c.student.lastName}` : 'Student';
+    const studentName = c.student ? `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}` : 'Student';
 
     await tx.feeChallan.delete({ where: { id } });
     await audit(tx, actor.userId, 'CHALLAN_DELETED', 'FeeChallan', id, {
@@ -1171,12 +1239,28 @@ export async function markChallansPaid(
   );
 }
 
-export async function markOverdue() {
+export async function markOverdue(actorId?: string) {
   const today = pktDay();
   const res = await prisma.feeChallan.updateMany({
     where: { status: { in: [ChallanStatus.UNPAID] }, dueDate: { lt: today } },
     data: { status: ChallanStatus.OVERDUE },
   });
+
+  // A summary, not one row per challan: this sweeps every overdue bill at once,
+  // and a per-challan trail would swamp the History page. Logged only when it
+  // actually changed something, so repeated no-op runs stay silent.
+  if (res.count > 0) {
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      actorName: actorId ? undefined : 'System',
+      action: 'UPDATE',
+      module: 'FEES',
+      targetType: 'FeeChallan',
+      targetLabel: `${res.count} challan${res.count === 1 ? '' : 's'}`,
+      details: `Marked ${res.count} unpaid challan${res.count === 1 ? '' : 's'} as overdue (due before ${pktDayString(today)})`,
+      changes: { status: { before: 'UNPAID', after: 'OVERDUE' }, _meta: { count: res.count } },
+    });
+  }
   return { updated: res.count };
 }
 
@@ -1184,36 +1268,169 @@ export async function markOverdue() {
 // Payment history & dashboard
 // ---------------------------------------------------------------------------
 
-export async function listPayments(query: { studentId?: string; from?: string; to?: string }) {
+/**
+ * The payments ledger.
+ *
+ * Every row carries how much of it is still unapplied, because that is the
+ * figure that silently settles future challans — a payment whose challan was
+ * later deleted reverts to looking like advance credit, and without surfacing
+ * it there is no way to see that money waiting.
+ */
+/** 1-indexed so `MONTHS[8]` is August, matching the stored `month` column. */
+const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+export async function listPayments(query: {
+  studentId?: string;
+  from?: string;
+  to?: string;
+  method?: string;
+  search?: string;
+  state?: 'all' | 'unallocated' | 'allocated' | 'reversed';
+}) {
+  const q = (query.search ?? '').trim();
   const payments = await prisma.feePayment.findMany({
     where: {
       ...(query.studentId ? { studentId: query.studentId } : {}),
+      ...(query.method && query.method !== 'all' ? { method: query.method as PaymentMethod } : {}),
       ...(query.from || query.to
         ? { paymentDate: { ...(query.from ? { gte: parsePktDay(query.from) } : {}), ...(query.to ? { lte: parsePktDay(query.to) } : {}) } }
         : {}),
+      ...(q
+        ? {
+            OR: [
+              { student: { firstName: { contains: q, mode: 'insensitive' } } },
+              { student: { lastName: { contains: q, mode: 'insensitive' } } },
+              { student: { admissionNo: { contains: q, mode: 'insensitive' } } },
+              { note: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     },
     include: {
-      student: { select: { firstName: true, lastName: true, admissionNo: true } },
+      student: {
+        select: {
+          id: true, firstName: true, lastName: true, admissionNo: true,
+          section: { select: { name: true, class: { select: { name: true } } } },
+        },
+      },
       allocations: { include: { challan: { select: { challanNo: true, year: true, month: true } } } },
       receivedBy: { select: { fullName: true } },
     },
     orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
-    take: 500,
+    take: 1000,
   });
-  return payments.map((p) => ({
-    id: p.id,
-    studentName: `${p.student.firstName} ${p.student.lastName}`,
-    admissionNo: p.student.admissionNo,
-    amount: toMoneyString(p.amount),
-    paymentDate: pktDayString(p.paymentDate),
-    method: p.method,
-    note: p.note,
-    receivedBy: p.receivedBy.fullName,
-    isReversed: p.isReversed,
-    reversedAt: p.reversedAt ? pktDayString(p.reversedAt) : null,
-    reversalReason: p.reversalReason,
-    allocations: p.allocations.map((a) => ({ challanNo: a.challan.challanNo, amountApplied: toMoneyString(a.amountApplied) })),
-  }));
+
+  const shaped = payments.map((p) => {
+    const applied = sum(p.allocations.map((a) => a.amountApplied));
+    // A reversed payment has had its allocations removed, so its face value is
+    // not "spare" money — it is not credit and must not be counted as such.
+    const unallocated = p.isReversed ? ZERO : round2(money(p.amount).minus(applied));
+    return {
+      id: p.id,
+      studentId: p.student.id,
+      studentName: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''}`,
+      admissionNo: p.student.admissionNo,
+      className: p.student.section.class.name,
+      sectionName: p.student.section.name,
+      amount: toMoneyString(p.amount),
+      applied: toMoneyString(applied),
+      unallocated: toMoneyString(unallocated),
+      paymentDate: pktDayString(p.paymentDate),
+      method: p.method,
+      note: p.note,
+      receivedBy: p.receivedBy.fullName,
+      isReversed: p.isReversed,
+      reversedAt: p.reversedAt ? pktDayString(p.reversedAt) : null,
+      reversalReason: p.reversalReason,
+      allocations: p.allocations
+        .map((a) => ({
+          challanNo: a.challan.challanNo,
+          period: `${MONTHS[a.challan.month] ?? a.challan.month} ${a.challan.year}`,
+          amountApplied: toMoneyString(a.amountApplied),
+        }))
+        .sort((a, b) => a.challanNo.localeCompare(b.challanNo)),
+    };
+  });
+
+  const filtered =
+    query.state === 'unallocated' ? shaped.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
+    : query.state === 'allocated' ? shaped.filter((p) => !p.isReversed && Number(p.unallocated) === 0)
+    : query.state === 'reversed' ? shaped.filter((p) => p.isReversed)
+    : shaped;
+
+  const live = shaped.filter((p) => !p.isReversed);
+  return {
+    payments: filtered,
+    summary: {
+      count: filtered.length,
+      totalReceived: toMoneyString(sum(live.map((p) => p.amount))),
+      totalApplied: toMoneyString(sum(live.map((p) => p.applied))),
+      /** Money sitting against no bill — this is what future challans will absorb. */
+      totalUnallocated: toMoneyString(sum(live.map((p) => p.unallocated))),
+      unallocatedCount: live.filter((p) => Number(p.unallocated) > 0).length,
+      cashTotal: toMoneyString(sum(live.filter((p) => p.method === 'CASH').map((p) => p.amount))),
+      bankTotal: toMoneyString(sum(live.filter((p) => p.method !== 'CASH').map((p) => p.amount))),
+      reversedCount: shaped.filter((p) => p.isReversed).length,
+      reversedTotal: toMoneyString(sum(shaped.filter((p) => p.isReversed).map((p) => p.amount))),
+    },
+  };
+}
+
+/**
+ * Permanently remove a payment.
+ *
+ * Distinct from `reversePayment`, which is the correct tool for a real receipt
+ * entered in error: it keeps the row, marks it reversed and preserves the
+ * audit trail. Deletion is for rows that should never have existed at all —
+ * test data, duplicate imports — and destroys the record, so it is restricted
+ * and always audited with the full detail of what was removed.
+ */
+export async function deletePayment(actor: Actor, paymentId: string, reason: string) {
+  const payment = await prisma.feePayment.findUnique({
+    where: { id: paymentId },
+    include: {
+      student: { select: { firstName: true, lastName: true, admissionNo: true } },
+      allocations: { include: { challan: { select: { id: true, challanNo: true } } } },
+    },
+  });
+  if (!payment) throw NotFound('Payment not found');
+
+  const affectedChallanIds = payment.allocations.map((a) => a.challanId);
+  const studentName = `${payment.student.firstName}${payment.student.lastName ? ` ${payment.student.lastName}` : ''}`;
+
+  await runSerializable(async (tx) => {
+    await tx.feePaymentAllocation.deleteMany({ where: { paymentId } });
+    await tx.feePayment.delete({ where: { id: paymentId } });
+    // Any challan this money was settling reverts to what it truly owes.
+    for (const id of affectedChallanIds) await recomputeChallan(tx, id);
+  });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'DELETE',
+    module: 'FEES',
+    targetType: 'FeePayment',
+    targetId: paymentId,
+    targetLabel: `${studentName} (${payment.student.admissionNo}) — Rs ${toMoneyString(payment.amount)}`,
+    details:
+      `Permanently deleted a Rs ${toMoneyString(payment.amount)} ${payment.method} payment for ${studentName} ` +
+      `dated ${pktDayString(payment.paymentDate)}. Reason: ${reason}` +
+      (affectedChallanIds.length
+        ? `. ${affectedChallanIds.length} challan(s) were recalculated: ${payment.allocations.map((a) => a.challan.challanNo).join(', ')}`
+        : '. It was not applied to any challan.'),
+    changes: {
+      _meta: {
+        amount: toMoneyString(payment.amount),
+        method: payment.method,
+        paymentDate: pktDayString(payment.paymentDate),
+        reason,
+        challansAffected: payment.allocations.map((a) => a.challan.challanNo),
+      },
+    },
+  });
+
+  return { deleted: true, challansRecalculated: affectedChallanIds.length };
 }
 
 export async function feesSummary(

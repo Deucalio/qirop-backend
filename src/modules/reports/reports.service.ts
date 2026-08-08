@@ -6,6 +6,7 @@ import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll'
 import { AppError } from '../../utils/apiResponse';
 import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus } from '@prisma/client';
 import { publicUrl } from '../../services/storage';
+import { logAudit } from '../audit/audit.service';
 
 export interface RosterQuery {
   classId?: string;
@@ -80,7 +81,7 @@ export async function getStudentRosterReport(query: RosterQuery) {
       id: s.id,
       admissionNo: s.admissionNo,
       rollNo: s.rollNo ?? '—',
-      name: `${s.firstName} ${s.lastName}`,
+      name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
       gender: s.gender,
       admissionDate: pktDayString(s.admissionDate),
       status: s.status,
@@ -176,7 +177,7 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
       return {
         id: s.id,
         admissionNo: s.admissionNo,
-        name: `${s.firstName} ${s.lastName}`,
+        name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
         className: s.section.class.name,
         sectionName: s.section.name,
         parentName: s.parent.user.fullName,
@@ -327,7 +328,7 @@ export async function getStudentAttendanceSummaryReport(query: StudentAttendance
       id: s.id,
       admissionNo: s.admissionNo,
       rollNo: s.rollNo ?? '—',
-      name: `${s.firstName} ${s.lastName}`,
+      name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
       className: s.section.class.name,
       sectionName: s.section.name,
       totalMarkedDays: totalMarked,
@@ -520,7 +521,7 @@ export async function getDailyAbsenteeReport(query: { date?: string; from?: stri
     id: a.student.id,
     type: 'STUDENT' as const,
     code: a.student.admissionNo,
-    name: `${a.student.firstName} ${a.student.lastName}`,
+    name: `${a.student.firstName}${a.student.lastName ? ` ${a.student.lastName}` : ''}`,
     className: a.student.section.class.name,
     sectionName: a.student.section.name,
     status: a.status,
@@ -610,7 +611,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     return {
       id: p.id,
       date: pktDayString(p.paymentDate),
-      studentName: `${p.student.firstName} ${p.student.lastName}`,
+      studentName: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''}`,
       admissionNo: p.student.admissionNo,
       className: p.student.section.class.name,
       amount: toMoneyString(p.amount),
@@ -880,7 +881,7 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
     await prisma.savedReport.delete({ where: { id: existing.id } });
   }
 
-  return prisma.savedReport.create({
+  const saved = await prisma.savedReport.create({
     data: {
       reportType: q.reportType,
       periodType: q.periodType,
@@ -893,12 +894,29 @@ export async function createSavedReport(q: SavedReportQuery, generatedBy: string
       generatedBy,
     },
   });
+
+  // A snapshot is a frozen financial or attendance record that others will read
+  // back later, so who compiled it — and whether it silently replaced an
+  // earlier one for the same period — belongs in the trail.
+  await logAudit(null, {
+    actorId: generatedBy,
+    action: 'CREATE',
+    module: 'REPORTS',
+    targetType: 'SavedReport',
+    targetId: saved.id,
+    targetLabel: title,
+    details: existing
+      ? `Recompiled "${title}", replacing the snapshot taken earlier`
+      : `Compiled the snapshot "${title}"`,
+  });
+
+  return saved;
 }
 
+/** Deletion is audited by the caller (reports.controller `removeSaved`), which
+ *  has the request for IP capture — doing it here as well would double-log. */
 export async function deleteSavedReport(id: string) {
-  return prisma.savedReport.delete({
-    where: { id },
-  });
+  return prisma.savedReport.delete({ where: { id } });
 }
 
 export async function listSavedReports() {

@@ -205,7 +205,7 @@ export function scheduleFor(layout: TimetableLayout, day: DayOfWeek): DaySchedul
  * was closed, or lost periods) are removed; everything else is preserved.
  * With `dryRun` nothing is written — used to preview the impact before saving.
  */
-export async function saveTimetableConfig(raw: unknown, dryRun: boolean) {
+export async function saveTimetableConfig(raw: unknown, dryRun: boolean, actorId?: string) {
   const config = normalizeConfig(raw);
   const layout = buildLayout(config);
 
@@ -232,11 +232,34 @@ export async function saveTimetableConfig(raw: unknown, dryRun: boolean) {
     });
   }
 
+  const affected = [...new Set(doomed.map((s) => `${s.section.class.name} · Section ${s.section.name}`))].sort();
+
+  // A dry run changes nothing, so it is not an event. A real save rewrites the
+  // school-wide period structure and can silently delete timetable slots that
+  // no longer fit — the count and the affected sections are the whole point of
+  // having a record.
+  if (!dryRun) {
+    await logAudit(null, {
+      actorId: actorId ?? null,
+      action: 'UPDATE',
+      module: 'TIMETABLE',
+      targetType: 'SchoolSetting',
+      targetLabel: 'Timetable period structure',
+      details:
+        `Updated the school timetable structure` +
+        (doomed.length > 0
+          ? ` — ${doomed.length} scheduled period${doomed.length === 1 ? '' : 's'} no longer fit and ` +
+            `${doomed.length === 1 ? 'was' : 'were'} removed from ${affected.join(', ')}`
+          : ' with no scheduled periods lost'),
+      changes: { removedSlots: { before: doomed.length, after: 0 }, affectedSections: { before: affected, after: [] } },
+    });
+  }
+
   return {
     layout,
     removedSlots: doomed.length,
     // Enough detail for the confirmation dialog to name what's affected.
-    affected: [...new Set(doomed.map((s) => `${s.section.class.name} · Section ${s.section.name}`))].sort(),
+    affected,
   };
 }
 
@@ -290,14 +313,38 @@ export function buildValidity(
 }
 
 /** Set how long the weekly pattern repeats. `until` null = no end date. */
-export async function setTimetableValidity(sectionId: string, fromStr: string, untilStr: string | null) {
-  await loadSectionOr404(sectionId);
+export async function setTimetableValidity(
+  sectionId: string,
+  fromStr: string,
+  untilStr: string | null,
+  actorId?: string,
+) {
+  const section = await loadSectionOr404(sectionId);
   const from = parsePktDay(fromStr);
   const until = untilStr ? parsePktDay(untilStr) : null;
   if (until && until.getTime() < from.getTime()) {
     throw new AppError('The repeat-until date cannot be before the start date', 400, 'INVALID_RANGE');
   }
+  const before = { from: section.timetableFrom, until: section.timetableUntil };
   await prisma.section.update({ where: { id: sectionId }, data: { timetableFrom: from, timetableUntil: until } });
+
+  // These dates decide when the timetable is considered in force, so a change
+  // silently alters what every teacher and parent sees as the current schedule.
+  const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 'None');
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'UPDATE',
+    module: 'TIMETABLE',
+    targetType: 'Section',
+    targetId: sectionId,
+    targetLabel: `${section.class.name} — Section ${section.name}`,
+    details: `Set the timetable to run from ${day(from)}${until ? ` until ${day(until)}` : ' with no end date'}`,
+    changes: {
+      timetableFrom: { before: day(before.from), after: day(from) },
+      timetableUntil: { before: day(before.until), after: day(until) },
+    },
+  });
+
   return getSectionTimetable(sectionId);
 }
 
@@ -880,6 +927,28 @@ export async function markSectionPeriodAttendance(
         status: r.status,
         markedById: actor.userId,
       },
+    });
+  }
+
+  // One entry for the whole submission rather than one per period — a row per
+  // period would bury the History page under dozens of near-identical lines.
+  if (records.length > 0) {
+    const tally = records.reduce<Record<string, number>>((acc, r) => {
+      acc[r.status] = (acc[r.status] ?? 0) + 1;
+      return acc;
+    }, {});
+    const section = await loadSectionOr404(sectionId);
+    await logAudit(null, {
+      actorId: actor.userId,
+      action: 'ATTENDANCE',
+      module: 'ATTENDANCE',
+      targetType: 'Section',
+      targetId: sectionId,
+      targetLabel: `${section.class.name} — Section ${section.name}`,
+      details:
+        `Marked per-period teacher attendance for ${dateStr}: ` +
+        Object.entries(tally).map(([st, n]) => `${n} ${st.toLowerCase()}`).join(', '),
+      changes: { _meta: { date: dateStr, periods: records.map((r) => `P${r.periodIndex}:${r.status}`) } },
     });
   }
 

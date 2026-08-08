@@ -127,7 +127,7 @@ searchRouter.get(
     res.json({
       students: students.map((s) => ({
         id: s.id,
-        title: `${s.firstName} ${s.lastName}`,
+        title: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
         subtitle: `Roll: ${s.rollNo || 'N/A'} · Adm: ${s.admissionNo} · ${s.section.class.name}-${s.section.name}`,
         url: `/students?search=${encodeURIComponent(s.admissionNo)}`,
         photoUrl: publicUrl(s.photoUrl),
@@ -155,7 +155,7 @@ searchRouter.get(
       challans: challans.map((ch) => ({
         id: ch.id,
         title: `Challan #${ch.challanNo}`,
-        subtitle: `${ch.student.firstName} ${ch.student.lastName} · Rs. ${ch.amount} (${ch.status})`,
+        subtitle: `${ch.student.firstName}${ch.student.lastName ? ` ${ch.student.lastName}` : ''} · Rs. ${ch.amount} (${ch.status})`,
         url: `/fees?tab=challans&search=${encodeURIComponent(ch.challanNo)}`,
       })),
     });

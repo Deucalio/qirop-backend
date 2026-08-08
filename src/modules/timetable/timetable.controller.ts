@@ -24,12 +24,12 @@ export async function timetableConfig(_req: Request, res: Response): Promise<voi
 
 export async function saveTimetableConfig(req: Request, res: Response): Promise<void> {
   const { config, dryRun } = req.body;
-  res.json(await svc.saveTimetableConfig(config, dryRun === true));
+  res.json(await svc.saveTimetableConfig(config, dryRun === true, req.user?.userId));
 }
 
 export async function setValidity(req: Request, res: Response): Promise<void> {
   const { from, until } = req.body;
-  res.json(await svc.setTimetableValidity(req.params.sectionId, from, until));
+  res.json(await svc.setTimetableValidity(req.params.sectionId, from, until, req.user?.userId));
 }
 
 export async function meTeacherTimetable(req: Request, res: Response): Promise<void> {

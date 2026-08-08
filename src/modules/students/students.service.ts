@@ -43,7 +43,7 @@ function shapeListItem(s: StudentWithRels) {
     rollNo: s.rollNo,
     firstName: s.firstName,
     lastName: s.lastName,
-    name: `${s.firstName} ${s.lastName}`.trim(),
+    name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`.trim(),
     gender: s.gender,
     status: s.status,
     dob: s.dob,
@@ -458,7 +458,7 @@ async function logStudentEvent(
   const actorRole = typeof actorOrUserId === 'string' ? 'ADMIN' : actorOrUserId.role;
   
   const student = await prisma.student.findUnique({ where: { id: studentId }, select: { firstName: true, lastName: true, admissionNo: true } });
-  const label = targetLabel || (student ? `${student.firstName} ${student.lastName} (${student.admissionNo})` : `Student #${studentId}`);
+  const label = targetLabel || (student ? `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''} (${student.admissionNo})` : `Student #${studentId}`);
 
   const user = await prisma.user.findUnique({ where: { id: actorId }, select: { fullName: true } });
   await logAudit(null, {
@@ -879,7 +879,7 @@ export async function purgeStudent(actor: Actor, id: string) {
   });
   if (!student) throw NotFound('Student not found');
 
-  const name = `${student.firstName} ${student.lastName}`;
+  const name = `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''}`;
 
   await prisma.$transaction(async (tx) => {
     // Fee ledger: allocations → items → payments → challans.

@@ -1,0 +1,3291 @@
+{
+  "takenAt": "2026-08-07T22:24:21.933Z",
+  "reason": "Test-data cleanup: challans + the payments created by Mark-as-Paid on 4 Aug",
+  "challans": [
+    {
+      "id": "cmsjeu9aq004vjub6sdxwkzfr",
+      "challanNo": "CH-2026-000186",
+      "studentId": "cmscnsvn801zmjufrb9dcua01",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.218Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.218Z",
+      "updatedAt": "2026-08-07T20:41:39.227Z",
+      "items": [
+        {
+          "id": "cmsjeu9aq004wjub6abgno20k",
+          "challanId": "cmsjeu9aq004vjub6sdxwkzfr",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.218Z",
+          "updatedAt": "2026-08-07T20:41:39.218Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9b4004yjub6mtmhg8yq",
+      "challanNo": "CH-2026-000187",
+      "studentId": "cmscnsvlq01yrjufrklrq67kz",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.233Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.233Z",
+      "updatedAt": "2026-08-07T20:41:39.247Z",
+      "items": [
+        {
+          "id": "cmsjeu9b4004zjub6qbti4bm8",
+          "challanId": "cmsjeu9b4004yjub6mtmhg8yq",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.233Z",
+          "updatedAt": "2026-08-07T20:41:39.233Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9bn0053jub6j1fcw5db",
+      "challanNo": "CH-2026-000188",
+      "studentId": "cmscnsvmw01zfjufrvfx1zmfj",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.251Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.251Z",
+      "updatedAt": "2026-08-07T20:41:39.266Z",
+      "items": [
+        {
+          "id": "cmsjeu9bn0054jub6wlwlj3fv",
+          "challanId": "cmsjeu9bn0053jub6j1fcw5db",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.251Z",
+          "updatedAt": "2026-08-07T20:41:39.251Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9c90058jub67l9drgmi",
+      "challanNo": "CH-2026-000189",
+      "studentId": "cmscnsvhn01vrjufr17gf1pqi",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.273Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.273Z",
+      "updatedAt": "2026-08-07T20:41:39.282Z",
+      "items": [
+        {
+          "id": "cmsjeu9c90059jub6cdqsxaun",
+          "challanId": "cmsjeu9c90058jub67l9drgmi",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.273Z",
+          "updatedAt": "2026-08-07T20:41:39.273Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9cm005bjub67ecwkyqb",
+      "challanNo": "CH-2026-000190",
+      "studentId": "cmscnsveb01ssjufrsb0kqpgo",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.287Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.287Z",
+      "updatedAt": "2026-08-07T20:41:39.301Z",
+      "items": [
+        {
+          "id": "cmsjeu9cm005cjub65oq6usgg",
+          "challanId": "cmsjeu9cm005bjub67ecwkyqb",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.287Z",
+          "updatedAt": "2026-08-07T20:41:39.287Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9d5005gjub6pywlt6q5",
+      "challanNo": "CH-2026-000191",
+      "studentId": "cmscnsvf201tgjufrnpkklsei",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.305Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.305Z",
+      "updatedAt": "2026-08-07T20:41:39.319Z",
+      "items": [
+        {
+          "id": "cmsjeu9d5005hjub6tvhw1622",
+          "challanId": "cmsjeu9d5005gjub6pywlt6q5",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.305Z",
+          "updatedAt": "2026-08-07T20:41:39.305Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9dl005ljub6ptakkczc",
+      "challanNo": "CH-2026-000192",
+      "studentId": "cmscnsvk501xrjufryp9fs5uk",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.322Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.322Z",
+      "updatedAt": "2026-08-07T20:41:39.331Z",
+      "items": [
+        {
+          "id": "cmsjeu9dl005mjub6hk7w68hw",
+          "challanId": "cmsjeu9dl005ljub6ptakkczc",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.322Z",
+          "updatedAt": "2026-08-07T20:41:39.322Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9dy005qjub600e1xdpt",
+      "challanNo": "CH-2026-000193",
+      "studentId": "cmscnsvrc021ujufroh2t28hc",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.334Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.334Z",
+      "updatedAt": "2026-08-07T20:41:39.346Z",
+      "items": [
+        {
+          "id": "cmsjeu9dy005rjub64mkxc191",
+          "challanId": "cmsjeu9dy005qjub600e1xdpt",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.334Z",
+          "updatedAt": "2026-08-07T20:41:39.334Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9ee005vjub6nq5f3sms",
+      "challanNo": "CH-2026-000194",
+      "studentId": "cmscnsvuc0245jufrz6pig2o7",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.350Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.350Z",
+      "updatedAt": "2026-08-07T20:41:39.363Z",
+      "items": [
+        {
+          "id": "cmsjeu9ee005wjub6u2jxokli",
+          "challanId": "cmsjeu9ee005vjub6nq5f3sms",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.350Z",
+          "updatedAt": "2026-08-07T20:41:39.350Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9et0060jub657m0eqyz",
+      "challanNo": "CH-2026-000195",
+      "studentId": "cmscnsvvi024vjufrkafuvryc",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.366Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.366Z",
+      "updatedAt": "2026-08-07T20:41:39.376Z",
+      "items": [
+        {
+          "id": "cmsjeu9et0061jub6ivjd5waj",
+          "challanId": "cmsjeu9et0060jub657m0eqyz",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.366Z",
+          "updatedAt": "2026-08-07T20:41:39.366Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9f80065jub6pxrphuot",
+      "challanNo": "CH-2026-000196",
+      "studentId": "cmscnsvtr023ojufrel0l4af3",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.381Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.381Z",
+      "updatedAt": "2026-08-07T20:41:39.390Z",
+      "items": [
+        {
+          "id": "cmsjeu9f80066jub6paioj7e2",
+          "challanId": "cmsjeu9f80065jub6pxrphuot",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.381Z",
+          "updatedAt": "2026-08-07T20:41:39.381Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9fl006ajub6flztfbx2",
+      "challanNo": "CH-2026-000197",
+      "studentId": "cmscnsvvg024tjufrd0bffl6t",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.393Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.393Z",
+      "updatedAt": "2026-08-07T20:41:39.407Z",
+      "items": [
+        {
+          "id": "cmsjeu9fl006bjub6vaontk9u",
+          "challanId": "cmsjeu9fl006ajub6flztfbx2",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.393Z",
+          "updatedAt": "2026-08-07T20:41:39.393Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9g2006fjub66fokguyk",
+      "challanNo": "CH-2026-000198",
+      "studentId": "cmscnsvu4023yjufrtjmc5vew",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.411Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.411Z",
+      "updatedAt": "2026-08-07T20:41:39.423Z",
+      "items": [
+        {
+          "id": "cmsjeu9g2006gjub6du18jgiq",
+          "challanId": "cmsjeu9g2006fjub66fokguyk",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.411Z",
+          "updatedAt": "2026-08-07T20:41:39.411Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9gi006kjub6n5aho86i",
+      "challanNo": "CH-2026-000199",
+      "studentId": "cmscnsvzw026tjufr6whiqbgi",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.426Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.426Z",
+      "updatedAt": "2026-08-07T20:41:39.436Z",
+      "items": [
+        {
+          "id": "cmsjeu9gi006ljub6h10fzzug",
+          "challanId": "cmsjeu9gi006kjub6n5aho86i",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.426Z",
+          "updatedAt": "2026-08-07T20:41:39.426Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9gv006pjub6kszt0luu",
+      "challanNo": "CH-2026-000200",
+      "studentId": "cmscnsw62029qjufrum73ocfr",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.439Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.439Z",
+      "updatedAt": "2026-08-07T20:41:39.453Z",
+      "items": [
+        {
+          "id": "cmsjeu9gv006qjub6sox8rmd5",
+          "challanId": "cmsjeu9gv006pjub6kszt0luu",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.439Z",
+          "updatedAt": "2026-08-07T20:41:39.439Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9hc006ujub6c9a4wmsb",
+      "challanNo": "CH-2026-000201",
+      "studentId": "cmscnsw56029djufre3t0bhe5",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.456Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.456Z",
+      "updatedAt": "2026-08-07T20:41:39.467Z",
+      "items": [
+        {
+          "id": "cmsjeu9hc006vjub6g77jduh3",
+          "challanId": "cmsjeu9hc006ujub6c9a4wmsb",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.456Z",
+          "updatedAt": "2026-08-07T20:41:39.456Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9hq006zjub63ldi3d6t",
+      "challanNo": "CH-2026-000202",
+      "studentId": "cmscnswbl02d0jufrzrk62njq",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.471Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.471Z",
+      "updatedAt": "2026-08-07T20:41:39.483Z",
+      "items": [
+        {
+          "id": "cmsjeu9hq0070jub692gcy7iu",
+          "challanId": "cmsjeu9hq006zjub63ldi3d6t",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.471Z",
+          "updatedAt": "2026-08-07T20:41:39.471Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9i60074jub68j8dhy24",
+      "challanNo": "CH-2026-000203",
+      "studentId": "cmscnswdj02f5jufr8npyt95s",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.486Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.486Z",
+      "updatedAt": "2026-08-07T20:41:39.496Z",
+      "items": [
+        {
+          "id": "cmsjeu9i60075jub6ls6vntzb",
+          "challanId": "cmsjeu9i60074jub68j8dhy24",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.486Z",
+          "updatedAt": "2026-08-07T20:41:39.486Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9ij0079jub6kjdphb4o",
+      "challanNo": "CH-2026-000204",
+      "studentId": "cmscnsun801byjufrxk50yqau",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.499Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.499Z",
+      "updatedAt": "2026-08-07T20:41:39.508Z",
+      "items": [
+        {
+          "id": "cmsjeu9ij007ajub6sf8b544m",
+          "challanId": "cmsjeu9ij0079jub6kjdphb4o",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.499Z",
+          "updatedAt": "2026-08-07T20:41:39.499Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9iu007ejub6am5td04n",
+      "challanNo": "CH-2026-000205",
+      "studentId": "cmscnsvd401rnjufrmlpfsfod",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.511Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.511Z",
+      "updatedAt": "2026-08-07T20:41:39.519Z",
+      "items": [
+        {
+          "id": "cmsjeu9iu007fjub6t4hndm3y",
+          "challanId": "cmsjeu9iu007ejub6am5td04n",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.511Z",
+          "updatedAt": "2026-08-07T20:41:39.511Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9j5007jjub60ebk677u",
+      "challanNo": "CH-2026-000206",
+      "studentId": "cmscnsvl201yhjufrk5xqd6d4",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.522Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.522Z",
+      "updatedAt": "2026-08-07T20:41:39.525Z",
+      "items": [
+        {
+          "id": "cmsjeu9j5007kjub6hxmhmj66",
+          "challanId": "cmsjeu9j5007jjub60ebk677u",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.522Z",
+          "updatedAt": "2026-08-07T20:41:39.522Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9jb007mjub646bb5psu",
+      "challanNo": "CH-2026-000207",
+      "studentId": "cmscnsuyk01hcjufre76odqm2",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.528Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.528Z",
+      "updatedAt": "2026-08-07T20:41:39.531Z",
+      "items": [
+        {
+          "id": "cmsjeu9jc007njub6n4tm31jf",
+          "challanId": "cmsjeu9jb007mjub646bb5psu",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.528Z",
+          "updatedAt": "2026-08-07T20:41:39.528Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9ji007pjub6ij4y4ew4",
+      "challanNo": "CH-2026-000208",
+      "studentId": "cmscnsvr6021pjufrbm2po6i3",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.534Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.534Z",
+      "updatedAt": "2026-08-07T20:41:39.552Z",
+      "items": [
+        {
+          "id": "cmsjeu9ji007qjub6v5s1tgbx",
+          "challanId": "cmsjeu9ji007pjub6ij4y4ew4",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.534Z",
+          "updatedAt": "2026-08-07T20:41:39.534Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9k4007ujub6vdfomaqp",
+      "challanNo": "CH-2026-000209",
+      "studentId": "cmscnsvnx01zyjufr5quzg59y",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.556Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.556Z",
+      "updatedAt": "2026-08-07T20:41:39.562Z",
+      "items": [
+        {
+          "id": "cmsjeu9k4007vjub6l4r0qz8e",
+          "challanId": "cmsjeu9k4007ujub6vdfomaqp",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.556Z",
+          "updatedAt": "2026-08-07T20:41:39.556Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9kd007xjub6ne0c6tcr",
+      "challanNo": "CH-2026-000210",
+      "studentId": "cmscnsvka01xwjufrugn8ou7v",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.566Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.566Z",
+      "updatedAt": "2026-08-07T20:41:39.571Z",
+      "items": [
+        {
+          "id": "cmsjeu9kd007yjub6803xaisu",
+          "challanId": "cmsjeu9kd007xjub6ne0c6tcr",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.566Z",
+          "updatedAt": "2026-08-07T20:41:39.566Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9ko0080jub6ezkwatmz",
+      "challanNo": "CH-2026-000211",
+      "studentId": "cmscnsvqp021bjufrk5fvun4u",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.576Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.576Z",
+      "updatedAt": "2026-08-07T20:41:39.580Z",
+      "items": [
+        {
+          "id": "cmsjeu9ko0081jub638y2p0iu",
+          "challanId": "cmsjeu9ko0080jub6ezkwatmz",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.576Z",
+          "updatedAt": "2026-08-07T20:41:39.576Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9ku0083jub6eksyyrv9",
+      "challanNo": "CH-2026-000212",
+      "studentId": "cmscnsvqj0216jufr69fi4pww",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.583Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.583Z",
+      "updatedAt": "2026-08-07T20:41:39.586Z",
+      "items": [
+        {
+          "id": "cmsjeu9ku0084jub6trgufrdq",
+          "challanId": "cmsjeu9ku0083jub6eksyyrv9",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.583Z",
+          "updatedAt": "2026-08-07T20:41:39.583Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9l10086jub6xljyu3xw",
+      "challanNo": "CH-2026-000213",
+      "studentId": "cmscnsvno01ztjufr7oo00su3",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.589Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.589Z",
+      "updatedAt": "2026-08-07T20:41:39.593Z",
+      "items": [
+        {
+          "id": "cmsjeu9l10087jub6kivolnnu",
+          "challanId": "cmsjeu9l10086jub6xljyu3xw",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.589Z",
+          "updatedAt": "2026-08-07T20:41:39.589Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9l80089jub6au0bemgb",
+      "challanNo": "CH-2026-000214",
+      "studentId": "cmscnsvt30235jufrwhtga9xo",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.596Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.596Z",
+      "updatedAt": "2026-08-07T20:41:39.599Z",
+      "items": [
+        {
+          "id": "cmsjeu9l8008ajub6hhiqien4",
+          "challanId": "cmsjeu9l80089jub6au0bemgb",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.596Z",
+          "updatedAt": "2026-08-07T20:41:39.596Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9ld008cjub68y8fcn3u",
+      "challanNo": "CH-2026-000215",
+      "studentId": "cmscnsvss022wjufrqooi8ala",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.602Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.602Z",
+      "updatedAt": "2026-08-07T20:41:39.605Z",
+      "items": [
+        {
+          "id": "cmsjeu9ld008djub6d3k2qr2z",
+          "challanId": "cmsjeu9ld008cjub68y8fcn3u",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.602Z",
+          "updatedAt": "2026-08-07T20:41:39.602Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9lj008fjub6xxkkxppp",
+      "challanNo": "CH-2026-000216",
+      "studentId": "cmscnsvuw024jjufr2gcxh5mw",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.607Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.607Z",
+      "updatedAt": "2026-08-07T20:41:39.610Z",
+      "items": [
+        {
+          "id": "cmsjeu9lj008gjub696j3wgh8",
+          "challanId": "cmsjeu9lj008fjub6xxkkxppp",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.607Z",
+          "updatedAt": "2026-08-07T20:41:39.607Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9lp008ijub6e3byyasm",
+      "challanNo": "CH-2026-000217",
+      "studentId": "cmscnsvtb023ajufrcis1vf8b",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.614Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.614Z",
+      "updatedAt": "2026-08-07T20:41:39.616Z",
+      "items": [
+        {
+          "id": "cmsjeu9lp008jjub6s6ua9rux",
+          "challanId": "cmsjeu9lp008ijub6e3byyasm",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.614Z",
+          "updatedAt": "2026-08-07T20:41:39.614Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9lv008ljub6lmptge6c",
+      "challanNo": "CH-2026-000218",
+      "studentId": "cmscnsw47028tjufrfgv6aa5i",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.619Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.619Z",
+      "updatedAt": "2026-08-07T20:41:39.622Z",
+      "items": [
+        {
+          "id": "cmsjeu9lv008mjub69dsy83ay",
+          "challanId": "cmsjeu9lv008ljub6lmptge6c",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.619Z",
+          "updatedAt": "2026-08-07T20:41:39.619Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9m1008ojub6hikdgqg7",
+      "challanNo": "CH-2026-000219",
+      "studentId": "cmscnsw3x028ojufrsfzdnmmr",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.625Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.625Z",
+      "updatedAt": "2026-08-07T20:41:39.630Z",
+      "items": [
+        {
+          "id": "cmsjeu9m1008pjub6cztfvc04",
+          "challanId": "cmsjeu9m1008ojub6hikdgqg7",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.625Z",
+          "updatedAt": "2026-08-07T20:41:39.625Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9m9008rjub6doqj4gx0",
+      "challanNo": "CH-2026-000220",
+      "studentId": "cmscnswf502gqjufrp1ogo9ae",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.633Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.633Z",
+      "updatedAt": "2026-08-07T20:41:39.637Z",
+      "items": [
+        {
+          "id": "cmsjeu9m9008sjub6i9zb56sa",
+          "challanId": "cmsjeu9m9008rjub6doqj4gx0",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.633Z",
+          "updatedAt": "2026-08-07T20:41:39.633Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9mf008ujub6u9upf03j",
+      "challanNo": "CH-2026-000221",
+      "studentId": "cmscnswe902fwjufrpe7xp2kw",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.639Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.639Z",
+      "updatedAt": "2026-08-07T20:41:39.642Z",
+      "items": [
+        {
+          "id": "cmsjeu9mf008vjub6dlnqg32u",
+          "challanId": "cmsjeu9mf008ujub6u9upf03j",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.639Z",
+          "updatedAt": "2026-08-07T20:41:39.639Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9mk008xjub629te5av6",
+      "challanNo": "CH-2026-000222",
+      "studentId": "cmscnswg402hojufrl3f0o84q",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.644Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.644Z",
+      "updatedAt": "2026-08-07T20:41:39.647Z",
+      "items": [
+        {
+          "id": "cmsjeu9mk008yjub6s88xkieb",
+          "challanId": "cmsjeu9mk008xjub629te5av6",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.644Z",
+          "updatedAt": "2026-08-07T20:41:39.644Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsjeu9mp0090jub654o5th2c",
+      "challanNo": "CH-2026-000223",
+      "studentId": "cmscnsv8701njjufrrn5kni7z",
+      "year": 2026,
+      "month": 7,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T20:41:39.649Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T20:41:39.649Z",
+      "updatedAt": "2026-08-07T20:41:39.653Z",
+      "items": [
+        {
+          "id": "cmsjeu9mp0091jub6exed65ko",
+          "challanId": "cmsjeu9mp0090jub654o5th2c",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T20:41:39.649Z",
+          "updatedAt": "2026-08-07T20:41:39.649Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji14z40094jub6xvnpjyc9",
+      "challanNo": "CH-2026-000224",
+      "studentId": "cmscnsvmw01zfjufrvfx1zmfj",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.056Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.056Z",
+      "updatedAt": "2026-08-07T22:10:59.072Z",
+      "items": [
+        {
+          "id": "cmsji14z40095jub6lkx57v3s",
+          "challanId": "cmsji14z40094jub6xvnpjyc9",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.056Z",
+          "updatedAt": "2026-08-07T22:10:59.056Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji14zm009bjub6xcive4ix",
+      "challanNo": "CH-2026-000225",
+      "studentId": "cmscnsvhn01vrjufr17gf1pqi",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.075Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.075Z",
+      "updatedAt": "2026-08-07T22:10:59.078Z",
+      "items": [
+        {
+          "id": "cmsji14zm009cjub6k2zcj07b",
+          "challanId": "cmsji14zm009bjub6xcive4ix",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.075Z",
+          "updatedAt": "2026-08-07T22:10:59.075Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji14zu009ejub6igd4552h",
+      "challanNo": "CH-2026-000226",
+      "studentId": "cmscnsvf201tgjufrnpkklsei",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.082Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.082Z",
+      "updatedAt": "2026-08-07T22:10:59.100Z",
+      "items": [
+        {
+          "id": "cmsji14zu009fjub66gql3zt3",
+          "challanId": "cmsji14zu009ejub6igd4552h",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.082Z",
+          "updatedAt": "2026-08-07T22:10:59.082Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji150e009ljub6evcyc9h7",
+      "challanNo": "CH-2026-000227",
+      "studentId": "cmscnsvrc021ujufroh2t28hc",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.103Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.103Z",
+      "updatedAt": "2026-08-07T22:10:59.115Z",
+      "items": [
+        {
+          "id": "cmsji150f009mjub67vqmzgin",
+          "challanId": "cmsji150e009ljub6evcyc9h7",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.103Z",
+          "updatedAt": "2026-08-07T22:10:59.103Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji150t009sjub6azssnrth",
+      "challanNo": "CH-2026-000228",
+      "studentId": "cmscnsvuc0245jufrz6pig2o7",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.117Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.117Z",
+      "updatedAt": "2026-08-07T22:10:59.127Z",
+      "items": [
+        {
+          "id": "cmsji150t009tjub6zowe0zgv",
+          "challanId": "cmsji150t009sjub6azssnrth",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.117Z",
+          "updatedAt": "2026-08-07T22:10:59.117Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji1515009zjub6qmfs48e7",
+      "challanNo": "CH-2026-000229",
+      "studentId": "cmscnsvvi024vjufrkafuvryc",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.130Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.130Z",
+      "updatedAt": "2026-08-07T22:10:59.141Z",
+      "items": [
+        {
+          "id": "cmsji151500a0jub64zaxzf6h",
+          "challanId": "cmsji1515009zjub6qmfs48e7",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.130Z",
+          "updatedAt": "2026-08-07T22:10:59.130Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji151j00a6jub6wgqc1wp5",
+      "challanNo": "CH-2026-000230",
+      "studentId": "cmscnsvtr023ojufrel0l4af3",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.143Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.143Z",
+      "updatedAt": "2026-08-07T22:10:59.154Z",
+      "items": [
+        {
+          "id": "cmsji151j00a7jub6wiaoueg8",
+          "challanId": "cmsji151j00a6jub6wgqc1wp5",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.143Z",
+          "updatedAt": "2026-08-07T22:10:59.143Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji151x00adjub627kgyoxp",
+      "challanNo": "CH-2026-000231",
+      "studentId": "cmscnsvvg024tjufrd0bffl6t",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.157Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.157Z",
+      "updatedAt": "2026-08-07T22:10:59.167Z",
+      "items": [
+        {
+          "id": "cmsji151x00aejub6e94e6ey4",
+          "challanId": "cmsji151x00adjub627kgyoxp",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.157Z",
+          "updatedAt": "2026-08-07T22:10:59.157Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji152900akjub6jjh4ukuc",
+      "challanNo": "CH-2026-000232",
+      "studentId": "cmscnsw62029qjufrum73ocfr",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.170Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PARTIAL",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.170Z",
+      "updatedAt": "2026-08-07T22:10:59.179Z",
+      "items": [
+        {
+          "id": "cmsji152900aljub60ihrlaig",
+          "challanId": "cmsji152900akjub6jjh4ukuc",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.170Z",
+          "updatedAt": "2026-08-07T22:10:59.170Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji152l00apjub69fktjlzo",
+      "challanNo": "CH-2026-000233",
+      "studentId": "cmscnsw56029djufre3t0bhe5",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.181Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.181Z",
+      "updatedAt": "2026-08-07T22:10:59.192Z",
+      "items": [
+        {
+          "id": "cmsji152l00aqjub60na3ibod",
+          "challanId": "cmsji152l00apjub69fktjlzo",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.181Z",
+          "updatedAt": "2026-08-07T22:10:59.181Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji152z00awjub69l98lggl",
+      "challanNo": "CH-2026-000234",
+      "studentId": "cmscnswbl02d0jufrzrk62njq",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.195Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PARTIAL",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.195Z",
+      "updatedAt": "2026-08-07T22:10:59.207Z",
+      "items": [
+        {
+          "id": "cmsji152z00axjub6cocy90w2",
+          "challanId": "cmsji152z00awjub69l98lggl",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.195Z",
+          "updatedAt": "2026-08-07T22:10:59.195Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji153f00b1jub6ubnfvl4l",
+      "challanNo": "CH-2026-000235",
+      "studentId": "cmscnsun801byjufrxk50yqau",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.211Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.211Z",
+      "updatedAt": "2026-08-07T22:10:59.223Z",
+      "items": [
+        {
+          "id": "cmsji153f00b2jub6s9hlxcd1",
+          "challanId": "cmsji153f00b1jub6ubnfvl4l",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.211Z",
+          "updatedAt": "2026-08-07T22:10:59.211Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji153v00b8jub6f1sfimun",
+      "challanNo": "CH-2026-000236",
+      "studentId": "cmscnsvd401rnjufrmlpfsfod",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.227Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.227Z",
+      "updatedAt": "2026-08-07T22:10:59.237Z",
+      "items": [
+        {
+          "id": "cmsji153v00b9jub6v0sz46q6",
+          "challanId": "cmsji153v00b8jub6f1sfimun",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.227Z",
+          "updatedAt": "2026-08-07T22:10:59.227Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji154800bfjub61jgmxdlc",
+      "challanNo": "CH-2026-000237",
+      "studentId": "cmscnsvn801zmjufrb9dcua01",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.240Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.240Z",
+      "updatedAt": "2026-08-07T22:10:59.243Z",
+      "items": [
+        {
+          "id": "cmsji154800bgjub60kdtujtu",
+          "challanId": "cmsji154800bfjub61jgmxdlc",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.240Z",
+          "updatedAt": "2026-08-07T22:10:59.240Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji154f00bijub6yelqrcs5",
+      "challanNo": "CH-2026-000238",
+      "studentId": "cmscnsvlq01yrjufrklrq67kz",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.247Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.247Z",
+      "updatedAt": "2026-08-07T22:10:59.258Z",
+      "items": [
+        {
+          "id": "cmsji154f00bjjub6dtnchhsa",
+          "challanId": "cmsji154f00bijub6yelqrcs5",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.247Z",
+          "updatedAt": "2026-08-07T22:10:59.247Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji154t00bpjub6qjxxkyqk",
+      "challanNo": "CH-2026-000239",
+      "studentId": "cmscnsveb01ssjufrsb0kqpgo",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.261Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.261Z",
+      "updatedAt": "2026-08-07T22:10:59.271Z",
+      "items": [
+        {
+          "id": "cmsji154t00bqjub6p1lxuiqd",
+          "challanId": "cmsji154t00bpjub6qjxxkyqk",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.261Z",
+          "updatedAt": "2026-08-07T22:10:59.261Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji155500bwjub67dm7enp7",
+      "challanNo": "CH-2026-000240",
+      "studentId": "cmscnsvk501xrjufryp9fs5uk",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.273Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.273Z",
+      "updatedAt": "2026-08-07T22:10:59.283Z",
+      "items": [
+        {
+          "id": "cmsji155500bxjub6sk8rnito",
+          "challanId": "cmsji155500bwjub67dm7enp7",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.273Z",
+          "updatedAt": "2026-08-07T22:10:59.273Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji155i00c3jub6yr16s1gl",
+      "challanNo": "CH-2026-000241",
+      "studentId": "cmscnsvu4023yjufrtjmc5vew",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.287Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.287Z",
+      "updatedAt": "2026-08-07T22:10:59.297Z",
+      "items": [
+        {
+          "id": "cmsji155i00c4jub6menpm1ao",
+          "challanId": "cmsji155i00c3jub6yr16s1gl",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.287Z",
+          "updatedAt": "2026-08-07T22:10:59.287Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji155v00cajub6vpw2lq9a",
+      "challanNo": "CH-2026-000242",
+      "studentId": "cmscnsvzw026tjufr6whiqbgi",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.300Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.300Z",
+      "updatedAt": "2026-08-07T22:10:59.308Z",
+      "items": [
+        {
+          "id": "cmsji155v00cbjub64w98nwlh",
+          "challanId": "cmsji155v00cajub6vpw2lq9a",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.300Z",
+          "updatedAt": "2026-08-07T22:10:59.300Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji156700chjub695hfj50l",
+      "challanNo": "CH-2026-000243",
+      "studentId": "cmscnswdj02f5jufr8npyt95s",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.311Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PARTIAL",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.311Z",
+      "updatedAt": "2026-08-07T22:10:59.321Z",
+      "items": [
+        {
+          "id": "cmsji156700cijub67cvtfex0",
+          "challanId": "cmsji156700chjub695hfj50l",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.311Z",
+          "updatedAt": "2026-08-07T22:10:59.311Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji156k00cmjub69r4p45co",
+      "challanNo": "CH-2026-000244",
+      "studentId": "cmscnsvl201yhjufrk5xqd6d4",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.324Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.324Z",
+      "updatedAt": "2026-08-07T22:10:59.327Z",
+      "items": [
+        {
+          "id": "cmsji156k00cnjub6bw9wffqi",
+          "challanId": "cmsji156k00cmjub69r4p45co",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.324Z",
+          "updatedAt": "2026-08-07T22:10:59.324Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji156p00cpjub6up7rv6zh",
+      "challanNo": "CH-2026-000245",
+      "studentId": "cmscnsuyk01hcjufre76odqm2",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.329Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.329Z",
+      "updatedAt": "2026-08-07T22:10:59.333Z",
+      "items": [
+        {
+          "id": "cmsji156p00cqjub6s0fgns02",
+          "challanId": "cmsji156p00cpjub6up7rv6zh",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.329Z",
+          "updatedAt": "2026-08-07T22:10:59.329Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji156v00csjub6twdpis5z",
+      "challanNo": "CH-2026-000246",
+      "studentId": "cmscnsvr6021pjufrbm2po6i3",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.335Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "PAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.335Z",
+      "updatedAt": "2026-08-07T22:10:59.344Z",
+      "items": [
+        {
+          "id": "cmsji156v00ctjub6245hkg0g",
+          "challanId": "cmsji156v00csjub6twdpis5z",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.335Z",
+          "updatedAt": "2026-08-07T22:10:59.335Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji157600czjub68prser26",
+      "challanNo": "CH-2026-000247",
+      "studentId": "cmscnsvqp021bjufrk5fvun4u",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.347Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.347Z",
+      "updatedAt": "2026-08-07T22:10:59.349Z",
+      "items": [
+        {
+          "id": "cmsji157600d0jub6fcftlfkj",
+          "challanId": "cmsji157600czjub68prser26",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.347Z",
+          "updatedAt": "2026-08-07T22:10:59.347Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji157b00d2jub6cphhvwqx",
+      "challanNo": "CH-2026-000248",
+      "studentId": "cmscnsvqj0216jufr69fi4pww",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.352Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.352Z",
+      "updatedAt": "2026-08-07T22:10:59.355Z",
+      "items": [
+        {
+          "id": "cmsji157b00d3jub6sx1fvmro",
+          "challanId": "cmsji157b00d2jub6cphhvwqx",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.352Z",
+          "updatedAt": "2026-08-07T22:10:59.352Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji157h00d5jub66f26ntbw",
+      "challanNo": "CH-2026-000249",
+      "studentId": "cmscnsvtb023ajufrcis1vf8b",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.357Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.357Z",
+      "updatedAt": "2026-08-07T22:10:59.360Z",
+      "items": [
+        {
+          "id": "cmsji157h00d6jub6nz6x3re2",
+          "challanId": "cmsji157h00d5jub66f26ntbw",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.357Z",
+          "updatedAt": "2026-08-07T22:10:59.357Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji157m00d8jub62cfp6j9h",
+      "challanNo": "CH-2026-000250",
+      "studentId": "cmscnsw47028tjufrfgv6aa5i",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.363Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.363Z",
+      "updatedAt": "2026-08-07T22:10:59.367Z",
+      "items": [
+        {
+          "id": "cmsji157n00d9jub6lg6x41df",
+          "challanId": "cmsji157m00d8jub62cfp6j9h",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.363Z",
+          "updatedAt": "2026-08-07T22:10:59.363Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji157t00dbjub6zmbxhuf6",
+      "challanNo": "CH-2026-000251",
+      "studentId": "cmscnsw3x028ojufrsfzdnmmr",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.369Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.369Z",
+      "updatedAt": "2026-08-07T22:10:59.372Z",
+      "items": [
+        {
+          "id": "cmsji157t00dcjub6z774442y",
+          "challanId": "cmsji157t00dbjub6zmbxhuf6",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.369Z",
+          "updatedAt": "2026-08-07T22:10:59.369Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji157z00dejub6zfsz544h",
+      "challanNo": "CH-2026-000252",
+      "studentId": "cmscnswf502gqjufrp1ogo9ae",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.375Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.375Z",
+      "updatedAt": "2026-08-07T22:10:59.378Z",
+      "items": [
+        {
+          "id": "cmsji157z00dfjub6mnde58d4",
+          "challanId": "cmsji157z00dejub6zfsz544h",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.375Z",
+          "updatedAt": "2026-08-07T22:10:59.375Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji158400dhjub629uxrg4y",
+      "challanNo": "CH-2026-000253",
+      "studentId": "cmscnswe902fwjufrpe7xp2kw",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.380Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.380Z",
+      "updatedAt": "2026-08-07T22:10:59.383Z",
+      "items": [
+        {
+          "id": "cmsji158400dijub6evdg996h",
+          "challanId": "cmsji158400dhjub629uxrg4y",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.380Z",
+          "updatedAt": "2026-08-07T22:10:59.380Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji158900dkjub64l2snq82",
+      "challanNo": "CH-2026-000254",
+      "studentId": "cmscnsv8701njjufrrn5kni7z",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.386Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.386Z",
+      "updatedAt": "2026-08-07T22:10:59.389Z",
+      "items": [
+        {
+          "id": "cmsji158900dljub6lejfa3q5",
+          "challanId": "cmsji158900dkjub64l2snq82",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.386Z",
+          "updatedAt": "2026-08-07T22:10:59.386Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji158f00dnjub6js98tssj",
+      "challanNo": "CH-2026-000255",
+      "studentId": "cmscnsvnx01zyjufr5quzg59y",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.391Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.391Z",
+      "updatedAt": "2026-08-07T22:10:59.394Z",
+      "items": [
+        {
+          "id": "cmsji158f00dojub66iacuslw",
+          "challanId": "cmsji158f00dnjub6js98tssj",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.391Z",
+          "updatedAt": "2026-08-07T22:10:59.391Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji158k00dqjub6m510xs7k",
+      "challanNo": "CH-2026-000256",
+      "studentId": "cmscnsvka01xwjufrugn8ou7v",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.396Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.396Z",
+      "updatedAt": "2026-08-07T22:10:59.399Z",
+      "items": [
+        {
+          "id": "cmsji158k00drjub69s10bx9r",
+          "challanId": "cmsji158k00dqjub6m510xs7k",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.396Z",
+          "updatedAt": "2026-08-07T22:10:59.396Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji158p00dtjub6ai3silgq",
+      "challanNo": "CH-2026-000257",
+      "studentId": "cmscnsvno01ztjufr7oo00su3",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.401Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.401Z",
+      "updatedAt": "2026-08-07T22:10:59.404Z",
+      "items": [
+        {
+          "id": "cmsji158p00dujub6g7j6nf7y",
+          "challanId": "cmsji158p00dtjub6ai3silgq",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.401Z",
+          "updatedAt": "2026-08-07T22:10:59.401Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji158u00dwjub61tno3u6k",
+      "challanNo": "CH-2026-000258",
+      "studentId": "cmscnsvt30235jufrwhtga9xo",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.406Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.406Z",
+      "updatedAt": "2026-08-07T22:10:59.410Z",
+      "items": [
+        {
+          "id": "cmsji158u00dxjub6irt516ax",
+          "challanId": "cmsji158u00dwjub61tno3u6k",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.406Z",
+          "updatedAt": "2026-08-07T22:10:59.406Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji159200dzjub6s6xrq4bl",
+      "challanNo": "CH-2026-000259",
+      "studentId": "cmscnsvss022wjufrqooi8ala",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.415Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.415Z",
+      "updatedAt": "2026-08-07T22:10:59.419Z",
+      "items": [
+        {
+          "id": "cmsji159200e0jub6iiu4impv",
+          "challanId": "cmsji159200dzjub6s6xrq4bl",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.415Z",
+          "updatedAt": "2026-08-07T22:10:59.415Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji159b00e2jub6siq2fz42",
+      "challanNo": "CH-2026-000260",
+      "studentId": "cmscnsvuw024jjufr2gcxh5mw",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.423Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.423Z",
+      "updatedAt": "2026-08-07T22:10:59.430Z",
+      "items": [
+        {
+          "id": "cmsji159b00e3jub6n6h37xvn",
+          "challanId": "cmsji159b00e2jub6siq2fz42",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.423Z",
+          "updatedAt": "2026-08-07T22:10:59.423Z"
+        }
+      ]
+    },
+    {
+      "id": "cmsji159l00e5jub6qq1kgj0b",
+      "challanNo": "CH-2026-000261",
+      "studentId": "cmscnswg402hojufrl3f0o84q",
+      "year": 2026,
+      "month": 8,
+      "baseAmount": "1400",
+      "discount": "0",
+      "lateFee": "0",
+      "amount": "1400",
+      "issueDate": "2026-08-07T22:10:59.434Z",
+      "dueDate": "2026-08-22T00:00:00.000Z",
+      "status": "UNPAID",
+      "billedToTeacherId": null,
+      "staffCovered": "0",
+      "createdAt": "2026-08-07T22:10:59.434Z",
+      "updatedAt": "2026-08-07T22:10:59.437Z",
+      "items": [
+        {
+          "id": "cmsji159l00e6jub65l0a1e5q",
+          "challanId": "cmsji159l00e5jub6qq1kgj0b",
+          "type": "TUITION",
+          "label": "Monthly Tuition",
+          "amount": "1400",
+          "createdAt": "2026-08-07T22:10:59.434Z",
+          "updatedAt": "2026-08-07T22:10:59.434Z"
+        }
+      ]
+    }
+  ],
+  "payments": [
+    {
+      "id": "cmsdx7t61002jju0iqfd0whjq",
+      "studentId": "cmscnsvlq01yrjufrklrq67kz",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.528Z",
+      "updatedAt": "2026-08-04T00:29:27.528Z"
+    },
+    {
+      "id": "cmsdx7t77002nju0ialz53ia1",
+      "studentId": "cmscnsvmw01zfjufrvfx1zmfj",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.572Z",
+      "updatedAt": "2026-08-04T00:29:27.572Z"
+    },
+    {
+      "id": "cmsdx7t7g002rju0ilks40r2c",
+      "studentId": "cmscnsun801byjufrxk50yqau",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.580Z",
+      "updatedAt": "2026-08-04T00:29:27.580Z"
+    },
+    {
+      "id": "cmsdx7t7k002vju0ijcq625m5",
+      "studentId": "cmscnsvd401rnjufrmlpfsfod",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.584Z",
+      "updatedAt": "2026-08-04T00:29:27.584Z"
+    },
+    {
+      "id": "cmsdx7t81002zju0ibhjosp08",
+      "studentId": "cmscnsvda01rujufrhrmiyf5i",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.601Z",
+      "updatedAt": "2026-08-04T00:29:27.601Z"
+    },
+    {
+      "id": "cmsdx7t850033ju0iikhal6za",
+      "studentId": "cmscnsveb01ssjufrsb0kqpgo",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.606Z",
+      "updatedAt": "2026-08-04T00:29:27.606Z"
+    },
+    {
+      "id": "cmsdx7t8a0037ju0i0g7hiasj",
+      "studentId": "cmscnsvf201tgjufrnpkklsei",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.611Z",
+      "updatedAt": "2026-08-04T00:29:27.611Z"
+    },
+    {
+      "id": "cmsdx7t8e003bju0irfgpp657",
+      "studentId": "cmscnsvk501xrjufryp9fs5uk",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.614Z",
+      "updatedAt": "2026-08-04T00:29:27.614Z"
+    },
+    {
+      "id": "cmsdx7t8k003fju0ivdxq5e5s",
+      "studentId": "cmscnsvr6021pjufrbm2po6i3",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.621Z",
+      "updatedAt": "2026-08-04T00:29:27.621Z"
+    },
+    {
+      "id": "cmsdx7t8q003jju0i7nmv55sb",
+      "studentId": "cmscnsvrc021ujufroh2t28hc",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.626Z",
+      "updatedAt": "2026-08-04T00:29:27.626Z"
+    },
+    {
+      "id": "cmsdx7t8w003nju0ibb6c8fdo",
+      "studentId": "cmscnsvtr023ojufrel0l4af3",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.632Z",
+      "updatedAt": "2026-08-04T00:29:27.632Z"
+    },
+    {
+      "id": "cmsdx7t92003rju0ikee3d7gx",
+      "studentId": "cmscnsvu4023yjufrtjmc5vew",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.639Z",
+      "updatedAt": "2026-08-04T00:29:27.639Z"
+    },
+    {
+      "id": "cmsdx7t98003vju0idwhibi6f",
+      "studentId": "cmscnsvuc0245jufrz6pig2o7",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.644Z",
+      "updatedAt": "2026-08-04T00:29:27.644Z"
+    },
+    {
+      "id": "cmsdx7t9d003zju0i0ucmwkmt",
+      "studentId": "cmscnsvvg024tjufrd0bffl6t",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.649Z",
+      "updatedAt": "2026-08-04T00:29:27.649Z"
+    },
+    {
+      "id": "cmsdx7t9h0043ju0is3ye568q",
+      "studentId": "cmscnsvvi024vjufrkafuvryc",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.654Z",
+      "updatedAt": "2026-08-04T00:29:27.654Z"
+    },
+    {
+      "id": "cmsdx7t9v0047ju0il4e9aft3",
+      "studentId": "cmscnsvz5026jjufreeup732j",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.667Z",
+      "updatedAt": "2026-08-04T00:29:27.667Z"
+    },
+    {
+      "id": "cmsdx7ta3004bju0i7rd0god9",
+      "studentId": "cmscnsvzw026tjufr6whiqbgi",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.675Z",
+      "updatedAt": "2026-08-04T00:29:27.675Z"
+    },
+    {
+      "id": "cmsdx7ta9004fju0i0yfzkt74",
+      "studentId": "cmscnsw56029djufre3t0bhe5",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.682Z",
+      "updatedAt": "2026-08-04T00:29:27.682Z"
+    },
+    {
+      "id": "cmsdx7tag004jju0i42com60t",
+      "studentId": "cmscnsw5k029jjufrv44l1qmg",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.688Z",
+      "updatedAt": "2026-08-04T00:29:27.688Z"
+    },
+    {
+      "id": "cmsdx7tan004nju0ip9v6o9xw",
+      "studentId": "cmscnsw62029qjufrum73ocfr",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.695Z",
+      "updatedAt": "2026-08-04T00:29:27.695Z"
+    },
+    {
+      "id": "cmsdx7tav004rju0iyjaaaoic",
+      "studentId": "cmscnswbl02d0jufrzrk62njq",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.703Z",
+      "updatedAt": "2026-08-04T00:29:27.703Z"
+    },
+    {
+      "id": "cmsdx7tb2004vju0iatp1lz48",
+      "studentId": "cmscnswdj02f5jufr8npyt95s",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.711Z",
+      "updatedAt": "2026-08-04T00:29:27.711Z"
+    },
+    {
+      "id": "cmsdx7tbc004zju0ikocbtos8",
+      "studentId": "cmscnswk002lajufrx7k4pqf5",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.721Z",
+      "updatedAt": "2026-08-04T00:29:27.721Z"
+    },
+    {
+      "id": "cmsdx7tbo0053ju0iz6azdjpm",
+      "studentId": "cmscnswky02ltjufrnk72hn0h",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:29:27.732Z",
+      "updatedAt": "2026-08-04T00:29:27.732Z"
+    },
+    {
+      "id": "cmsdxa5mq009aju0i3obggdx4",
+      "studentId": "cmscnsvlq01yrjufrklrq67kz",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:16.994Z",
+      "updatedAt": "2026-08-04T00:31:16.994Z"
+    },
+    {
+      "id": "cmsdxa5mw009eju0ilq1npc16",
+      "studentId": "cmscnsvmw01zfjufrvfx1zmfj",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.000Z",
+      "updatedAt": "2026-08-04T00:31:17.000Z"
+    },
+    {
+      "id": "cmsdxa5n0009iju0i7pyf87kv",
+      "studentId": "cmscnsun801byjufrxk50yqau",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.004Z",
+      "updatedAt": "2026-08-04T00:31:17.004Z"
+    },
+    {
+      "id": "cmsdxa5n3009mju0i1f086ziw",
+      "studentId": "cmscnsvd401rnjufrmlpfsfod",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.008Z",
+      "updatedAt": "2026-08-04T00:31:17.008Z"
+    },
+    {
+      "id": "cmsdxa5n7009qju0ilvltwg7q",
+      "studentId": "cmscnsvda01rujufrhrmiyf5i",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.011Z",
+      "updatedAt": "2026-08-04T00:31:17.011Z"
+    },
+    {
+      "id": "cmsdxa5na009uju0i85uso54e",
+      "studentId": "cmscnsveb01ssjufrsb0kqpgo",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.015Z",
+      "updatedAt": "2026-08-04T00:31:17.015Z"
+    },
+    {
+      "id": "cmsdxa5ne009yju0icd1oht2v",
+      "studentId": "cmscnsvf201tgjufrnpkklsei",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.018Z",
+      "updatedAt": "2026-08-04T00:31:17.018Z"
+    },
+    {
+      "id": "cmsdxa5ni00a2ju0igly0kjtk",
+      "studentId": "cmscnsvk501xrjufryp9fs5uk",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.022Z",
+      "updatedAt": "2026-08-04T00:31:17.022Z"
+    },
+    {
+      "id": "cmsdxa5nl00a6ju0iobn860f2",
+      "studentId": "cmscnsvr6021pjufrbm2po6i3",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.025Z",
+      "updatedAt": "2026-08-04T00:31:17.025Z"
+    },
+    {
+      "id": "cmsdxa5no00aaju0i6ur6niyu",
+      "studentId": "cmscnsvrc021ujufroh2t28hc",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.029Z",
+      "updatedAt": "2026-08-04T00:31:17.029Z"
+    },
+    {
+      "id": "cmsdxa5nr00aeju0ijdpeyd21",
+      "studentId": "cmscnsvtr023ojufrel0l4af3",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.032Z",
+      "updatedAt": "2026-08-04T00:31:17.032Z"
+    },
+    {
+      "id": "cmsdxa5nv00aiju0iberxbkye",
+      "studentId": "cmscnsvu4023yjufrtjmc5vew",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.035Z",
+      "updatedAt": "2026-08-04T00:31:17.035Z"
+    },
+    {
+      "id": "cmsdxa5ny00amju0i25qpkr8x",
+      "studentId": "cmscnsvuc0245jufrz6pig2o7",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.038Z",
+      "updatedAt": "2026-08-04T00:31:17.038Z"
+    },
+    {
+      "id": "cmsdxa5o100aqju0ivddmz6mv",
+      "studentId": "cmscnsvvg024tjufrd0bffl6t",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.041Z",
+      "updatedAt": "2026-08-04T00:31:17.041Z"
+    },
+    {
+      "id": "cmsdxa5o400auju0ibvzjy3tb",
+      "studentId": "cmscnsvvi024vjufrkafuvryc",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.044Z",
+      "updatedAt": "2026-08-04T00:31:17.044Z"
+    },
+    {
+      "id": "cmsdxa5o700ayju0i315xi7k0",
+      "studentId": "cmscnsvz5026jjufreeup732j",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.047Z",
+      "updatedAt": "2026-08-04T00:31:17.047Z"
+    },
+    {
+      "id": "cmsdxa5oa00b2ju0iejdemqnb",
+      "studentId": "cmscnsvzw026tjufr6whiqbgi",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.051Z",
+      "updatedAt": "2026-08-04T00:31:17.051Z"
+    },
+    {
+      "id": "cmsdxa5oe00b6ju0i4i5lybtu",
+      "studentId": "cmscnsw56029djufre3t0bhe5",
+      "amount": "2000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:17.054Z",
+      "updatedAt": "2026-08-04T00:31:17.054Z"
+    },
+    {
+      "id": "cmsdxaby100bbju0in008lhyo",
+      "studentId": "cmscnsw5k029jjufrv44l1qmg",
+      "amount": "4000",
+      "paymentDate": "2026-08-04T00:00:00.000Z",
+      "method": "CASH",
+      "receivedById": "cms7xajjf0001vbvsqjetetod",
+      "note": null,
+      "isReversed": false,
+      "reversedAt": null,
+      "reversedById": null,
+      "reversalReason": null,
+      "createdAt": "2026-08-04T00:31:25.177Z",
+      "updatedAt": "2026-08-04T00:31:25.177Z"
+    }
+  ],
+  "allocations": [
+    {
+      "id": "cmsjeu9bb0051jub6opj0jdih",
+      "paymentId": "cmsdx7t61002jju0iqfd0whjq",
+      "challanId": "cmsjeu9b4004yjub6mtmhg8yq",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.239Z",
+      "updatedAt": "2026-08-07T20:41:39.239Z"
+    },
+    {
+      "id": "cmsjeu9bv0056jub6096icg08",
+      "paymentId": "cmsdx7t77002nju0ialz53ia1",
+      "challanId": "cmsjeu9bn0053jub6j1fcw5db",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.259Z",
+      "updatedAt": "2026-08-07T20:41:39.259Z"
+    },
+    {
+      "id": "cmsjeu9cu005ejub6ebd60ar0",
+      "paymentId": "cmsdx7t850033ju0iikhal6za",
+      "challanId": "cmsjeu9cm005bjub67ecwkyqb",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.294Z",
+      "updatedAt": "2026-08-07T20:41:39.294Z"
+    },
+    {
+      "id": "cmsjeu9dd005jjub620d3a18d",
+      "paymentId": "cmsdx7t8a0037ju0i0g7hiasj",
+      "challanId": "cmsjeu9d5005gjub6pywlt6q5",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.313Z",
+      "updatedAt": "2026-08-07T20:41:39.313Z"
+    },
+    {
+      "id": "cmsjeu9dq005ojub6gnht5m6f",
+      "paymentId": "cmsdx7t8e003bju0irfgpp657",
+      "challanId": "cmsjeu9dl005ljub6ptakkczc",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.327Z",
+      "updatedAt": "2026-08-07T20:41:39.327Z"
+    },
+    {
+      "id": "cmsjeu9e3005tjub6866uawz8",
+      "paymentId": "cmsdx7t8q003jju0i7nmv55sb",
+      "challanId": "cmsjeu9dy005qjub600e1xdpt",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.339Z",
+      "updatedAt": "2026-08-07T20:41:39.339Z"
+    },
+    {
+      "id": "cmsjeu9el005yjub6ims01cpt",
+      "paymentId": "cmsdx7t98003vju0idwhibi6f",
+      "challanId": "cmsjeu9ee005vjub6nq5f3sms",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.357Z",
+      "updatedAt": "2026-08-07T20:41:39.357Z"
+    },
+    {
+      "id": "cmsjeu9ex0063jub66y0fn76j",
+      "paymentId": "cmsdx7t9h0043ju0is3ye568q",
+      "challanId": "cmsjeu9et0060jub657m0eqyz",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.370Z",
+      "updatedAt": "2026-08-07T20:41:39.370Z"
+    },
+    {
+      "id": "cmsjeu9fc0068jub6hbmatc2o",
+      "paymentId": "cmsdx7t8w003nju0ibb6c8fdo",
+      "challanId": "cmsjeu9f80065jub6pxrphuot",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.385Z",
+      "updatedAt": "2026-08-07T20:41:39.385Z"
+    },
+    {
+      "id": "cmsjeu9fq006djub6z8ir0uah",
+      "paymentId": "cmsdx7t9d003zju0i0ucmwkmt",
+      "challanId": "cmsjeu9fl006ajub6flztfbx2",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.399Z",
+      "updatedAt": "2026-08-07T20:41:39.399Z"
+    },
+    {
+      "id": "cmsjeu9g8006ijub6dbeq5dd1",
+      "paymentId": "cmsdx7t92003rju0ikee3d7gx",
+      "challanId": "cmsjeu9g2006fjub66fokguyk",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.417Z",
+      "updatedAt": "2026-08-07T20:41:39.417Z"
+    },
+    {
+      "id": "cmsjeu9gm006njub6xxwyqpc8",
+      "paymentId": "cmsdx7ta3004bju0i7rd0god9",
+      "challanId": "cmsjeu9gi006kjub6n5aho86i",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.431Z",
+      "updatedAt": "2026-08-07T20:41:39.431Z"
+    },
+    {
+      "id": "cmsjeu9h2006sjub6tv6y1rnt",
+      "paymentId": "cmsdx7tan004nju0ip9v6o9xw",
+      "challanId": "cmsjeu9gv006pjub6kszt0luu",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.447Z",
+      "updatedAt": "2026-08-07T20:41:39.447Z"
+    },
+    {
+      "id": "cmsjeu9hi006xjub66ze6vo6u",
+      "paymentId": "cmsdx7ta9004fju0i0yfzkt74",
+      "challanId": "cmsjeu9hc006ujub6c9a4wmsb",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.462Z",
+      "updatedAt": "2026-08-07T20:41:39.462Z"
+    },
+    {
+      "id": "cmsjeu9hx0072jub6ce7vec51",
+      "paymentId": "cmsdx7tav004rju0iyjaaaoic",
+      "challanId": "cmsjeu9hq006zjub63ldi3d6t",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.477Z",
+      "updatedAt": "2026-08-07T20:41:39.477Z"
+    },
+    {
+      "id": "cmsjeu9ib0077jub6n0sawqnt",
+      "paymentId": "cmsdx7tb2004vju0iatp1lz48",
+      "challanId": "cmsjeu9i60074jub68j8dhy24",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.491Z",
+      "updatedAt": "2026-08-07T20:41:39.491Z"
+    },
+    {
+      "id": "cmsjeu9in007cjub6c79d34c2",
+      "paymentId": "cmsdx7t7g002rju0ilks40r2c",
+      "challanId": "cmsjeu9ij0079jub6kjdphb4o",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.504Z",
+      "updatedAt": "2026-08-07T20:41:39.504Z"
+    },
+    {
+      "id": "cmsjeu9iy007hjub64y175dwx",
+      "paymentId": "cmsdx7t7k002vju0ijcq625m5",
+      "challanId": "cmsjeu9iu007ejub6am5td04n",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.515Z",
+      "updatedAt": "2026-08-07T20:41:39.515Z"
+    },
+    {
+      "id": "cmsjeu9jp007sjub62rlk5qqd",
+      "paymentId": "cmsdx7t8k003fju0ivdxq5e5s",
+      "challanId": "cmsjeu9ji007pjub6ij4y4ew4",
+      "amountApplied": "1400",
+      "createdAt": "2026-08-07T20:41:39.542Z",
+      "updatedAt": "2026-08-07T20:41:39.542Z"
+    },
+    {
+      "id": "cmsji14zc0097jub6ubu51axy",
+      "paymentId": "cmsdx7t77002nju0ialz53ia1",
+      "challanId": "cmsji14z40094jub6xvnpjyc9",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.064Z",
+      "updatedAt": "2026-08-07T22:10:59.064Z"
+    },
+    {
+      "id": "cmsji14zd0099jub664aeo3ix",
+      "paymentId": "cmsdxa5mw009eju0ilq1npc16",
+      "challanId": "cmsji14z40094jub6xvnpjyc9",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.066Z",
+      "updatedAt": "2026-08-07T22:10:59.066Z"
+    },
+    {
+      "id": "cmsji1502009hjub6gt4dsp1f",
+      "paymentId": "cmsdx7t8a0037ju0i0g7hiasj",
+      "challanId": "cmsji14zu009ejub6igd4552h",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.090Z",
+      "updatedAt": "2026-08-07T22:10:59.090Z"
+    },
+    {
+      "id": "cmsji1504009jjub6ug6vaxxt",
+      "paymentId": "cmsdxa5ne009yju0icd1oht2v",
+      "challanId": "cmsji14zu009ejub6igd4552h",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.092Z",
+      "updatedAt": "2026-08-07T22:10:59.092Z"
+    },
+    {
+      "id": "cmsji150k009ojub6pspd77gn",
+      "paymentId": "cmsdx7t8q003jju0i7nmv55sb",
+      "challanId": "cmsji150e009ljub6evcyc9h7",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.108Z",
+      "updatedAt": "2026-08-07T22:10:59.108Z"
+    },
+    {
+      "id": "cmsji150l009qjub6irn7r7go",
+      "paymentId": "cmsdxa5no00aaju0i6ur6niyu",
+      "challanId": "cmsji150e009ljub6evcyc9h7",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.109Z",
+      "updatedAt": "2026-08-07T22:10:59.109Z"
+    },
+    {
+      "id": "cmsji150x009vjub6z96pa5ee",
+      "paymentId": "cmsdx7t98003vju0idwhibi6f",
+      "challanId": "cmsji150t009sjub6azssnrth",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.122Z",
+      "updatedAt": "2026-08-07T22:10:59.122Z"
+    },
+    {
+      "id": "cmsji150y009xjub6fo4v5cym",
+      "paymentId": "cmsdxa5ny00amju0i25qpkr8x",
+      "challanId": "cmsji150t009sjub6azssnrth",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.123Z",
+      "updatedAt": "2026-08-07T22:10:59.123Z"
+    },
+    {
+      "id": "cmsji151b00a2jub613tgeup4",
+      "paymentId": "cmsdx7t9h0043ju0is3ye568q",
+      "challanId": "cmsji1515009zjub6qmfs48e7",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.135Z",
+      "updatedAt": "2026-08-07T22:10:59.135Z"
+    },
+    {
+      "id": "cmsji151c00a4jub6362sjx1l",
+      "paymentId": "cmsdxa5o400auju0ibvzjy3tb",
+      "challanId": "cmsji1515009zjub6qmfs48e7",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.136Z",
+      "updatedAt": "2026-08-07T22:10:59.136Z"
+    },
+    {
+      "id": "cmsji151o00a9jub6g55tjsy3",
+      "paymentId": "cmsdx7t8w003nju0ibb6c8fdo",
+      "challanId": "cmsji151j00a6jub6wgqc1wp5",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.148Z",
+      "updatedAt": "2026-08-07T22:10:59.148Z"
+    },
+    {
+      "id": "cmsji151p00abjub6jj4hpxpn",
+      "paymentId": "cmsdxa5nr00aeju0ijdpeyd21",
+      "challanId": "cmsji151j00a6jub6wgqc1wp5",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.149Z",
+      "updatedAt": "2026-08-07T22:10:59.149Z"
+    },
+    {
+      "id": "cmsji152100agjub6kucdcu3e",
+      "paymentId": "cmsdx7t9d003zju0i0ucmwkmt",
+      "challanId": "cmsji151x00adjub627kgyoxp",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.162Z",
+      "updatedAt": "2026-08-07T22:10:59.162Z"
+    },
+    {
+      "id": "cmsji152200aijub69essfuyi",
+      "paymentId": "cmsdxa5o100aqju0ivddmz6mv",
+      "challanId": "cmsji151x00adjub627kgyoxp",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.163Z",
+      "updatedAt": "2026-08-07T22:10:59.163Z"
+    },
+    {
+      "id": "cmsji152e00anjub65ctizq41",
+      "paymentId": "cmsdx7tan004nju0ip9v6o9xw",
+      "challanId": "cmsji152900akjub6jjh4ukuc",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.175Z",
+      "updatedAt": "2026-08-07T22:10:59.175Z"
+    },
+    {
+      "id": "cmsji152p00asjub6m3ybga2u",
+      "paymentId": "cmsdx7ta9004fju0i0yfzkt74",
+      "challanId": "cmsji152l00apjub69fktjlzo",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.186Z",
+      "updatedAt": "2026-08-07T22:10:59.186Z"
+    },
+    {
+      "id": "cmsji152q00aujub6ueyfyro2",
+      "paymentId": "cmsdxa5oe00b6ju0i4i5lybtu",
+      "challanId": "cmsji152l00apjub69fktjlzo",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.187Z",
+      "updatedAt": "2026-08-07T22:10:59.187Z"
+    },
+    {
+      "id": "cmsji153500azjub6css32i0v",
+      "paymentId": "cmsdx7tav004rju0iyjaaaoic",
+      "challanId": "cmsji152z00awjub69l98lggl",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.201Z",
+      "updatedAt": "2026-08-07T22:10:59.201Z"
+    },
+    {
+      "id": "cmsji153k00b4jub63gtzml87",
+      "paymentId": "cmsdx7t7g002rju0ilks40r2c",
+      "challanId": "cmsji153f00b1jub6ubnfvl4l",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.216Z",
+      "updatedAt": "2026-08-07T22:10:59.216Z"
+    },
+    {
+      "id": "cmsji153l00b6jub67exaajif",
+      "paymentId": "cmsdxa5n0009iju0i7pyf87kv",
+      "challanId": "cmsji153f00b1jub6ubnfvl4l",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.217Z",
+      "updatedAt": "2026-08-07T22:10:59.217Z"
+    },
+    {
+      "id": "cmsji153z00bbjub6c9sm5s5g",
+      "paymentId": "cmsdx7t7k002vju0ijcq625m5",
+      "challanId": "cmsji153v00b8jub6f1sfimun",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.232Z",
+      "updatedAt": "2026-08-07T22:10:59.232Z"
+    },
+    {
+      "id": "cmsji154000bdjub65n4gqxqd",
+      "paymentId": "cmsdxa5n3009mju0i1f086ziw",
+      "challanId": "cmsji153v00b8jub6f1sfimun",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.232Z",
+      "updatedAt": "2026-08-07T22:10:59.232Z"
+    },
+    {
+      "id": "cmsji154k00bljub63xbqjk3v",
+      "paymentId": "cmsdx7t61002jju0iqfd0whjq",
+      "challanId": "cmsji154f00bijub6yelqrcs5",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.252Z",
+      "updatedAt": "2026-08-07T22:10:59.252Z"
+    },
+    {
+      "id": "cmsji154l00bnjub6wvh1b65u",
+      "paymentId": "cmsdxa5mq009aju0i3obggdx4",
+      "challanId": "cmsji154f00bijub6yelqrcs5",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.254Z",
+      "updatedAt": "2026-08-07T22:10:59.254Z"
+    },
+    {
+      "id": "cmsji154x00bsjub6qkgwyhbl",
+      "paymentId": "cmsdx7t850033ju0iikhal6za",
+      "challanId": "cmsji154t00bpjub6qjxxkyqk",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.266Z",
+      "updatedAt": "2026-08-07T22:10:59.266Z"
+    },
+    {
+      "id": "cmsji154y00bujub6htt4yc5t",
+      "paymentId": "cmsdxa5na009uju0i85uso54e",
+      "challanId": "cmsji154t00bpjub6qjxxkyqk",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.266Z",
+      "updatedAt": "2026-08-07T22:10:59.266Z"
+    },
+    {
+      "id": "cmsji155900bzjub6ypzktr0t",
+      "paymentId": "cmsdx7t8e003bju0irfgpp657",
+      "challanId": "cmsji155500bwjub67dm7enp7",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.278Z",
+      "updatedAt": "2026-08-07T22:10:59.278Z"
+    },
+    {
+      "id": "cmsji155a00c1jub6g3h2idav",
+      "paymentId": "cmsdxa5ni00a2ju0igly0kjtk",
+      "challanId": "cmsji155500bwjub67dm7enp7",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.278Z",
+      "updatedAt": "2026-08-07T22:10:59.278Z"
+    },
+    {
+      "id": "cmsji155n00c6jub63w9rp9bw",
+      "paymentId": "cmsdx7t92003rju0ikee3d7gx",
+      "challanId": "cmsji155i00c3jub6yr16s1gl",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.292Z",
+      "updatedAt": "2026-08-07T22:10:59.292Z"
+    },
+    {
+      "id": "cmsji155o00c8jub642fpfg2i",
+      "paymentId": "cmsdxa5nv00aiju0iberxbkye",
+      "challanId": "cmsji155i00c3jub6yr16s1gl",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.293Z",
+      "updatedAt": "2026-08-07T22:10:59.293Z"
+    },
+    {
+      "id": "cmsji155z00cdjub6ed9rsu09",
+      "paymentId": "cmsdx7ta3004bju0i7rd0god9",
+      "challanId": "cmsji155v00cajub6vpw2lq9a",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.303Z",
+      "updatedAt": "2026-08-07T22:10:59.303Z"
+    },
+    {
+      "id": "cmsji156000cfjub66hhd8fv1",
+      "paymentId": "cmsdxa5oa00b2ju0iejdemqnb",
+      "challanId": "cmsji155v00cajub6vpw2lq9a",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.304Z",
+      "updatedAt": "2026-08-07T22:10:59.304Z"
+    },
+    {
+      "id": "cmsji156c00ckjub6pegh605o",
+      "paymentId": "cmsdx7tb2004vju0iatp1lz48",
+      "challanId": "cmsji156700chjub695hfj50l",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.316Z",
+      "updatedAt": "2026-08-07T22:10:59.316Z"
+    },
+    {
+      "id": "cmsji156z00cvjub6wtu54tni",
+      "paymentId": "cmsdx7t8k003fju0ivdxq5e5s",
+      "challanId": "cmsji156v00csjub6twdpis5z",
+      "amountApplied": "600",
+      "createdAt": "2026-08-07T22:10:59.339Z",
+      "updatedAt": "2026-08-07T22:10:59.339Z"
+    },
+    {
+      "id": "cmsji157000cxjub6z5oxskyf",
+      "paymentId": "cmsdxa5nl00a6ju0iobn860f2",
+      "challanId": "cmsji156v00csjub6twdpis5z",
+      "amountApplied": "800",
+      "createdAt": "2026-08-07T22:10:59.340Z",
+      "updatedAt": "2026-08-07T22:10:59.340Z"
+    }
+  ]
+}

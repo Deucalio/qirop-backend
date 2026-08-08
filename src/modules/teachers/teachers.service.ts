@@ -71,7 +71,7 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
 
   const children = rawChildren.map((s: any) => ({
     id: s.id,
-    name: `${s.firstName} ${s.lastName}`,
+    name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
     admissionNo: s.admissionNo,
     className: s.section.class.name,
     sectionName: s.section.name,
@@ -824,7 +824,7 @@ export async function getTeacherAttendance(id: string, actor: Actor, year?: numb
   };
 }
 
-export async function linkStudentToTeacher(teacherId: string, studentId: string) {
+export async function linkStudentToTeacher(teacherId: string, studentId: string, actorId?: string) {
   const profile = await prisma.teacherProfile.findUnique({
     where: { id: teacherId },
     include: { user: { include: { parentProfile: true } } },
@@ -850,9 +850,40 @@ export async function linkStudentToTeacher(teacherId: string, studentId: string)
     parentProfileId = updatedUser.parentProfile!.id;
   }
 
+  const previousParentId = student.parentId;
   await prisma.student.update({
     where: { id: studentId },
     data: { parentId: parentProfileId },
+  });
+
+  /*
+   * This moves money. Making a staff member a student's guardian means that
+   * child's fee challans are billed to this salary instead of collected in
+   * cash, so the change has to be attributable — it was previously silent.
+   */
+  const previousParent = previousParentId
+    ? await prisma.parentProfile.findUnique({
+        where: { id: previousParentId },
+        select: { user: { select: { fullName: true } } },
+      })
+    : null;
+
+  await logAudit(null, {
+    actorId: actorId ?? null,
+    action: 'UPDATE',
+    module: 'STUDENTS',
+    targetType: 'Student',
+    targetId: studentId,
+    targetLabel: `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''} (${student.admissionNo})`,
+    details:
+      `Linked ${student.firstName}${student.lastName ? ` ${student.lastName}` : ''} to staff member ${profile.user.fullName} — ` +
+      `their fee challans will now be deducted from that salary instead of collected in cash`,
+    changes: {
+      guardian: {
+        before: previousParent?.user.fullName ?? 'None',
+        after: profile.user.fullName,
+      },
+    },
   });
 
   return getTeacher(teacherId, true);

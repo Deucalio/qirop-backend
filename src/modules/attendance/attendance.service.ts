@@ -197,7 +197,7 @@ export async function getSectionRoster(actor: Actor, sectionId: string, dateStr?
       const m = byStudent.get(s.id);
       return {
         studentId: s.id,
-        name: `${s.firstName} ${s.lastName}`,
+        name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
         rollNo: s.rollNo,
         photoUrl: publicUrl(s.photoUrl),
         status: (m?.status ?? 'UNMARKED') as AttendanceStatus | 'UNMARKED',
@@ -271,7 +271,7 @@ export async function getSectionMonthlyAttendance(actor: Actor, sectionId: strin
 
       return {
         id: s.id,
-        name: `${s.firstName} ${s.lastName}`,
+        name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
         rollNo: s.rollNo,
         photoUrl: publicUrl(s.photoUrl),
         days,
@@ -508,7 +508,7 @@ export async function markSection(
     const prevStatus = prevStatusMap.get(r.studentId);
     if (prevStatus && prevStatus !== r.status) {
       const student = studentMap.get(r.studentId);
-      const studentLabel = student ? `${student.firstName} ${student.lastName}` : `Student #${r.studentId.slice(0, 6)}`;
+      const studentLabel = student ? `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''}` : `Student #${r.studentId.slice(0, 6)}`;
       changes[studentLabel] = { before: prevStatus, after: r.status };
     }
   }
@@ -663,7 +663,7 @@ export async function getMyChildren(userId: string) {
   });
   return students.map((s) => ({
     id: s.id,
-    name: `${s.firstName} ${s.lastName}`,
+    name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
     className: s.section.class.name,
     sectionName: s.section.name,
     photoUrl: publicUrl(s.photoUrl),
@@ -695,7 +695,7 @@ export async function getChildAttendance(userId: string, studentId: string, year
   return {
     student: {
       id: student.id,
-      name: `${student.firstName} ${student.lastName}`,
+      name: `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''}`,
       className: student.section.class.name,
       sectionName: student.section.name,
     },

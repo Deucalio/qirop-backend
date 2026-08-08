@@ -115,6 +115,14 @@ export const reversePaymentSchema = z.object({
   reason: z.string().trim().min(3, 'A reason is required').max(300),
 });
 
+/**
+ * Deletion destroys the record entirely, unlike a reversal which keeps it, so
+ * the reason is mandatory and lands in the audit entry.
+ */
+export const deletePaymentSchema = z.object({
+  reason: z.string().trim().min(3, 'A reason is required').max(300),
+});
+
 // ---- Query params ----
 export const listChallansQuerySchema = z.object({
   year: z.coerce.number().int().optional(),

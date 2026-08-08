@@ -87,7 +87,7 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
 
         const notes = buildNotes({
           childCount: billables.length,
-          childNames: billables.map((b) => `${b.challan.student.firstName} ${b.challan.student.lastName}`),
+          childNames: billables.map((b) => `${b.challan.student.firstName}${b.challan.student.lastName ? ` ${b.challan.student.lastName}` : ''}`),
           coveredTransport,
           childrenCovered: round2(childrenCovered),
           uncovered,
@@ -233,7 +233,7 @@ export async function salaryGenerationPreflight(year: number, month: number) {
     staffChildrenMissing: missing.length,
     teachersAffected: teacherIds.size,
     students: missing.slice(0, 15).map((s) => ({
-      name: `${s.firstName} ${s.lastName}`,
+      name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
       className: `${s.section.class.name}-${s.section.name}`,
       teacherName: s.teacherParent?.user.fullName ?? '',
     })),
@@ -329,7 +329,7 @@ export async function getSalary(id: string) {
   const children = childChallans.map((c) => ({
     challanId: c.id,
     challanNo: c.challanNo,
-    studentName: `${c.student.firstName} ${c.student.lastName}`,
+    studentName: `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}`,
     period: { year: c.year, month: c.month },
     billable: toMoneyString(billableOf(c)),
     covered: toMoneyString(c.staffCovered),

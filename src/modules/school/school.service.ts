@@ -430,7 +430,7 @@ export async function getPurgeDetailedItems() {
       return {
         id: c.id,
         title: `Challan #${c.challanNo}`,
-        subtitle: `${c.student.firstName} ${c.student.lastName} (${c.student.admissionNo}) · Month ${c.month}/${c.year}`,
+        subtitle: `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''} (${c.student.admissionNo}) · Month ${c.month}/${c.year}`,
         amount: `Rs ${Number(c.amount).toLocaleString()}`,
         status: c.status,
         dateStr: dt.dateStr,
@@ -455,7 +455,7 @@ export async function getPurgeDetailedItems() {
       const dt = fmtDt(sa.createdAt);
       return {
         id: sa.id,
-        title: `${sa.student.firstName} ${sa.student.lastName} — ${sa.status}`,
+        title: `${sa.student.firstName}${sa.student.lastName ? ` ${sa.student.lastName}` : ''} — ${sa.status}`,
         subtitle: `${sa.section.class.name}-${sa.section.name}`,
         dateStr: fmtDt(sa.date).dateStr,
         timeStr: dt.timeStr,
@@ -534,7 +534,7 @@ export async function getPurgeDetailedItems() {
       const dt = fmtDt(st.createdAt);
       return {
         id: st.id,
-        title: `${st.firstName} ${st.lastName}`,
+        title: `${st.firstName}${st.lastName ? ` ${st.lastName}` : ''}`,
         subtitle: `Adm #${st.admissionNo} · Roll #${st.rollNo || 'N/A'} · ${st.section.class.name}-${st.section.name}`,
         dateStr: dt.dateStr,
         timeStr: dt.timeStr,

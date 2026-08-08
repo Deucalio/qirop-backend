@@ -8,6 +8,7 @@ import {
   patchChallanSchema,
   recordPaymentSchema,
   reversePaymentSchema,
+  deletePaymentSchema,
   markPaidSchema,
 } from './fees.schema';
 import { requireAuth } from '../../middleware/requireAuth';
@@ -46,6 +47,10 @@ feesRouter.post('/challans/delete-batch', manage, asyncHandler(c.deleteChallansB
 feesRouter.post('/payments', edit, validateBody(recordPaymentSchema), asyncHandler(c.recordPayment));
 feesRouter.get('/payments', view, asyncHandler(c.listPayments));
 feesRouter.post('/payments/:id/reverse', manage, validateBody(reversePaymentSchema), asyncHandler(c.reversePayment));
+// Hard delete — `manage` only, and audited with the reason. Reversal remains the
+// right tool for a genuine receipt entered in error; this is for rows that
+// should never have existed.
+feesRouter.delete('/payments/:id', manage, validateBody(deletePaymentSchema), asyncHandler(c.deletePayment));
 
 feesRouter.get('/summary', view, asyncHandler(c.feesSummary));
 feesRouter.get('/trend', view, asyncHandler(c.feesTrend));

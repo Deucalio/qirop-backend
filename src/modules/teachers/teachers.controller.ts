@@ -104,7 +104,7 @@ export async function linkStudent(req: Request, res: Response): Promise<void> {
   if (!studentId) {
     throw new AppError('studentId is required', 400, 'BAD_REQUEST');
   }
-  res.json(await teachersService.linkStudentToTeacher(req.params.id, studentId));
+  res.json(await teachersService.linkStudentToTeacher(req.params.id, studentId, req.user?.userId));
 }
 
 export async function purge(req: Request, res: Response): Promise<void> {

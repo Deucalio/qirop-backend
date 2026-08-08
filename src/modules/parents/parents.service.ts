@@ -136,7 +136,7 @@ export async function getParent(id: string) {
     createdAt: parent.createdAt,
     children: parent.students.map((s) => ({
       id: s.id,
-      name: `${s.firstName} ${s.lastName}`,
+      name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
       admissionNo: s.admissionNo,
       rollNo: s.rollNo,
       gender: s.gender,
