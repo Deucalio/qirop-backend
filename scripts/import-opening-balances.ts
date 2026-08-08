@@ -167,25 +167,36 @@ async function main() {
     include: { items: true },
   });
 
+  // Never modify a challan that has money against it — this rewrites line items
+  // wholesale, which would silently contradict a recorded payment.
+  const settled = challans.filter((c) => Number(c.staffCovered) > 0);
+  const allocated = await prisma.feePaymentAllocation.count({ where: { challanId: { in: challans.map((c) => c.id) } } });
+  if (settled.length > 0 || allocated > 0) {
+    throw new Error(`${settled.length} challan(s) carry staff cover and ${allocated} allocation(s) exist. Resolve those before re-running.`);
+  }
+
+  // CONVERGENT, not incremental: every challan in scope is rewritten to exactly
+  // one arrears line for the sheet figure, whatever it happens to hold now.
+  //
+  // The earlier version checked "does it already have the line?" against a
+  // snapshot read once at the start of this phase, then added one if not. That
+  // is check-then-act, and the check goes stale the moment the phase is run
+  // more than once — which is how 63 challans ended up with the line twice.
+  // Making the step idempotent by construction removes the failure mode
+  // entirely: run it once or five times and the result is identical.
   let swapped = 0;
-  let alreadyDone = 0;
-  // Chunked for the same latency reason, and batched within each chunk: the
-  // delete and the insert are one query each for the whole chunk rather than
-  // two per challan.
   for (let i = 0; i < challans.length; i += CHUNK) {
     const batch = challans.slice(i, i + CHUNK);
-    // Idempotent: a challan already carrying the arrears line is left exactly
-    // as it is, so a re-run can never stack a second one.
-    const todo = batch.filter((c) => !c.items.some((it) => it.label === ARREARS_LABEL) && balanceOf.has(c.studentId));
-    alreadyDone += batch.length - todo.length;
-    if (todo.length === 0) continue;
+    const targets = batch.filter((c) => balanceOf.has(c.studentId));
+    if (targets.length === 0) continue;
 
     await prisma.$transaction(
       async (tx) => {
-        const ids = todo.map((c) => c.id);
-        await tx.feeChallanItem.deleteMany({ where: { challanId: { in: ids }, type: FeeItemType.TUITION } });
+        const ids = targets.map((c) => c.id);
+        // Clear everything, then write the one line that should be there.
+        await tx.feeChallanItem.deleteMany({ where: { challanId: { in: ids } } });
         await tx.feeChallanItem.createMany({
-          data: todo.map((c) => ({
+          data: targets.map((c) => ({
             challanId: c.id,
             type: FeeItemType.OTHER,
             label: ARREARS_LABEL,
@@ -194,14 +205,8 @@ async function main() {
         });
 
         // Mirrors patchChallan's arithmetic: payable = items − discount + lateFee.
-        // Items are re-read from the database rather than assumed, so anything
-        // unexpected already on the challan is still counted.
-        const items = await tx.feeChallanItem.findMany({ where: { challanId: { in: ids } } });
-        const byChallan = new Map<string, Prisma.Decimal>();
-        for (const it of items) byChallan.set(it.challanId, (byChallan.get(it.challanId) ?? new Prisma.Decimal(0)).plus(it.amount));
-
-        for (const c of todo) {
-          const base = byChallan.get(c.id) ?? new Prisma.Decimal(0);
+        for (const c of targets) {
+          const base = money(balanceOf.get(c.studentId) as number);
           const discount = Prisma.Decimal.min(c.discount, base);
           await tx.feeChallan.update({
             where: { id: c.id },
@@ -215,7 +220,7 @@ async function main() {
     );
     console.log(`    arrears  ${String(Math.min(i + CHUNK, challans.length)).padStart(3)}/${challans.length}`);
   }
-  console.log(`  arrears line applied to ${swapped} challan(s)${alreadyDone ? `, ${alreadyDone} already had one` : ''}`);
+  console.log(`  ${swapped} challan(s) set to a single arrears line`);
 
   // ---- 7. One audit entry for the whole import ----------------------------
   await logAudit(null, {
@@ -226,7 +231,7 @@ async function main() {
     targetLabel: `Opening balances — ${swapped} challans · ${pkr(total)}`,
     details:
       `Imported opening fee balances from the printed "List of Overall Balances" dated 01-08-2026. ` +
-      `Created ${swapped} challan(s) for August ${YEAR} totalling ${pkr(total)}, each carrying a single ` +
+      `Set ${swapped} challan(s) for August ${YEAR} to a combined ${pkr(total)}, each carrying a single ` +
       `"${ARREARS_LABEL}" line. August tuition was deliberately NOT charged: the sheet states what was ` +
       `owed as at 1 August, so billing that month again would double-charge it. ` +
       `${inactive.length} inactive student(s) holding ${pkr(inactive.reduce((a, i) => a + i.balance, 0))} were excluded.`,
@@ -241,16 +246,27 @@ async function main() {
   const wrote = after.reduce((a, c) => a + Number(c.amount), 0);
   const stray = after.filter((c) => c.items.some((i) => i.type !== FeeItemType.OTHER));
   const mismatched = after.filter((c) => Number(c.amount) !== balanceOf.get(c.studentId));
+  // The check that was missing: a challan must carry exactly ONE line. Totals
+  // alone would not have caught the duplicated arrears line on their own.
+  const wrongLineCount = after.filter((c) => c.items.length !== 1);
+  const itemsTotal = after.reduce((a, c) => a + c.items.reduce((b, i) => b + Number(i.amount), 0), 0);
 
   console.log('\n  VERIFICATION');
-  console.log(`    challans written : ${after.length} (expected ${EXPECT_STUDENTS})`);
-  console.log(`    total billed     : ${pkr(wrote)} (expected ${pkr(EXPECT_TOTAL)})`);
-  console.log(`    non-arrears lines: ${stray.length} (expected 0)`);
-  console.log(`    amount mismatches: ${mismatched.length} (expected 0)`);
+  console.log(`    challans written  : ${after.length} (expected ${EXPECT_STUDENTS})`);
+  console.log(`    total billed      : ${pkr(wrote)} (expected ${pkr(EXPECT_TOTAL)})`);
+  console.log(`    line items total  : ${pkr(itemsTotal)} (expected ${pkr(EXPECT_TOTAL)})`);
+  console.log(`    non-arrears lines : ${stray.length} (expected 0)`);
+  console.log(`    wrong line count  : ${wrongLineCount.length} (expected 0)`);
+  console.log(`    amount mismatches : ${mismatched.length} (expected 0)`);
   for (const m of mismatched.slice(0, 10)) {
     console.log(`       ${m.student.admissionNo}: challan ${pkr(m.amount)} vs sheet ${pkr(balanceOf.get(m.studentId) ?? 0)}`);
   }
-  const ok = after.length === EXPECT_STUDENTS && wrote === EXPECT_TOTAL && stray.length === 0 && mismatched.length === 0;
+  for (const w of wrongLineCount.slice(0, 10)) {
+    console.log(`       ${w.student.admissionNo}: ${w.items.length} line items (expected 1)`);
+  }
+  const ok =
+    after.length === EXPECT_STUDENTS && wrote === EXPECT_TOTAL && itemsTotal === EXPECT_TOTAL &&
+    stray.length === 0 && mismatched.length === 0 && wrongLineCount.length === 0;
   console.log(`\n  ${ok ? 'OK — the import matches the sheet exactly.' : 'MISMATCH — review before relying on these figures.'}\n`);
 }
 
