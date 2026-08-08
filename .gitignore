@@ -12,6 +12,12 @@ uploads/*
 .env
 .env.*.local
 
+# Ad-hoc data dumps: one-off backups and import sheets taken before a bulk
+# change. They hold real student names and fee records — never commit them.
+_*.json
+_*.tsv
+_*.csv
+
 # Logs
 *.log
 npm-debug.log*
