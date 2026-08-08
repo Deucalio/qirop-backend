@@ -123,6 +123,11 @@ export const deletePaymentSchema = z.object({
   reason: z.string().trim().min(3, 'A reason is required').max(300),
 });
 
+export const deletePaymentsBatchSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1, 'Select at least one payment').max(1000),
+  reason: z.string().trim().min(3, 'A reason is required').max(300),
+});
+
 // ---- Query params ----
 export const listChallansQuerySchema = z.object({
   year: z.coerce.number().int().optional(),

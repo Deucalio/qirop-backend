@@ -732,6 +732,12 @@ export async function listChallans(query: ListChallansQuery) {
       id: c.student.id,
       name: `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}`,
       admissionNo: c.student.admissionNo,
+      /**
+       * A student can be deactivated after their challan was raised, or the
+       * challan may simply be old. The debt stays real either way, so the row
+       * says who is no longer with the school rather than hiding it.
+       */
+      status: c.student.status,
       rollNo: c.student.rollNo,
       className: c.student.section.class.name,
       sectionName: c.student.section.name,
@@ -991,6 +997,12 @@ export async function getChallan(id: string) {
       id: c.student.id,
       name: `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}`,
       admissionNo: c.student.admissionNo,
+      /**
+       * A student can be deactivated after their challan was raised, or the
+       * challan may simply be old. The debt stays real either way, so the row
+       * says who is no longer with the school rather than hiding it.
+       */
+      status: c.student.status,
       rollNo: c.student.rollNo,
       className: c.student.section.class.name,
       sectionName: c.student.section.name,
@@ -1287,11 +1299,20 @@ export async function listPayments(query: {
   method?: string;
   search?: string;
   state?: 'all' | 'unallocated' | 'allocated' | 'reversed';
+  /**
+   * Filter by the STUDENT's status, not the payment's. A student can leave the
+   * school while their payment history remains relevant — for reconciling what
+   * was collected, or spotting money still sitting against someone who is gone.
+   */
+  studentStatus?: 'all' | 'ACTIVE' | 'INACTIVE';
 }) {
   const q = (query.search ?? '').trim();
   const payments = await prisma.feePayment.findMany({
     where: {
       ...(query.studentId ? { studentId: query.studentId } : {}),
+      ...(query.studentStatus && query.studentStatus !== 'all'
+        ? { student: { status: query.studentStatus as UserStatus } }
+        : {}),
       ...(query.method && query.method !== 'all' ? { method: query.method as PaymentMethod } : {}),
       ...(query.from || query.to
         ? { paymentDate: { ...(query.from ? { gte: parsePktDay(query.from) } : {}), ...(query.to ? { lte: parsePktDay(query.to) } : {}) } }
@@ -1310,7 +1331,7 @@ export async function listPayments(query: {
     include: {
       student: {
         select: {
-          id: true, firstName: true, lastName: true, admissionNo: true,
+          id: true, firstName: true, lastName: true, admissionNo: true, status: true,
           section: { select: { name: true, class: { select: { name: true } } } },
         },
       },
@@ -1331,6 +1352,8 @@ export async function listPayments(query: {
       studentId: p.student.id,
       studentName: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''}`,
       admissionNo: p.student.admissionNo,
+      /** The student's own status — an inactive student can still hold records. */
+      studentStatus: p.student.status,
       className: p.student.section.class.name,
       sectionName: p.student.section.name,
       amount: toMoneyString(p.amount),
@@ -1373,8 +1396,72 @@ export async function listPayments(query: {
       bankTotal: toMoneyString(sum(live.filter((p) => p.method !== 'CASH').map((p) => p.amount))),
       reversedCount: shaped.filter((p) => p.isReversed).length,
       reversedTotal: toMoneyString(sum(shaped.filter((p) => p.isReversed).map((p) => p.amount))),
+      /** Money held against students who have left — easy to overlook otherwise. */
+      inactiveStudentCount: new Set(
+        live.filter((p) => p.studentStatus !== 'ACTIVE').map((p) => p.studentId),
+      ).size,
+      inactiveStudentTotal: toMoneyString(
+        sum(live.filter((p) => p.studentStatus !== 'ACTIVE').map((p) => p.amount)),
+      ),
     },
   };
+}
+
+/**
+ * Delete several payments at once.
+ *
+ * One audit entry for the batch rather than one per row: clearing test data can
+ * mean dozens of payments, and a row each would bury the History page. The
+ * entry still names every payment removed, so nothing is lost.
+ */
+export async function deletePaymentsBatch(actor: Actor, ids: string[], reason: string) {
+  const payments = await prisma.feePayment.findMany({
+    where: { id: { in: ids } },
+    include: {
+      student: { select: { firstName: true, lastName: true, admissionNo: true } },
+      allocations: { include: { challan: { select: { id: true, challanNo: true } } } },
+    },
+  });
+  if (payments.length === 0) throw NotFound('No matching payments found');
+
+  const affectedChallanIds = [...new Set(payments.flatMap((p) => p.allocations.map((a) => a.challanId)))];
+  const total = sum(payments.map((p) => p.amount));
+
+  await runSerializable(async (tx) => {
+    await tx.feePaymentAllocation.deleteMany({ where: { paymentId: { in: payments.map((p) => p.id) } } });
+    await tx.feePayment.deleteMany({ where: { id: { in: payments.map((p) => p.id) } } });
+    // Every challan those receipts were settling reverts to what it truly owes.
+    for (const id of affectedChallanIds) await recomputeChallan(tx, id);
+  });
+
+  await logAudit(null, {
+    actorId: actor.userId,
+    action: 'DELETE',
+    module: 'FEES',
+    targetType: 'FeePayment',
+    targetLabel: `${payments.length} payments · Rs ${toMoneyString(total)}`,
+    details:
+      `Permanently deleted ${payments.length} payment(s) totalling Rs ${toMoneyString(total)}. ` +
+      `Reason: ${reason}` +
+      (affectedChallanIds.length
+        ? `. ${affectedChallanIds.length} challan(s) were recalculated and may now show unpaid.`
+        : '. None were applied to a challan.'),
+    changes: {
+      _meta: {
+        reason,
+        total: toMoneyString(total),
+        payments: payments.map((p) => ({
+          student: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''} (${p.student.admissionNo})`,
+          amount: toMoneyString(p.amount),
+          date: pktDayString(p.paymentDate),
+          method: p.method,
+        })),
+        challansAffected: [...new Set(payments.flatMap((p) => p.allocations.map((a) => a.challan.challanNo)))],
+      },
+    },
+  });
+
+  return { deleted: payments.length, challansRecalculated: affectedChallanIds.length };
 }
 
 /**

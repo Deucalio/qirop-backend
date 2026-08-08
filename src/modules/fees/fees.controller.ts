@@ -68,6 +68,9 @@ export async function recordPayment(req: Request, res: Response) {
 export async function listPayments(req: Request, res: Response) {
   res.json(await svc.listPayments(req.query));
 }
+export async function deletePaymentsBatch(req: Request, res: Response) {
+  res.json(await svc.deletePaymentsBatch(actor(req), req.body.ids, req.body.reason));
+}
 export async function deletePayment(req: Request, res: Response) {
   res.json(await svc.deletePayment(actor(req), req.params.id, req.body.reason));
 }
