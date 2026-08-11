@@ -134,7 +134,7 @@ export const listChallansQuerySchema = z.object({
   month: z.coerce.number().int().optional(),
   classId: z.string().optional(),
   sectionId: z.string().optional(),
-  status: z.enum(['UNPAID', 'PARTIAL', 'PAID', 'OVERDUE']).optional(),
+  status: z.enum(['UNPAID', 'PARTIAL', 'PAID', 'OVERDUE', 'WAIVED']).optional(),
   search: z.string().trim().max(150).optional(),
 });
 

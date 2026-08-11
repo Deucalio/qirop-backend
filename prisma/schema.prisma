@@ -60,6 +60,9 @@ enum ChallanStatus {
   PAID
   OVERDUE
   ADVANCE
+  // Nothing left owing, but no money ever arrived — the charge was discounted
+  // away. Distinct from PAID, which asserts that the school was actually paid.
+  WAIVED
 }
 
 enum PaymentMethod {

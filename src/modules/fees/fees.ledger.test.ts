@@ -116,6 +116,28 @@ describe('deriveStatus', () => {
     assert.equal(deriveStatus(challan({ allocations: [paid('7000.00')] })), 'PAID');
   });
 
+  test('WAIVED when discounted to zero — nothing owed, but nothing was paid', () => {
+    // What a full "one-off discount" leaves behind: the payable amount is nil
+    // and not a rupee arrived. Calling that PAID asserts the school was paid.
+    const c = challan({ amount: '0.00' });
+    assert.equal(deriveStatus(c), 'WAIVED', 'a waiver must never be reported as money received');
+  });
+
+  test('WAIVED regardless of the due date — a waived charge cannot fall overdue', () => {
+    assert.equal(deriveStatus(challan({ amount: '0.00', dueDate: past() })), 'WAIVED');
+  });
+
+  test('PAID, not WAIVED, when a discount is partial and the rest is settled', () => {
+    // Discounted 5000 -> 2000, then 2000 collected. Real money arrived.
+    const c = challan({ amount: '2000.00', allocations: [paid('2000.00')] });
+    assert.equal(deriveStatus(c), 'PAID', 'a partial discount settled in cash is genuinely paid');
+  });
+
+  test('PAID, not WAIVED, when salary coverage settles it', () => {
+    // staffCovered is real recovery from a teacher-parent's pay, not a waiver.
+    assert.equal(deriveStatus(challan({ amount: '5000.00', staffCovered: '5000.00' })), 'PAID');
+  });
+
   test('reversing the only payment reopens a PAID challan', () => {
     const settled = challan({ allocations: [paid('5000.00')] });
     assert.equal(deriveStatus(settled), 'PAID');

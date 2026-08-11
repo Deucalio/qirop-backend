@@ -75,7 +75,16 @@ export function outstandingAcross<T extends LedgerChallan>(challans: T[]) {
 
 export function deriveStatus(c: LedgerChallan): ChallanStatus {
   const { settled, balance } = paidBreakdown(c);
-  if (balance.lessThanOrEqualTo(0)) return ChallanStatus.PAID;
+  if (balance.lessThanOrEqualTo(0)) {
+    /*
+     * Nothing is owed — but WHY matters. This used to return PAID on balance
+     * alone, so discounting a challan to zero made it read "Paid" when not a
+     * rupee had arrived. PAID is a claim that the school was paid; a waiver is
+     * the opposite, money the school chose to forgo. Reporting, receipts and
+     * anyone reading the badge need to be able to tell those apart.
+     */
+    return settled.greaterThan(0) ? ChallanStatus.PAID : ChallanStatus.WAIVED;
+  }
   if (settled.greaterThan(0)) return ChallanStatus.PARTIAL;
   const pastDue = pktDay().getTime() > c.dueDate.getTime();
   return pastDue ? ChallanStatus.OVERDUE : ChallanStatus.UNPAID;

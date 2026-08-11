@@ -1119,6 +1119,20 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
         discount: { before: toMoneyString(c.discount), after: toMoneyString(discount) },
         lateFee: { before: toMoneyString(c.lateFee), after: toMoneyString(lateFee) },
         amount: { before: toMoneyString(c.amount), after: toMoneyString(amount) },
+        // Status is derived, so an edit can silently reclassify a challan —
+        // discounting to zero now makes it WAIVED. Recorded so the history
+        // shows the reclassification rather than leaving it to be inferred.
+        status: { before: c.status, after: deriveStatus({ ...c, amount: toMoneyString(amount) }) },
+        // The line items themselves, so the challan can be rebuilt from the log
+        // alone. `before` is the full set as it stood; `after` is what it became.
+        items: {
+          before: c.items.map((i) => `${i.label} = ${toMoneyString(i.amount)}`),
+          after: [
+            ...c.items.filter((i) => i.id !== input.removeItemId).map((i) => `${i.label} = ${toMoneyString(i.amount)}`),
+            ...(input.addItem ? [`${input.addItem.label} = ${toMoneyString(money(input.addItem.amount))}`] : []),
+          ],
+        },
+        ...(input.dueDate ? { dueDate: { before: pktDayString(c.dueDate), after: input.dueDate } } : {}),
       },
     });
     return getChallanTx(tx, id);
