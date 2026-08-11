@@ -110,7 +110,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     fontSize: 8.5,
     bold: true,
     alignment: 'center',
-    margin: [0, 3, 0, 3],
+    margin: [0, 2, 0, 2],
   };
 
   const dateBits: Content[] = [
@@ -125,7 +125,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       alignment: 'center',
     });
   }
-  const dates: Content = { columns: dateBits, margin: [5, 3, 5, 3] };
+  const dates: Content = { columns: dateBits, margin: [5, 2, 5, 2] };
 
   /* ---- school block: logo and text share the same band ---------------- */
   const schoolText: Content = {
@@ -138,19 +138,19 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   const schoolBlock: Content = hasLogo
     ? {
         columns: [
-          { image: 'logo', fit: [30, 30], width: 32 },
+          { image: 'logo', fit: [22, 22], width: 24 },
           { ...(schoolText as any), margin: [0, 1, 0, 0] },
         ],
         columnGap: 5,
-        margin: [5, 4, 5, 4],
+        margin: [5, 2.5, 5, 2.5],
       }
-    : { ...(schoolText as any), margin: [5, 4, 5, 4] };
+    : { ...(schoolText as any), margin: [5, 2.5, 5, 2.5] };
 
   /* ---- student: labels inline, voucher number beside the ID ----------- */
   const kv = (label: string, value: string) => ({
     text: [{ text: `${label}: `, bold: true }, value || '-'],
     fontSize: 6.5,
-    margin: [0, 0.6, 0, 0.6] as [number, number, number, number],
+    margin: [0, 0.4, 0, 0.4] as [number, number, number, number],
   });
 
   const student: Content = {
@@ -165,13 +165,12 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       kv('Father', c.student.parentName ?? ''),
       kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
     ],
-    margin: [5, 3, 5, 3],
+    margin: [5, 2, 5, 2],
   };
 
   /* ---- fee details: description and amount, nothing else -------------- */
   const feeTable: Content = {
     stack: [
-      { text: 'FEE DETAILS', fontSize: 6, bold: true, characterSpacing: 0.4, margin: [0, 0, 0, 2] },
       {
         table: {
           headerRows: 1,
@@ -197,7 +196,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
         },
       },
     ],
-    margin: [5, 3, 5, 3],
+    margin: [5, 2, 5, 2],
   };
 
   /*
@@ -240,13 +239,13 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       paddingTop: () => 0,
       paddingBottom: () => 0,
     },
-    margin: [5, 3, 5, 3],
+    margin: [5, 2, 5, 2],
   };
 
   const signature: Content = {
     text: 'Parent / Guardian Signature: ______________________',
     fontSize: 5.5,
-    margin: [5, 5, 5, 5],
+    margin: [5, 3, 5, 3],
   };
 
   /* ---- assemble ------------------------------------------------------- */
@@ -272,20 +271,30 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
 /**
  * How many vouchers fit on one A4 sheet.
  *
- * Six fit comfortably in two columns of three when every voucher is a line or
- * two, which is the usual shape of a monthly run. A voucher grows with its
- * dues lines though, so the sheet steps down to four, two, then one rather
- * than clipping a student carrying months of arrears.
+ * Eight fit in two columns of four when every voucher is a line or three,
+ * which is the usual shape of a monthly run. A voucher grows with its dues
+ * lines, so the sheet steps down rather than clipping a student carrying
+ * months of arrears.
+ *
+ * The bounds are measured, and measured in the WORST case — every voucher in
+ * the batch as tall as the tallest. Grid rows size to their own tallest cell,
+ * so growing one challan only stretches its own row and flatters the result;
+ * an earlier single-voucher measurement put eight-up at eleven lines when the
+ * honest figure is three.
+ *
+ * There is no two-up step: two-up is one column of two rows, the same row
+ * height as four-up, so it buys width rather than the height that is actually
+ * scarce. Past four-up the next real step is a whole sheet.
  *
  * The whole document uses ONE layout, chosen by the largest voucher in the
  * batch: these are printed to be cut apart by hand, and a sheet of mixed sizes
  * has no straight line to cut along.
  */
-export function perPageFor(challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 1 | 2 | 4 | 6 {
+export function perPageFor(challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 1 | 4 | 6 | 8 {
   const maxLines = Math.max(0, ...challans.map((c) => c.items.length + c.previousDues.length));
-  if (maxLines <= 4) return 6;
-  if (maxLines <= 11) return 4;
-  if (maxLines <= 24) return 2;
+  if (maxLines <= 3) return 8;
+  if (maxLines <= 11) return 6;
+  if (maxLines <= 18) return 4;
   return 1;
 }
 
@@ -294,7 +303,7 @@ function voucherGrid(
   challans: ChallanData[],
   school: SchoolInfo,
   hasLogo: boolean,
-  perPage: 1 | 2 | 4 | 6,
+  perPage: 1 | 4 | 6 | 8,
 ): Content[] {
   const cols = perPage >= 4 ? 2 : 1;
   const pages: Content[] = [];
