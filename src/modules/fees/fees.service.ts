@@ -5,7 +5,7 @@ import { pktDay, pktDayString, parsePktDay, isFuturePktDay, pktMonthRange } from
 import { money, sum, round2, toMoneyString, ZERO, type Money } from '../../utils/money';
 import type { Actor } from '../timetable/timetable.service';
 // Pure ledger arithmetic lives in its own IO-free module so it can be unit-tested.
-import { paidBreakdown, deriveStatus } from './fees.ledger';
+import { paidBreakdown, deriveStatus, computePayable } from './fees.ledger';
 import type { GenerateChallansInput, ListChallansQuery, PatchChallanInput, RecordPaymentInput } from './fees.schema';
 import { publicUrl } from '../../services/storage';
 import { logAudit } from '../audit/audit.service';
@@ -16,7 +16,24 @@ type Tx = Prisma.TransactionClient;
 // Small helpers
 // ---------------------------------------------------------------------------
 
-async function audit(tx: Tx, userId: string, action: string, entity: string, entityId: string, metadata: any) {
+/**
+ * The only keys `audit` reads. Typed rather than `any` so the compiler rejects
+ * anything else: two call sites passed a flat object of figures instead, and
+ * because every key was silently discarded, challan edits and mark-as-paid were
+ * recorded for months with no detail at all and nobody saw an error. Excess
+ * property checking on object literals now makes that a build failure.
+ */
+interface AuditMeta {
+  /** Human-readable subject, e.g. "Ali Raza (Challan #CH-2026-000399)". */
+  targetLabel?: string;
+  details?: string;
+  /** Alias accepted for `details`. */
+  description?: string;
+  /** Field-level diff — conventionally `{ field: { before, after } }`. */
+  changes?: Record<string, unknown>;
+}
+
+async function audit(tx: Tx, userId: string, action: string, entity: string, entityId: string, metadata: AuditMeta) {
   try {
     const u = await tx.user.findUnique({ where: { id: userId }, select: { fullName: true, role: true } });
     const targetLabel = metadata?.targetLabel || `${entity} #${entityId.slice(0, 8)}`;
@@ -1063,11 +1080,18 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
     }
 
     const items = await tx.feeChallanItem.findMany({ where: { challanId: id } });
-    const base = sum(items.map((i) => i.amount));
-    const discount =
-      input.discount !== undefined ? round2(Prisma.Decimal.min(money(input.discount), base)) : money(c.discount);
-    const lateFee = input.lateFee !== undefined ? money(input.lateFee) : money(c.lateFee);
-    const amount = round2(base.minus(discount).plus(lateFee));
+    /*
+     * Both the incoming discount and the one already on the challan are clamped
+     * to the current base. Only the incoming value used to be capped, so
+     * removing a line item left a stale discount exceeding the smaller base and
+     * produced a negative payable — a 5,000 challan discounted by 2,000, with a
+     * 4,000 item then removed, came out at -1,000: the school owing the student.
+     */
+    const { base, discount, lateFee, amount } = computePayable(
+      items.map((i) => i.amount),
+      input.discount !== undefined ? input.discount : c.discount,
+      input.lateFee !== undefined ? input.lateFee : c.lateFee,
+    );
 
     // A challan can never be reduced below what has already been paid/covered.
     const settled = paidBreakdown(c).settled;

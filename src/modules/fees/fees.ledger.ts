@@ -73,6 +73,26 @@ export function outstandingAcross<T extends LedgerChallan>(challans: T[]) {
   };
 }
 
+/**
+ * What a challan is payable at, given its line items, discount and late fee.
+ *
+ * Lives here, pure and tested, because the invariant it enforces is easy to
+ * lose: a discount can never exceed what is actually being charged. Callers
+ * that edit a challan must pass the discount currently on it when the caller
+ * did not supply a new one — clamping only the incoming value let a stale
+ * discount survive an item removal and drive the payable negative.
+ */
+export function computePayable(
+  itemAmounts: (Money | number | string)[],
+  discountInput: Money | number | string,
+  lateFeeInput: Money | number | string,
+) {
+  const base = sum(itemAmounts);
+  const discount = round2(base.lessThan(money(discountInput)) ? base : money(discountInput));
+  const lateFee = money(lateFeeInput);
+  return { base: round2(base), discount, lateFee, amount: round2(base.minus(discount).plus(lateFee)) };
+}
+
 export function deriveStatus(c: LedgerChallan): ChallanStatus {
   const { settled, balance } = paidBreakdown(c);
   if (balance.lessThanOrEqualTo(0)) {

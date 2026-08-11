@@ -9,7 +9,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { paidBreakdown, deriveStatus, outstandingAcross, type LedgerChallan } from './fees.ledger';
+import { paidBreakdown, deriveStatus, outstandingAcross, computePayable, type LedgerChallan } from './fees.ledger';
 
 const DAY = 86_400_000;
 const future = () => new Date(Date.now() + 30 * DAY);
@@ -87,6 +87,40 @@ describe('paidBreakdown', () => {
       allocations: [paid('1666.67'), paid('1666.67'), paid('1666.67')],
     });
     assert.equal(paidBreakdown(c2).balance.toFixed(2), '0.00');
+  });
+});
+
+describe('computePayable', () => {
+  test('a plain challan: base minus discount plus late fee', () => {
+    const r = computePayable(['4000', '1000'], '500', '200');
+    assert.equal(String(r.base), '5000');
+    assert.equal(String(r.discount), '500');
+    assert.equal(String(r.amount), '4700');
+  });
+
+  test('a discount larger than the charge is clamped, never negative', () => {
+    // The bug: a 5000 challan discounted by 2000, then the 4000 item removed.
+    // The stale 2000 discount survived against a 1000 base and produced -1000.
+    const r = computePayable(['1000'], '2000', '0');
+    assert.equal(String(r.discount), '1000', 'the discount cannot exceed what is charged');
+    assert.equal(String(r.amount), '0');
+    assert.ok(!r.amount.lessThan(0), 'the school must never owe the student');
+  });
+
+  test('removing every item leaves nothing payable rather than a credit', () => {
+    const r = computePayable([], '2000', '0');
+    assert.equal(String(r.amount), '0');
+  });
+
+  test('a late fee still applies on top of a fully discounted challan', () => {
+    const r = computePayable(['1000'], '1000', '150');
+    assert.equal(String(r.discount), '1000');
+    assert.equal(String(r.amount), '150', 'the waiver covers the fee, not the penalty');
+  });
+
+  test('an exact-match discount zeroes it without going under', () => {
+    const r = computePayable(['1200'], '1200', '0');
+    assert.equal(String(r.amount), '0');
   });
 });
 
