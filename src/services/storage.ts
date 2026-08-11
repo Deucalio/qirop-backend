@@ -176,3 +176,30 @@ export async function proxyDownload(
   const buffer = Buffer.from(await upstream.arrayBuffer());
   res.send(buffer);
 }
+
+/**
+ * Read a stored file into memory, for embedding rather than streaming — a PDF
+ * needs the bytes inline, not a URL, because the renderer cannot fetch.
+ *
+ * Returns null instead of throwing: a missing logo should cost a document its
+ * letterhead, not fail the whole print run.
+ */
+export async function fetchFileBuffer(
+  path: string | null | undefined,
+): Promise<{ buffer: Buffer; contentType: string } | null> {
+  if (!path) return null;
+  try {
+    ensureConfigured();
+    const upstream = await fetch(
+      `${BASE}/files/download?path=${encodeURIComponent(path)}&disposition=inline`,
+      { headers: authHeaders() },
+    );
+    if (!upstream.ok) return null;
+    return {
+      buffer: Buffer.from(await upstream.arrayBuffer()),
+      contentType: upstream.headers.get('content-type') ?? 'application/octet-stream',
+    };
+  } catch {
+    return null;
+  }
+}

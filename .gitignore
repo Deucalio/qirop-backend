@@ -17,6 +17,7 @@ uploads/*
 _*.json
 _*.tsv
 _*.csv
+_*.pdf
 
 # Logs
 *.log

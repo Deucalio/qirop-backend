@@ -10,7 +10,7 @@ const PdfPrinter = PdfPrinterModule as unknown as {
 };
 import { prisma } from '../../config/prisma';
 import { getChallan } from './fees.service';
-import { formatPKR } from '../../utils/money';
+import { fetchFileBuffer } from '../../services/storage';
 import { pktDayString } from '../../utils/pktDate';
 
 /**
@@ -30,18 +30,6 @@ const printer = new PdfPrinter({
   },
 });
 
-const BRAND = '#4f46e5'; // indigo — matches the app's primary
-const INK = '#1e293b';
-const MUTED = '#64748b';
-const LINE = '#e2e8f0';
-
-const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
-  PAID: { bg: '#dcfce7', fg: '#166534', label: 'PAID' },
-  PARTIAL: { bg: '#fef9c3', fg: '#854d0e', label: 'PARTIALLY PAID' },
-  UNPAID: { bg: '#f1f5f9', fg: '#475569', label: 'UNPAID' },
-  OVERDUE: { bg: '#fee2e2', fg: '#991b1b', label: 'OVERDUE' },
-};
-
 const ITEM_LABEL: Record<string, string> = {
   TUITION: 'Tuition (Monthly)',
   TRANSPORT: 'Transport',
@@ -58,289 +46,277 @@ const MONTHS = [
 type ChallanData = Awaited<ReturnType<typeof getChallan>>;
 type SchoolInfo = { name: string; address: string | null; phone: string | null; email: string | null };
 
-/** Whole days a YYYY-MM-DD due date is in the past (0 if not yet due). */
-function daysOverdue(dueDate: string): number {
-  const diff = Math.floor((Date.parse(`${pktDayString()}T00:00:00Z`) - Date.parse(`${dueDate}T00:00:00Z`)) / 86_400_000);
-  return diff > 0 ? diff : 0;
-}
-
 /** Build the printable content block for a single challan. */
-function challanContent(c: ChallanData, school: SchoolInfo): { stack: Content[] } {
-  const overdueDays = Number(c.balance) > 0 ? daysOverdue(c.dueDate) : 0;
-  const status = STATUS_STYLE[c.status] ?? STATUS_STYLE.UNPAID;
-  const contactBits = [school.phone, school.email].filter(Boolean).join('  •  ');
+/**
+ * One fee voucher, laid out to match the school's existing printed vouchers.
+ *
+ * Deliberately monochrome and rule-based rather than the app's indigo cards:
+ * these are printed in bulk on a shared office printer, colour ink is an
+ * expense, and parents already recognise this form. Every figure sits in a
+ * ruled box so a voucher stays readable after being folded into a schoolbag.
+ */
+function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Content {
+  const dash = (v: string) => (v && v.trim() ? v : '-');
+  const money = (v: string | number) => Number(v).toLocaleString('en-PK');
 
-  const itemRows = c.items.map((it) => [
-    { text: it.label || ITEM_LABEL[it.type] || it.type, style: 'cell' },
-    { text: ITEM_LABEL[it.type] ?? it.type, style: 'cellMuted' },
-    { text: formatPKR(it.amount), style: 'cellNum' },
-  ]);
-
-  // Totals ladder: base → (− discount) → (+ late fee) → payable.
-  const totalsRows: Content[] = [];
-  const pushTotal = (label: string, value: string, opts: { strong?: boolean; color?: string } = {}) =>
-    totalsRows.push({
-      columns: [
-        { text: label, style: 'totLabel', color: opts.color, bold: opts.strong },
-        { text: value, style: 'totVal', color: opts.color, bold: opts.strong },
-      ],
-      margin: [0, 2, 0, 2],
-    });
-
-  pushTotal('Sub-total', formatPKR(c.baseAmount));
-  if (Number(c.discount) > 0) pushTotal('Discount', `− ${formatPKR(c.discount)}`, { color: '#16a34a' });
-  if (Number(c.lateFee) > 0) pushTotal('Late fee', `+ ${formatPKR(c.lateFee)}`, { color: '#dc2626' });
-  totalsRows.push({ canvas: [{ type: 'line', x1: 0, y1: 2, x2: 200, y2: 2, lineWidth: 1, lineColor: LINE }] });
-  pushTotal("This month's charges", formatPKR(c.amount), { strong: true, color: INK });
-  if (Number(c.cashPaid) > 0) pushTotal('Received (cash/bank)', `− ${formatPKR(c.cashPaid)}`, { color: MUTED });
-  if (Number(c.staffCovered) > 0)
-    pushTotal('Covered from salary', `− ${formatPKR(c.staffCovered)}`, { color: '#7c3aed' });
-
-  const hasPrevious = Number(c.previousBalance) > 0;
-  const hasCredit = Number(c.advanceCredit) > 0;
-  totalsRows.push({ canvas: [{ type: 'line', x1: 0, y1: 2, x2: 200, y2: 2, lineWidth: 1, lineColor: LINE }] });
-  pushTotal("This month's balance", formatPKR(c.balance), {
-    strong: !hasPrevious && !hasCredit,
-    color: Number(c.balance) > 0 ? '#dc2626' : '#16a34a',
-  });
-  if (hasPrevious) pushTotal('Previous dues (unpaid)', `+ ${formatPKR(c.previousBalance)}`, { color: '#dc2626' });
-  if (hasCredit) pushTotal('Advance on file', `− ${formatPKR(c.advanceCredit)}`, { color: '#2563eb' });
-  if (hasPrevious || hasCredit) {
-    totalsRows.push({ canvas: [{ type: 'line', x1: 0, y1: 2, x2: 200, y2: 2, lineWidth: 1.5, lineColor: INK }] });
-    pushTotal('TOTAL PAYABLE NOW', formatPKR(c.totalPayable), {
-      strong: true,
-      color: Number(c.totalPayable) > 0 ? '#dc2626' : '#16a34a',
-    });
-  }
-
-  // Previous-dues table (earlier unpaid months, brought forward).
-  const previousDuesSection: Content | null =
-    c.previousDues.length > 0
-      ? {
-          table: {
-            widths: ['*', 'auto', 'auto'],
-            body: [
-              [
-                { text: 'PREVIOUS DUES', style: 'th', colSpan: 3, fillColor: '#fffbeb' },
-                {},
-                {},
-              ],
-              ...c.previousDues.map((d) => [
-                { text: `${MONTHS[d.month]} ${d.year}${d.staffBilled ? '  (salary shortfall)' : ''}`, style: 'cell' },
-                { text: d.challanNo, style: 'cellMuted' },
-                { text: formatPKR(d.balance), style: 'cellNum', color: '#dc2626' },
-              ]),
-              [
-                { text: 'Total previous dues', style: 'cell', bold: true, colSpan: 2 },
-                {},
-                { text: formatPKR(c.previousBalance), style: 'cellNum', bold: true, color: '#dc2626' },
-              ],
-            ],
-          },
-          layout: {
-            hLineWidth: () => 0.5,
-            vLineWidth: () => 0,
-            hLineColor: () => '#f59e0b',
-            paddingTop: () => 5,
-            paddingBottom: () => 5,
-            paddingLeft: () => 8,
-            paddingRight: () => 8,
-          },
-          margin: [0, 0, 0, 10],
-        }
-      : null;
-
-  const block: Content[] = [
-    // Header band
-    {
-      columns: [
-        [
-          { text: school.name, style: 'schoolName' },
-          { text: school.address ?? '', style: 'schoolMeta' },
-          { text: contactBits, style: 'schoolMeta' },
-        ],
-        [
-          { text: 'FEE CHALLAN', style: 'docTitle', alignment: 'right' },
-          { text: `No. ${c.challanNo}`, style: 'docNo', alignment: 'right' },
-          {
-            table: {
-              body: [[{ text: status.label, style: 'badge', fillColor: status.bg, color: status.fg }]],
-            },
-            layout: 'noBorders',
-            alignment: 'right',
-            margin: [0, 6, 0, 0],
-          },
-        ],
-      ],
-    },
-    { canvas: [{ type: 'line', x1: 0, y1: 8, x2: 515, y2: 8, lineWidth: 2, lineColor: BRAND }], margin: [0, 6, 0, 10] },
-
-    // Student + billing meta
-    {
-      columns: [
-        {
-          width: '*',
-          stack: [
-            { text: 'BILL TO', style: 'label' },
-            { text: c.student.name, style: 'value' },
-            { text: `Admission No: ${c.student.admissionNo}`, style: 'metaSm' },
-            { text: `Class: ${c.student.className} — ${c.student.sectionName}`, style: 'metaSm' },
-            { text: `Guardian: ${c.student.parentName}`, style: 'metaSm' },
-          ],
-        },
-        {
-          width: 'auto',
-          stack: [
-            { text: 'BILLING PERIOD', style: 'label', alignment: 'right' },
-            { text: `${MONTHS[c.month]} ${c.year}`, style: 'value', alignment: 'right' },
-            { text: `Issued: ${c.issueDate}`, style: 'metaSm', alignment: 'right' },
-            { text: `Due: ${c.dueDate}`, style: 'metaSm', alignment: 'right' },
-            ...(overdueDays > 0
-              ? [{ text: `OVERDUE by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`, fontSize: 8.5, bold: true, color: '#dc2626', alignment: 'right' as const, margin: [0, 1, 0, 0] as [number, number, number, number] }]
-              : []),
-          ],
-        },
-      ],
-      margin: [0, 0, 0, 12],
-    },
-
-    // Previous dues (only present when there are earlier unpaid months).
-    ...(previousDuesSection ? [previousDuesSection] : []),
-
-    // This month's charges
-    { text: `CHARGES FOR ${MONTHS[c.month].toUpperCase()} ${c.year}`, style: 'sectionLabel' },
-    {
-      table: {
-        headerRows: 1,
-        widths: ['*', 'auto', 'auto'],
-        body: [
-          [
-            { text: 'Description', style: 'th' },
-            { text: 'Type', style: 'th' },
-            { text: 'Amount', style: 'th', alignment: 'right' },
-          ],
-          ...itemRows,
-        ],
-      },
-      layout: {
-        hLineWidth: (i: number, node: { table: { body: unknown[] } }) =>
-          i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5,
-        vLineWidth: () => 0,
-        hLineColor: (i: number) => (i === 1 ? BRAND : LINE),
-        paddingTop: () => 6,
-        paddingBottom: () => 6,
-      },
-      margin: [0, 0, 0, 10],
-    },
-
-    // Totals — right aligned column
-    { columns: [{ width: '*', text: '' }, { width: 240, stack: totalsRows }] },
+  // Every line the parent is being asked to pay: this month's own charges,
+  // then each earlier unpaid month brought forward. Numbered as one sequence,
+  // so "S.No" counts what is on the voucher rather than what is in the table.
+  const lines: { feeType: string; month: string; voucherNo: string; amount: string }[] = [
+    ...c.items.map((it) => ({
+      feeType: it.label || ITEM_LABEL[it.type] || it.type,
+      month: `${(MONTHS[c.month] ?? '').slice(0, 3)} ${c.year}`,
+      voucherNo: c.challanNo.replace(/^CH-/, ''),
+      amount: String(it.amount),
+    })),
+    ...c.previousDues.map((d) => ({
+      feeType: d.staffBilled ? 'Previous Due (salary)' : 'Previous Due',
+      month: `${(MONTHS[d.month] ?? '').slice(0, 3)} ${d.year}`,
+      voucherNo: d.challanNo.replace(/^CH-/, ''),
+      amount: String(d.balance),
+    })),
   ];
 
-  // Teacher-billed callout (amber) — explains the salary deduction on the challan itself.
-  if (c.billedToTeacherId) {
-    block.push({
-      table: {
-        widths: ['*'],
-        body: [
-          [
-            {
-              stack: [
-                { text: 'Staff Family Concession', style: 'calloutTitle' },
-                {
-                  text:
-                    'This student is a staff member\'s child. Tuition & transport are settled from the ' +
-                    'parent-teacher\'s salary each month — see the teacher\'s salary slip for the deduction. ' +
-                    'Any amount the salary could not cover is shown as the balance due above.',
-                  style: 'calloutBody',
-                },
-              ],
-              fillColor: '#fffbeb',
-              margin: [10, 8, 10, 8],
-            },
-          ],
+  const cell = (
+    text: string,
+    opts: { bold?: boolean; alignment?: 'left' | 'right' | 'center' } = {},
+  ) => ({
+    text,
+    fontSize: 6,
+    bold: opts.bold ?? false,
+    alignment: opts.alignment ?? ('left' as const),
+    margin: [2, 1.5, 2, 1.5] as [number, number, number, number],
+  });
+
+  const GRID = {
+    hLineWidth: () => 0.5,
+    vLineWidth: () => 0.5,
+    hLineColor: () => '#000000',
+    vLineColor: () => '#000000',
+    paddingLeft: () => 1,
+    paddingRight: () => 1,
+    paddingTop: () => 0,
+    paddingBottom: () => 0,
+  };
+
+  const duesTable: Content = {
+    table: {
+      headerRows: 1,
+      widths: [12, 28, '*', 32, 34],
+      body: [
+        [
+          cell('S.No', { bold: true, alignment: 'center' }),
+          cell('V.No', { bold: true, alignment: 'center' }),
+          cell('Fee Type', { bold: true }),
+          cell('Month', { bold: true, alignment: 'center' }),
+          cell('Current Fee', { bold: true, alignment: 'right' }),
         ],
-      },
-      layout: {
-        hLineWidth: () => 1,
-        vLineWidth: () => 1,
-        hLineColor: () => '#f59e0b',
-        vLineColor: () => '#f59e0b',
-      },
-      margin: [0, 14, 0, 0],
-    });
-  }
+        ...lines.map((l, i) => [
+          cell(String(i + 1), { alignment: 'center' }),
+          cell(l.voucherNo, { alignment: 'center' }),
+          cell(l.feeType),
+          cell(l.month, { alignment: 'center' }),
+          cell(money(l.amount), { alignment: 'right' }),
+        ]),
+      ],
+    },
+    layout: GRID,
+  };
 
-  // Older challan whose student has newer unpaid months — say so, so this slip
-  // is never mistaken for the current balance.
-  if (c.hasLaterDues) {
-    block.push({
-      text: `Note: later months are also unpaid. This slip shows the balance as of ${MONTHS[c.month]} ${c.year}. Current total due across all months: ${formatPKR(c.studentTotalDue)}.`,
-      style: 'laterNote',
-      margin: [0, 12, 0, 0],
-    });
-  }
+  /*
+   * The late fee reads as the surcharge that applies once the due date passes,
+   * which is how the school's own vouchers are written, so "within date"
+   * excludes it and "after due date" includes it. Both are derived from the
+   * same stored total rather than invented, so the two figures always
+   * reconcile against the ledger.
+   */
+  const payableAfter = Number(c.totalPayable);
+  const lateFee = Number(c.lateFee);
+  const payableWithin = Math.max(0, payableAfter - lateFee);
 
-  // PAID stamp when nothing is owed up to this month.
-  if (Number(c.totalPayable) <= 0 && !c.hasLaterDues) {
-    block.push({
-      table: { body: [[{ text: '✓  PAID IN FULL', style: 'paidStamp' }]] },
-      layout: {
-        hLineWidth: () => 1.5,
-        vLineWidth: () => 1.5,
-        hLineColor: () => '#16a34a',
-        vLineColor: () => '#16a34a',
-      },
-      alignment: 'center',
-      margin: [0, 16, 0, 0],
-    });
-  }
+  const totalRow = (label: string, value: string, bold = false) => [
+    {
+      text: label,
+      fontSize: 6,
+      bold,
+      alignment: 'right' as const,
+      margin: [2, 1.5, 2, 1.5] as [number, number, number, number],
+      colSpan: 4,
+    },
+    { text: '' },
+    { text: '' },
+    { text: '' },
+    {
+      text: value,
+      fontSize: 6,
+      bold,
+      alignment: 'right' as const,
+      margin: [2, 1.5, 2, 1.5] as [number, number, number, number],
+    },
+  ];
 
-  // Footer
-  block.push({
-    text: 'Please pay before the due date to avoid a late fee. Keep this challan as your receipt.',
-    style: 'footer',
-    margin: [0, 18, 0, 4],
-  });
-  block.push({
-    text: `Statement as of ${pktDayString()}. Amounts brought forward reflect balances at print time.`,
-    style: 'footerSmall',
-  });
+  const totalsTable: Content = {
+    table: {
+      widths: [12, 28, '*', 32, 34],
+      body: [
+        totalRow('Total', money(c.baseAmount)),
+        totalRow('Previous Dues', money(c.previousBalance)),
+        totalRow('Discount', money(c.discount)),
+        ...(Number(c.cashPaid) > 0 ? [totalRow('Fee Paid', money(c.cashPaid))] : []),
+        ...(Number(c.staffCovered) > 0 ? [totalRow('Covered from Salary', money(c.staffCovered))] : []),
+        ...(Number(c.advanceCredit) > 0 ? [totalRow('Advance on File', money(c.advanceCredit))] : []),
+        totalRow('Payable within Date', money(payableWithin), true),
+        totalRow('Late Fee', money(lateFee)),
+        totalRow('Payable After Due Date', money(payableAfter), true),
+      ],
+    },
+    layout: {
+      ...GRID,
+      vLineWidth: (i: number, node: any) => (i === 0 || i === node.table.widths.length ? 0.5 : 0),
+    },
+  };
 
-  return { stack: block };
+  const datesRow: Content = {
+    table: {
+      widths: ['auto', '*', 'auto', '*'],
+      body: [
+        [
+          cell('Issue Date', { bold: true }),
+          cell(pktDayString(c.issueDate), { alignment: 'center' }),
+          cell('Due Date', { bold: true }),
+          cell(c.dueDate, { alignment: 'center' }),
+        ],
+      ],
+    },
+    layout: GRID,
+  };
+
+  const schoolText: Content = {
+    stack: [
+      { text: school.name.toUpperCase(), fontSize: 7, bold: true, lineHeight: 1 },
+      ...(school.address ? [{ text: `Address: ${school.address}`, fontSize: 5.5, lineHeight: 1 }] : []),
+      ...(school.phone ? [{ text: school.phone, fontSize: 5.5, lineHeight: 1 }] : []),
+    ],
+  };
+
+  const schoolBlock: Content = hasLogo
+    ? {
+        columns: [{ image: 'logo', fit: [32, 32], width: 34 }, schoolText],
+        columnGap: 4,
+        margin: [3, 3, 3, 3],
+      }
+    : { ...(schoolText as any), margin: [3, 3, 3, 3] };
+
+  const infoLine = (label: string, value: string) => [
+    { text: label, fontSize: 6, bold: true, margin: [3, 1, 2, 1] as [number, number, number, number] },
+    { text: value, fontSize: 6, margin: [2, 1, 3, 1] as [number, number, number, number] },
+  ];
+
+  const studentInfo: Content = {
+    table: {
+      widths: [56, '*'],
+      body: [
+        infoLine('Student ID', c.student.admissionNo),
+        infoLine('Student Name', dash(c.student.name)),
+        infoLine("Father's Name", dash(c.student.parentName ?? '')),
+        infoLine('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
+      ],
+    },
+    layout: 'noBorders',
+  };
+
+  return {
+    table: {
+      widths: ['*'],
+      body: [
+        [{ text: 'FEE VOUCHER', fontSize: 7.5, bold: true, alignment: 'center', margin: [0, 2, 0, 2] }],
+        [datesRow],
+        [schoolBlock],
+        [studentInfo],
+        [duesTable],
+        [totalsTable],
+      ],
+    },
+    layout: {
+      hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length ? 1 : 0.5),
+      vLineWidth: () => 1,
+      hLineColor: () => '#000000',
+      vLineColor: () => '#000000',
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+  };
 }
 
-const DOC_STYLES: TDocumentDefinitions['styles'] = {
-  schoolName: { fontSize: 16, bold: true, color: BRAND },
-  schoolMeta: { fontSize: 8, color: MUTED, margin: [0, 1, 0, 0] },
-  docTitle: { fontSize: 15, bold: true, color: INK },
-  docNo: { fontSize: 9, color: MUTED, margin: [0, 2, 0, 0] },
-  badge: { fontSize: 8, bold: true, margin: [6, 3, 6, 3] },
-  label: { fontSize: 7, bold: true, color: MUTED, characterSpacing: 1 },
-  value: { fontSize: 12, bold: true, color: INK, margin: [0, 2, 0, 0] },
-  metaSm: { fontSize: 9, color: MUTED, margin: [0, 1, 0, 0] },
-  th: { fontSize: 8, bold: true, color: MUTED, characterSpacing: 0.5 },
-  cell: { fontSize: 10, color: INK },
-  cellMuted: { fontSize: 9, color: MUTED },
-  cellNum: { fontSize: 10, color: INK, alignment: 'right' },
-  totLabel: { fontSize: 9, color: MUTED },
-  totVal: { fontSize: 9, color: INK, alignment: 'right' },
-  calloutTitle: { fontSize: 10, bold: true, color: '#b45309', margin: [0, 0, 0, 3] },
-  calloutBody: { fontSize: 8.5, color: '#78350f', lineHeight: 1.3 },
-  sectionLabel: { fontSize: 8, bold: true, color: BRAND, characterSpacing: 0.5, margin: [0, 0, 0, 4] },
-  paidStamp: { fontSize: 13, bold: true, color: '#16a34a', margin: [16, 6, 16, 6] },
-  laterNote: { fontSize: 8.5, color: '#b45309', italics: true },
-  footer: { fontSize: 8, color: MUTED, italics: true, alignment: 'center' },
-  footerSmall: { fontSize: 7, color: MUTED, italics: true, alignment: 'center' },
-};
+/**
+ * How many vouchers fit on one A4 sheet.
+ *
+ * A voucher grows with its dues lines, so a fixed 4-up would clip a student
+ * carrying six months of arrears. The whole document uses ONE layout, chosen
+ * by the largest voucher in the batch: these are printed to be cut apart, and
+ * a sheet of mixed sizes has no straight line to cut along.
+ */
+export function perPageFor(challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 1 | 2 | 4 {
+  const maxLines = Math.max(0, ...challans.map((c) => c.items.length + c.previousDues.length));
+  if (maxLines <= 9) return 4;
+  if (maxLines <= 22) return 2;
+  return 1;
+}
 
-async function loadSchool(): Promise<SchoolInfo> {
+/** Lay vouchers out in a grid, `perPage` to an A4 sheet. */
+function voucherGrid(
+  challans: ChallanData[],
+  school: SchoolInfo,
+  hasLogo: boolean,
+  perPage: 1 | 2 | 4,
+): Content[] {
+  const cols = perPage === 4 ? 2 : 1;
+  const pages: Content[] = [];
+
+  for (let i = 0; i < challans.length; i += perPage) {
+    const group = challans.slice(i, i + perPage);
+    const rows: Content[][] = [];
+    for (let r = 0; r < group.length; r += cols) {
+      const rowCells: Content[] = group.slice(r, r + cols).map((c) => voucherBlock(c, school, hasLogo));
+      // Pad a short last row so a lone voucher keeps its column width instead
+      // of stretching across the sheet.
+      while (rowCells.length < cols) rowCells.push({ text: '' });
+      rows.push(rowCells);
+    }
+
+    pages.push({
+      table: { widths: cols === 2 ? ['*', '*'] : ['*'], body: rows as any },
+      layout: {
+        hLineWidth: () => 0,
+        vLineWidth: () => 0,
+        paddingLeft: () => 3,
+        paddingRight: () => 3,
+        paddingTop: () => 3,
+        paddingBottom: () => 10,
+      },
+      ...(i + perPage < challans.length ? { pageBreak: 'after' as const } : {}),
+    });
+  }
+  return pages;
+}
+
+async function loadSchool(): Promise<SchoolInfo & { logoDataUri: string | null }> {
   const s = await prisma.school.findFirst();
+  /*
+   * The renderer cannot fetch a URL, so the logo travels as bytes. Defined once
+   * in the document's `images` dictionary and referenced by name, it is
+   * embedded a single time no matter how many vouchers the sheet carries.
+   * A missing logo costs the voucher its letterhead, never the print run.
+   */
+  const logo = await fetchFileBuffer(s?.logoUrl);
   return {
     name: s?.name ?? 'School',
     address: s?.address ?? null,
     phone: s?.phone ?? null,
     email: s?.email ?? null,
+    logoDataUri: logo ? `data:${logo.contentType};base64,${logo.buffer.toString('base64')}` : null,
   };
 }
 
@@ -355,32 +331,37 @@ function render(doc: TDocumentDefinitions): Promise<Buffer> {
   });
 }
 
+/**
+ * Build the document. Margins are tight because a voucher is cut out of the
+ * sheet, so page edges are waste rather than white space.
+ */
+function voucherDoc(
+  challans: ChallanData[],
+  school: SchoolInfo & { logoDataUri: string | null },
+): TDocumentDefinitions {
+  const perPage = perPageFor(challans);
+  return {
+    pageSize: 'A4',
+    pageMargins: [14, 14, 14, 14],
+    content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
+    ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
+    defaultStyle: { font: 'Roboto', fontSize: 6 },
+  };
+}
+
 /** Render one challan to a PDF buffer. */
 export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; challanNo: string }> {
   const [c, school] = await Promise.all([getChallan(id), loadSchool()]);
-  const buffer = await render({
-    pageSize: 'A4',
-    pageMargins: [40, 40, 40, 40],
-    content: [challanContent(c, school)],
-    styles: DOC_STYLES,
-    defaultStyle: { font: 'Roboto' },
-  });
+  // Deliberately still a quarter of the sheet rather than blown up to fill it:
+  // one voucher printed alone should be the same size as one from a batch, so
+  // the office cuts and files them identically.
+  const buffer = await render(voucherDoc([c], school));
   return { buffer, challanNo: c.challanNo };
 }
 
-/** Render many challans into a single PDF, one per page. */
+/** Render many challans into a single PDF, four to an A4 sheet where they fit. */
 export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
   const school = await loadSchool();
   const challans = await Promise.all(ids.map((id) => getChallan(id)));
-  const content: Content[] = challans.map((c, i) => ({
-    ...challanContent(c, school),
-    ...(i < challans.length - 1 ? { pageBreak: 'after' as const } : {}),
-  }));
-  return render({
-    pageSize: 'A4',
-    pageMargins: [40, 40, 40, 40],
-    content,
-    styles: DOC_STYLES,
-    defaultStyle: { font: 'Roboto' },
-  });
+  return render(voucherDoc(challans, school));
 }
