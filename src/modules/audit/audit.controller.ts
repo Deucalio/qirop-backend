@@ -17,7 +17,7 @@ export async function getAuditLogById(req: Request, res: Response, next: NextFun
 
 export async function getAuditLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { module, action, actorRole, actorId, startDate, endDate, search, page, limit } = req.query;
+    const { module, action, actorRole, actorId, startDate, endDate, search, page, limit, full } = req.query;
 
     const data = await listAuditLogs({
       module: typeof module === 'string' ? module : undefined,
@@ -29,6 +29,8 @@ export async function getAuditLogs(req: Request, res: Response, next: NextFuncti
       search: typeof search === 'string' ? search : undefined,
       page: page ? Number(page) : 1,
       limit: limit ? Number(limit) : 30,
+      // Exports ask for this; the browsing UI never does.
+      full: full === '1' || full === 'true',
     });
 
     res.json(data);

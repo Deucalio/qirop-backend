@@ -71,6 +71,12 @@ export async function listAuditLogs(params: {
   search?: string;
   page?: number;
   limit?: number;
+  /**
+   * Return every row complete, including bulk payloads the list view trims.
+   * For exports, where the whole point is a faithful copy of the record —
+   * a trimmed export is a silently incomplete archive.
+   */
+  full?: boolean;
 }) {
   const page = Math.max(1, params.page ?? 1);
   const limit = Math.min(100, Math.max(1, params.limit ?? 30));
@@ -129,7 +135,9 @@ export async function listAuditLogs(params: {
     }),
   ]);
 
-  const listed = items.map((item) => ({ ...item, changes: trimBulkPayload(item.changes) }));
+  const listed = params.full
+    ? items
+    : items.map((item) => ({ ...item, changes: trimBulkPayload(item.changes) }));
 
   return {
     items: listed,
