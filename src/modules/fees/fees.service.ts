@@ -248,6 +248,8 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
     include: {
       section: { include: { class: { include: { feeStructure: true } } } },
       transportAssignment: { include: { route: true } },
+      // For the audit record: who was billed, and who to contact about it.
+      parent: { include: { user: { select: { fullName: true, phone: true } } } },
     },
   });
 
@@ -263,6 +265,15 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
     let staffBilled = 0;
     let transportBilled = 0;
     let total = ZERO;
+    /**
+     * Exactly who was billed, captured as the run goes. A generation is a bulk
+     * financial event; "1 challan for Rs 1400" alone leaves no way to answer
+     * which student it was, or who to ring about it, once the run is over.
+     */
+    const billed: {
+      admissionNo: string; name: string; className: string; sectionName: string;
+      parentName: string; parentPhone: string; challanNo: string; amount: string; items: string[];
+    }[] = [];
 
     for (const s of students) {
       const exists = await tx.feeChallan.findUnique({
@@ -337,6 +348,17 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       if (transport.greaterThan(0)) transportBilled++;
       created++;
       total = total.plus(amount);
+      billed.push({
+        admissionNo: s.admissionNo,
+        name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
+        className: s.section.class.name,
+        sectionName: s.section.name,
+        parentName: s.parent.user.fullName,
+        parentPhone: s.parent.user.phone ?? '—',
+        challanNo: challan.challanNo,
+        amount: toMoneyString(amount),
+        items: items.map((i) => `${i.label} = ${i.amount}`),
+      });
 
       // Apply existing credit oldest-first only when the student actually has
       // payments — most fresh challans have none, so we skip the extra work and
@@ -347,12 +369,55 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
     }
 
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+
+    /*
+     * What the run was aimed at, described the way the operator chose it rather
+     * than as raw ids — "Class 1 — A" is answerable months later; a cuid is not.
+     * Section and class names come off the students actually matched, so the
+     * label reflects what was billed even if the selection was broader.
+     */
+    const classNames = [...new Set(billed.map((b) => b.className))];
+    const sectionNames = [...new Set(billed.map((b) => `${b.className} — ${b.sectionName}`))];
+    const scope = input.sectionId
+      ? (sectionNames[0] ?? 'a section')
+      : input.classId
+        ? `${classNames[0] ?? 'a class'} (all sections)`
+        : input.studentIds
+          ? `${input.studentIds.length} hand-picked student(s)`
+          : classNames.length === 1
+            ? classNames[0]
+            : `All classes (${classNames.length})`;
+
     await audit(tx, actor.userId, 'CREATE', 'FeeChallan', `${year}-${month}`, {
       targetLabel: `Monthly Fee Challans (${year}-${String(month).padStart(2, '0')})`,
-      details: `${actorUser?.fullName ?? 'Admin'} generated ${created} fee challans totaling Rs ${toMoneyString(total)} for term ${year}-${String(month).padStart(2, '0')}`,
+      details:
+        `${actorUser?.fullName ?? 'Admin'} generated ${created} fee challan(s) totalling ` +
+        `Rs ${toMoneyString(total)} for ${MONTHS[month] ?? month} ${year} — scope: ${scope}, due ${dueDate}` +
+        (skipped ? `. ${skipped} student(s) skipped (already had a challan for this month, or nothing to charge)` : '') +
+        (extraFees.length ? `. Extra charges applied to everyone: ${extraFees.map((e) => `${e.label} Rs ${e.amount}`).join(', ')}` : '') +
+        (staffPct > 0 ? `. Staff-child discount: ${staffPct}%` : ''),
       changes: {
         challansCreated: { before: 0, after: created },
         totalAmount: { before: '0.00', after: toMoneyString(total) },
+        _meta: {
+          scope,
+          period: `${MONTHS[month] ?? month} ${year}`,
+          dueDate,
+          studentCount: created,
+          skipped,
+          staffBilled,
+          transportBilled,
+          classes: classNames,
+          sections: sectionNames,
+          /** The choices made in the generate dialog, kept verbatim. */
+          options: {
+            extraFees: extraFees.map((e) => ({ label: e.label, amount: String(e.amount) })),
+            staffChildDiscountPercent: staffPct,
+            selection: input.sectionId ? 'Single section' : input.classId ? 'Whole class' : input.studentIds ? 'Selected students' : 'Whole school',
+          },
+          /** Every challan this run produced, so the list survives the challans themselves. */
+          students: billed,
+        },
       },
     });
 

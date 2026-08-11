@@ -126,8 +126,10 @@ export async function listAuditLogs(params: {
     }),
   ]);
 
+  const listed = items.map((item) => ({ ...item, changes: trimBulkPayload(item.changes) }));
+
   return {
-    items,
+    items: listed,
     pagination: {
       total,
       page,
@@ -135,6 +137,30 @@ export async function listAuditLogs(params: {
       totalPages: Math.ceil(total / limit),
     },
   };
+}
+
+/**
+ * Strip bulk arrays from an audit row for list responses.
+ *
+ * A challan generation records every student it billed — roughly 180 KB for a
+ * whole-school run. Thirty of those on one page would ship megabytes to render
+ * a table that stays collapsed, so the array is replaced by its count and
+ * served in full by `getAuditLog` only when someone opens it.
+ *
+ * Returns the row's changes untouched when there is nothing bulky to trim, so
+ * every other kind of audit entry is unaffected.
+ */
+export function trimBulkPayload(changes: unknown) {
+  const c = changes as Record<string, any> | null;
+  const students = c?._meta?.students;
+  if (!Array.isArray(students)) return changes as never;
+  const { students: _dropped, ...restMeta } = c!._meta;
+  return { ...c, _meta: { ...restMeta, studentsAvailable: students.length } } as never;
+}
+
+/** One audit record in full, including any payload trimmed from the list. */
+export async function getAuditLog(id: string) {
+  return prisma.auditLog.findUnique({ where: { id } });
 }
 
 /**

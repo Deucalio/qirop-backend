@@ -1,5 +1,19 @@
 import type { Request, Response, NextFunction } from 'express';
-import { listAuditLogs, seedAuditLogsIfEmpty } from './audit.service';
+import { listAuditLogs, seedAuditLogsIfEmpty, getAuditLog } from './audit.service';
+
+/** Full record, including payloads the list view trims for size. */
+export async function getAuditLogById(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const log = await getAuditLog(req.params.id);
+    if (!log) {
+      res.status(404).json({ message: 'Audit record not found' });
+      return;
+    }
+    res.json(log);
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function getAuditLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
