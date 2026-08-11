@@ -583,14 +583,63 @@ export async function purgeSelectiveItemsMap(
   const deletedCounts: Record<string, number> = {};
   const tasks: Promise<unknown>[] = [];
 
+  /**
+   * Payments left holding money for a challan that no longer exists, because
+   * they were still settling a challan that survived this purge. Reported in
+   * the audit entry: the freed portion becomes credit and will be applied to
+   * the student's next bill automatically.
+   */
+  let paymentsKeptAsCredit = 0;
+
   if (itemMap.challans?.length) {
     const ids = itemMap.challans;
     tasks.push(
-      prisma.$transaction([
-        prisma.feePaymentAllocation.deleteMany({ where: { challanId: { in: ids } } }),
-        prisma.feeChallanItem.deleteMany({ where: { challanId: { in: ids } } }),
-        prisma.feeChallan.deleteMany({ where: { id: { in: ids } } }),
-      ]).then(([, , c]) => { deletedCounts['challans'] = c.count; })
+      (async () => {
+        const result = await prisma.$transaction(
+          async (tx) => {
+            /*
+             * Purging a challan used to delete its allocations and leave the
+             * FeePayment rows behind. Stripped of their allocations those
+             * payments look identical to advance credit, and the next
+             * generation silently absorbs them — 43 payments totalling
+             * Rs 88,000 were consumed exactly this way. Every sibling purge
+             * (resetAllSchoolData, purgeBatchData, purgeStudentsBatch,
+             * purgeClassesBatch, purgeStudent) already clears payments; this
+             * one did not.
+             */
+            const affected = await tx.feePaymentAllocation.findMany({
+              where: { challanId: { in: ids } },
+              select: { paymentId: true },
+            });
+            const affectedPaymentIds = [...new Set(affected.map((a) => a.paymentId))];
+
+            /*
+             * A payment can span several challans — mark-as-paid writes one
+             * receipt per student covering all their bills. Delete only those
+             * whose every allocation is being purged; one that still settles a
+             * surviving challan is real money against a live bill, and removing
+             * it would reopen a challan that was genuinely paid.
+             */
+            const stillSettlingSomething = await tx.feePaymentAllocation.findMany({
+              where: { paymentId: { in: affectedPaymentIds }, challanId: { notIn: ids } },
+              select: { paymentId: true },
+            });
+            const keep = new Set(stillSettlingSomething.map((a) => a.paymentId));
+            const orphaned = affectedPaymentIds.filter((id) => !keep.has(id));
+
+            await tx.feePaymentAllocation.deleteMany({ where: { challanId: { in: ids } } });
+            await tx.feePayment.deleteMany({ where: { id: { in: orphaned } } });
+            await tx.feeChallanItem.deleteMany({ where: { challanId: { in: ids } } });
+            const c = await tx.feeChallan.deleteMany({ where: { id: { in: ids } } });
+
+            return { challans: c.count, paymentsDeleted: orphaned.length, paymentsKept: keep.size };
+          },
+          { timeout: 120_000, maxWait: 20_000 },
+        );
+        deletedCounts['challans'] = result.challans;
+        if (result.paymentsDeleted > 0) deletedCounts['fee_payments'] = result.paymentsDeleted;
+        paymentsKeptAsCredit = result.paymentsKept;
+      })(),
     );
   }
 
