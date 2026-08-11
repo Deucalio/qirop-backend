@@ -5,6 +5,7 @@ import { publicUrl, deleteFile } from '../../services/storage';
 import type { UpdateSchoolInput } from './school.schema';
 import { logAudit } from '../audit/audit.service';
 import type { Actor } from '../timetable/timetable.service';
+import { partitionPurgedPayments } from '../fees/fees.ledger';
 
 /** Convert the stored FileStore logo path into a public preview URL for the client. */
 function shape(school: School) {
@@ -607,32 +608,33 @@ export async function purgeSelectiveItemsMap(
              * purgeClassesBatch, purgeStudent) already clears payments; this
              * one did not.
              */
-            const affected = await tx.feePaymentAllocation.findMany({
+            const onPurged = await tx.feePaymentAllocation.findMany({
               where: { challanId: { in: ids } },
               select: { paymentId: true },
             });
-            const affectedPaymentIds = [...new Set(affected.map((a) => a.paymentId))];
 
             /*
              * A payment can span several challans — mark-as-paid writes one
-             * receipt per student covering all their bills. Delete only those
-             * whose every allocation is being purged; one that still settles a
-             * surviving challan is real money against a live bill, and removing
-             * it would reopen a challan that was genuinely paid.
+             * receipt per student covering all their bills. Only those whose
+             * every allocation is being purged are safe to remove; one that
+             * still settles a surviving challan is real money against a live
+             * bill, and deleting it would reopen a genuinely paid challan.
              */
-            const stillSettlingSomething = await tx.feePaymentAllocation.findMany({
-              where: { paymentId: { in: affectedPaymentIds }, challanId: { notIn: ids } },
+            const elsewhere = await tx.feePaymentAllocation.findMany({
+              where: {
+                paymentId: { in: [...new Set(onPurged.map((a) => a.paymentId))] },
+                challanId: { notIn: ids },
+              },
               select: { paymentId: true },
             });
-            const keep = new Set(stillSettlingSomething.map((a) => a.paymentId));
-            const orphaned = affectedPaymentIds.filter((id) => !keep.has(id));
+            const { orphaned, kept } = partitionPurgedPayments(onPurged, elsewhere);
 
             await tx.feePaymentAllocation.deleteMany({ where: { challanId: { in: ids } } });
             await tx.feePayment.deleteMany({ where: { id: { in: orphaned } } });
             await tx.feeChallanItem.deleteMany({ where: { challanId: { in: ids } } });
             const c = await tx.feeChallan.deleteMany({ where: { id: { in: ids } } });
 
-            return { challans: c.count, paymentsDeleted: orphaned.length, paymentsKept: keep.size };
+            return { challans: c.count, paymentsDeleted: orphaned.length, paymentsKept: kept.length };
           },
           { timeout: 120_000, maxWait: 20_000 },
         );
@@ -743,8 +745,14 @@ export async function purgeSelectiveItemsMap(
       targetType: 'ItemSelectivePurge',
       targetId: 'ITEM_BATCH',
       targetLabel: `Purged ${totalItems} selected items`,
-      details: `${actorUser?.fullName ?? 'Admin'} deleted ${totalItems} specific items across ${Object.keys(deletedCounts).length} modules`,
-      changes: deletedCounts,
+      details:
+        `${actorUser?.fullName ?? 'Admin'} deleted ${totalItems} specific items across ${Object.keys(deletedCounts).length} modules` +
+        // Stated plainly rather than left to be discovered when it settles a
+        // future bill on its own.
+        (paymentsKeptAsCredit > 0
+          ? `. ${paymentsKeptAsCredit} payment(s) were kept because they also settle challans that were not purged — the portion freed up now sits as unallocated credit and will be applied to those students' next challans automatically.`
+          : ''),
+      changes: { ...deletedCounts, ...(paymentsKeptAsCredit > 0 ? { paymentsKeptAsCredit } : {}) },
     },
   });
 

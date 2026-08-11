@@ -9,7 +9,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { paidBreakdown, deriveStatus, outstandingAcross, computePayable, type LedgerChallan } from './fees.ledger';
+import { paidBreakdown, deriveStatus, outstandingAcross, computePayable, partitionPurgedPayments, type LedgerChallan } from './fees.ledger';
 
 const DAY = 86_400_000;
 const future = () => new Date(Date.now() + 30 * DAY);
@@ -121,6 +121,44 @@ describe('computePayable', () => {
   test('an exact-match discount zeroes it without going under', () => {
     const r = computePayable(['1200'], '1200', '0');
     assert.equal(String(r.amount), '0');
+  });
+});
+
+describe('partitionPurgedPayments', () => {
+  const alloc = (paymentId: string) => ({ paymentId });
+
+  test('a payment settling only purged challans is safe to delete', () => {
+    const r = partitionPurgedPayments([alloc('p1'), alloc('p1')], []);
+    assert.deepEqual(r.orphaned, ['p1']);
+    assert.deepEqual(r.kept, []);
+  });
+
+  test('a payment that also settles a surviving challan is KEPT', () => {
+    // Mark-as-paid writes one receipt per student across all their bills.
+    // Deleting this would reopen a challan that was genuinely paid.
+    const r = partitionPurgedPayments([alloc('p1')], [alloc('p1')]);
+    assert.deepEqual(r.orphaned, [], 'must never delete money still settling a live bill');
+    assert.deepEqual(r.kept, ['p1']);
+  });
+
+  test('separates a mixed batch correctly', () => {
+    const r = partitionPurgedPayments(
+      [alloc('p1'), alloc('p2'), alloc('p3'), alloc('p2')],
+      [alloc('p2')],
+    );
+    assert.deepEqual(r.orphaned.sort(), ['p1', 'p3']);
+    assert.deepEqual(r.kept, ['p2']);
+  });
+
+  test('nothing to do when the purged challans had no payments', () => {
+    const r = partitionPurgedPayments([], []);
+    assert.deepEqual(r.orphaned, []);
+    assert.deepEqual(r.kept, []);
+  });
+
+  test('duplicate allocations to one payment are not double-counted', () => {
+    const r = partitionPurgedPayments([alloc('p1'), alloc('p1'), alloc('p1')], []);
+    assert.equal(r.orphaned.length, 1, 'a payment must be deleted once, not once per allocation');
   });
 });
 

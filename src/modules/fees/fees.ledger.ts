@@ -93,6 +93,31 @@ export function computePayable(
   return { base: round2(base), discount, lateFee, amount: round2(base.minus(discount).plus(lateFee)) };
 }
 
+/**
+ * Split payments touched by a challan purge into those safe to delete and those
+ * that must survive.
+ *
+ * A payment is only safe to delete when EVERY challan it settles is being
+ * purged. Mark-as-paid writes one receipt per student spanning all their bills,
+ * so a payment frequently straddles the boundary — deleting one of those would
+ * reopen a challan that was genuinely paid and destroy the record of real money.
+ *
+ * @param onPurged   allocations sitting on challans being deleted
+ * @param elsewhere  allocations of those same payments on challans that survive
+ */
+export function partitionPurgedPayments(
+  onPurged: { paymentId: string }[],
+  elsewhere: { paymentId: string }[],
+) {
+  const touched = [...new Set(onPurged.map((a) => a.paymentId))];
+  const keep = new Set(elsewhere.map((a) => a.paymentId));
+  return {
+    orphaned: touched.filter((id) => !keep.has(id)),
+    /** Kept, but the freed portion becomes unallocated credit. */
+    kept: touched.filter((id) => keep.has(id)),
+  };
+}
+
 export function deriveStatus(c: LedgerChallan): ChallanStatus {
   const { settled, balance } = paidBreakdown(c);
   if (balance.lessThanOrEqualTo(0)) {
