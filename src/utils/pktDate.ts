@@ -104,3 +104,18 @@ export function periodKey(year: number, month: number): number {
 export function isOnOrBeforePeriod(year: number, month: number, upToYear: number, upToMonth: number): boolean {
   return periodKey(year, month) <= periodKey(upToYear, upToMonth);
 }
+
+/**
+ * The UTC instants bounding a PKT calendar day — for filtering columns that
+ * store real timestamps rather than canonical PKT days.
+ *
+ * PKT is UTC+5, so the PKT day 2026-08-12 runs from 2026-08-11T19:00:00Z to
+ * 2026-08-12T18:59:59.999Z. Comparing a timestamp column against UTC midnight
+ * instead silently drops everything that happened between midnight and 5am
+ * PKT — an hour the school's own admins demonstrably work in.
+ */
+export function pktDayBounds(dateStr: string) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const startUtcMs = Date.UTC(y, m - 1, d) - PKT_OFFSET_MS;
+  return { start: new Date(startUtcMs), end: new Date(startUtcMs + 24 * 60 * 60 * 1000 - 1) };
+}

@@ -10,7 +10,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { periodWindow, periodKey, isOnOrBeforePeriod } from './pktDate';
+import { periodWindow, periodKey, isOnOrBeforePeriod, pktDayBounds } from './pktDate';
 
 const iso = (d: Date) => d.toISOString();
 
@@ -126,5 +126,41 @@ describe('periodKey / isOnOrBeforePeriod', () => {
   test('keys are strictly ordered across a year boundary', () => {
     assert.ok(periodKey(2025, 12) < periodKey(2026, 1));
     assert.equal(periodKey(2026, 1) - periodKey(2025, 12), 1, 'consecutive months differ by exactly 1');
+  });
+});
+
+describe('pktDayBounds', () => {
+  test('a PKT day starts at 19:00 UTC the previous day', () => {
+    const { start } = pktDayBounds('2026-08-12');
+    assert.equal(start.toISOString(), '2026-08-11T19:00:00.000Z');
+  });
+
+  test('and ends one millisecond before the next one begins', () => {
+    const { end } = pktDayBounds('2026-08-12');
+    assert.equal(end.toISOString(), '2026-08-12T18:59:59.999Z');
+    assert.equal(end.getTime() + 1, pktDayBounds('2026-08-13').start.getTime());
+  });
+
+  test('covers an event logged just after PKT midnight', () => {
+    // Stored 2026-08-11T19:57Z, shown to the user as 12:57 AM on 12 Aug.
+    // Filtering to UTC midnight excluded it from its own day; 17 real records
+    // were invisible under "Today" because of exactly this.
+    const evening = new Date('2026-08-11T19:57:13.000Z');
+    const { start, end } = pktDayBounds('2026-08-12');
+    assert.ok(evening >= start && evening <= end, 'a 12:57 AM PKT event belongs to that PKT day');
+    assert.ok(evening < new Date('2026-08-12'), 'and would be missed by a UTC-midnight bound');
+  });
+
+  test('excludes an event from the PKT day before', () => {
+    const justBefore = new Date('2026-08-11T18:59:59.999Z'); // 11:59:59 PM PKT on the 11th
+    assert.ok(justBefore < pktDayBounds('2026-08-12').start);
+    assert.ok(justBefore <= pktDayBounds('2026-08-11').end);
+  });
+
+  test('every day is exactly 24 hours long', () => {
+    for (const d of ['2026-01-01', '2026-02-28', '2026-06-15', '2026-12-31']) {
+      const { start, end } = pktDayBounds(d);
+      assert.equal(end.getTime() - start.getTime(), 24 * 3600_000 - 1, `${d} must span a full day`);
+    }
   });
 });

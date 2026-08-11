@@ -1,5 +1,6 @@
 import type { Request } from 'express';
 import { prisma } from '../../config/prisma';
+import { pktDayBounds } from '../../utils/pktDate';
 import type { Role } from '@prisma/client';
 
 export interface AuditLogParams {
@@ -94,15 +95,17 @@ export async function listAuditLogs(params: {
   }
 
   if (params.startDate || params.endDate) {
+    /*
+     * `timestamp` holds a real instant, so a PKT calendar day has to be
+     * converted to the UTC window it spans. Comparing against `new Date('YYYY-
+     * MM-DD')` treats the boundary as UTC midnight and drops everything between
+     * midnight and 5am PKT — which is precisely when this school's admins work:
+     * an edit shown as "12:57 AM, 12 Aug" is stored as 2026-08-11T19:57Z, so
+     * filtering to 12 Aug used to exclude it from its own day.
+     */
     where.timestamp = {};
-    if (params.startDate) {
-      where.timestamp.gte = new Date(params.startDate);
-    }
-    if (params.endDate) {
-      const end = new Date(params.endDate);
-      end.setHours(23, 59, 59, 999);
-      where.timestamp.lte = end;
-    }
+    if (params.startDate) where.timestamp.gte = pktDayBounds(params.startDate).start;
+    if (params.endDate) where.timestamp.lte = pktDayBounds(params.endDate).end;
   }
 
   if (params.search && params.search.trim()) {
