@@ -253,15 +253,20 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
 /**
  * How many vouchers fit on one A4 sheet.
  *
- * A voucher grows with its dues lines, so a fixed 4-up would clip a student
- * carrying six months of arrears. The whole document uses ONE layout, chosen
- * by the largest voucher in the batch: these are printed to be cut apart, and
- * a sheet of mixed sizes has no straight line to cut along.
+ * Six fit comfortably in two columns of three when every voucher is a line or
+ * two, which is the usual shape of a monthly run. A voucher grows with its
+ * dues lines though, so the sheet steps down to four, two, then one rather
+ * than clipping a student carrying months of arrears.
+ *
+ * The whole document uses ONE layout, chosen by the largest voucher in the
+ * batch: these are printed to be cut apart by hand, and a sheet of mixed sizes
+ * has no straight line to cut along.
  */
-export function perPageFor(challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 1 | 2 | 4 {
+export function perPageFor(challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 1 | 2 | 4 | 6 {
   const maxLines = Math.max(0, ...challans.map((c) => c.items.length + c.previousDues.length));
-  if (maxLines <= 9) return 4;
-  if (maxLines <= 22) return 2;
+  if (maxLines <= 4) return 6;
+  if (maxLines <= 11) return 4;
+  if (maxLines <= 24) return 2;
   return 1;
 }
 
@@ -270,9 +275,9 @@ function voucherGrid(
   challans: ChallanData[],
   school: SchoolInfo,
   hasLogo: boolean,
-  perPage: 1 | 2 | 4,
+  perPage: 1 | 2 | 4 | 6,
 ): Content[] {
-  const cols = perPage === 4 ? 2 : 1;
+  const cols = perPage >= 4 ? 2 : 1;
   const pages: Content[] = [];
 
   for (let i = 0; i < challans.length; i += perPage) {
