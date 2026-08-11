@@ -1034,7 +1034,13 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
   return prisma.$transaction(async (tx) => {
     const c = await tx.feeChallan.findUnique({
       where: { id },
-      include: { items: true, allocations: { include: { payment: true } } },
+      include: {
+        items: true,
+        allocations: { include: { payment: true } },
+        // For the audit label — an entry reading "FeeChallan #cmskdht6" cannot
+        // be matched to a student by anyone reading the history later.
+        student: { select: { firstName: true, lastName: true, admissionNo: true } },
+      },
     });
     if (!c) throw NotFound('Challan not found');
 
@@ -1086,8 +1092,34 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
     // A larger balance may free credit to apply; a smaller one never over-pays.
     await allocateAvailable(tx, c.studentId);
     await recomputeChallan(tx, id);
+    /*
+     * The metadata below must be nested under targetLabel/details/changes —
+     * `audit()` reads exactly those keys and silently drops anything else. This
+     * call previously passed a flat { discount, lateFee, amount }, so every
+     * challan edit was stored as "recorded challan edited on FeeChallan
+     * #<8 chars>" with no student, no figures and no before/after. A challan
+     * discounted to zero and then deleted left nothing to reconstruct it from.
+     */
+    const studentName = `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}`;
+    const editor = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    const changedItems = [
+      ...(input.addItem ? [`added "${input.addItem.label}" (Rs ${toMoneyString(money(input.addItem.amount))})`] : []),
+      ...(input.removeItemId
+        ? [`removed "${c.items.find((i) => i.id === input.removeItemId)?.label ?? 'an item'}"`]
+        : []),
+    ];
     await audit(tx, actor.userId, 'CHALLAN_EDITED', 'FeeChallan', id, {
-      discount: toMoneyString(discount), lateFee: toMoneyString(lateFee), amount: toMoneyString(amount),
+      targetLabel: `${studentName} (Challan #${c.challanNo})`,
+      details:
+        `${editor?.fullName ?? 'Admin'} edited challan ${c.challanNo} for ${studentName} (${c.student.admissionNo}): ` +
+        `payable Rs ${toMoneyString(c.amount)} → Rs ${toMoneyString(amount)}` +
+        (changedItems.length ? `, ${changedItems.join(' and ')}` : '') +
+        '.',
+      changes: {
+        discount: { before: toMoneyString(c.discount), after: toMoneyString(discount) },
+        lateFee: { before: toMoneyString(c.lateFee), after: toMoneyString(lateFee) },
+        amount: { before: toMoneyString(c.amount), after: toMoneyString(amount) },
+      },
     });
     return getChallanTx(tx, id);
   }, { timeout: 60_000, maxWait: 20_000 });
@@ -1236,13 +1268,28 @@ export async function markChallansPaid(
         total = total.plus(studentTotal);
       }
 
+      /*
+       * Same nesting requirement as CHALLAN_EDITED: `audit()` reads only
+       * targetLabel/details/changes and drops anything else, so the flat object
+       * this used to pass stored nothing but "recorded challans marked paid on
+       * FeeChallan #<8 chars>". This action creates real payment rows, and when
+       * the challans are later deleted those payments survive as unallocated
+       * credit — so the trail needs to say plainly what it created.
+       */
+      const marker = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
       await audit(tx, actor.userId, 'CHALLANS_MARKED_PAID', 'FeeChallan', `${paid} challans`, {
-        requested: input.challanIds.length,
-        paid,
-        skipped,
-        receipts: byStudent.size,
-        method: input.method,
-        total: toMoneyString(total),
+        targetLabel: `${paid} Challan(s) Marked Paid · Rs ${toMoneyString(total)}`,
+        details:
+          `${marker?.fullName ?? 'Admin'} marked ${paid} of ${input.challanIds.length} requested challan(s) paid ` +
+          `via ${input.method}, totalling Rs ${toMoneyString(total)} across ${byStudent.size} student(s)` +
+          (skipped ? `; ${skipped} skipped` : '') +
+          `. This created ${byStudent.size} payment record(s) — deleting these challans later will NOT remove them.`,
+        changes: {
+          challansMarkedPaid: { before: 0, after: paid },
+          paymentsCreated: { before: 0, after: byStudent.size },
+          totalRecorded: { before: '0.00', after: toMoneyString(total) },
+          method: { before: null, after: input.method },
+        },
       });
 
       return { paid, skipped, receipts: byStudent.size, totalCollected: toMoneyString(total) };

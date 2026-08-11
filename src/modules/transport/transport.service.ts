@@ -87,6 +87,9 @@ export async function getRoute(id: string) {
       className: a.student!.section.class.name,
       sectionName: a.student!.section.name,
       parentName: a.student!.parent.user.fullName,
+      parentPhone: a.student!.parent.user.phone,
+      parentCnic: a.student!.parent.user.cnic,
+      bFormNo: a.student!.bFormNo,
       isStaffChild: !!a.student!.teacherParentId,
     }));
   const teachers = r.assignments
@@ -96,6 +99,8 @@ export async function getRoute(id: string) {
       id: a.teacher!.id,
       name: a.teacher!.user.fullName,
       employeeId: a.teacher!.employeeId,
+      phone: a.teacher!.user.phone,
+      cnic: a.teacher!.user.cnic,
       staffRole: a.teacher!.staffRole,
     }));
 
