@@ -7,9 +7,10 @@
  * a student carrying months of arrears. A clipped voucher understates what a
  * family owes, which is worse than wasting paper.
  *
- * The step-downs are calibrated against real rendering, not guessed: six
- * one-line vouchers were confirmed to produce a single page, seven to produce
- * two.
+ * The step-downs are calibrated against real rendering, not guessed. Growing a
+ * challan one line at a time and re-rendering showed four lines is the last
+ * that fits six-up, eleven the last that fits four-up, and twenty-four the last
+ * that fits two-up; every boundary below matches a measured page count.
  *
  * Run with: npm test
  */

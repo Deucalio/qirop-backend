@@ -547,6 +547,18 @@ function shapeChallan(c: ChallanWithLedger) {
     cashPaid: toMoneyString(cash),
     staffCovered: toMoneyString(staff),
     balance: toMoneyString(balance),
+    /**
+     * When the money actually arrived — the latest non-reversed receipt against
+     * this challan. A settled challan prints as a receipt showing this date;
+     * an unpaid one has no such date to show.
+     */
+    lastPaymentDate: (() => {
+      const dates = c.allocations
+        .filter((a) => !a.payment.isReversed)
+        .map((a) => a.payment.paymentDate)
+        .sort((x, y) => y.getTime() - x.getTime());
+      return dates[0] ? pktDayString(dates[0]) : null;
+    })(),
     status: c.status,
     isOverdue: pastDue && balance.greaterThan(0),
     billedToTeacherId: c.billedToTeacherId,

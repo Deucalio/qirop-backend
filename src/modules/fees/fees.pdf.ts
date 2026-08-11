@@ -56,187 +56,206 @@ type SchoolInfo = { name: string; address: string | null; phone: string | null; 
  * ruled box so a voucher stays readable after being folded into a schoolbag.
  */
 function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Content {
-  const dash = (v: string) => (v && v.trim() ? v : '-');
   const money = (v: string | number) => Number(v).toLocaleString('en-PK');
+  /** YYYY-MM-DD to the DD-MM-YYYY the school's own vouchers use. */
+  const dmy = (iso: string) => {
+    const [y, m, d] = iso.split('-');
+    return d && m && y ? `${d}-${m}-${y}` : iso;
+  };
 
-  // Every line the parent is being asked to pay: this month's own charges,
-  // then each earlier unpaid month brought forward. Numbered as one sequence,
-  // so "S.No" counts what is on the voucher rather than what is in the table.
-  const lines: { feeType: string; month: string; voucherNo: string; amount: string }[] = [
+  const settled = Number(c.balance) <= 0 && Number(c.paidAmount) > 0;
+
+  /*
+   * One line per thing being charged. The month is folded into the description
+   * rather than given a column of its own: "August 2026 Monthly Fee" reads as a
+   * sentence and costs a third of the width a separate Month column did.
+   */
+  const lines: { label: string; amount: string }[] = [
     ...c.items.map((it) => ({
-      feeType: it.label || ITEM_LABEL[it.type] || it.type,
-      month: `${(MONTHS[c.month] ?? '').slice(0, 3)} ${c.year}`,
-      voucherNo: c.challanNo.replace(/^CH-/, ''),
+      label: `${MONTHS[c.month] ?? ''} ${c.year} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
       amount: String(it.amount),
     })),
     ...c.previousDues.map((d) => ({
-      feeType: d.staffBilled ? 'Previous Due (salary)' : 'Previous Due',
-      month: `${(MONTHS[d.month] ?? '').slice(0, 3)} ${d.year}`,
-      voucherNo: d.challanNo.replace(/^CH-/, ''),
+      label: `${MONTHS[d.month] ?? ''} ${d.year} — Previous Due${d.staffBilled ? ' (salary)' : ''}`,
       amount: String(d.balance),
     })),
   ];
 
-  const cell = (
+  /**
+   * A table cell. Written out rather than inferred because pdfmake's TableCell
+   * union rejects a widened `number[]` margin or a `string` alignment, and the
+   * resulting error points at the whole table rather than the cell.
+   */
+  type Cell = {
+    text: string;
+    fontSize: number;
+    bold: boolean;
+    alignment?: 'left' | 'right' | 'center';
+    margin: [number, number, number, number];
+  };
+  const T = (
     text: string,
-    opts: { bold?: boolean; alignment?: 'left' | 'right' | 'center' } = {},
-  ) => ({
+    opts: { size?: number; bold?: boolean; right?: boolean; pad?: number } = {},
+  ): Cell => ({
     text,
-    fontSize: 6,
+    fontSize: opts.size ?? 6.5,
     bold: opts.bold ?? false,
-    alignment: opts.alignment ?? ('left' as const),
-    margin: [2, 1.5, 2, 1.5] as [number, number, number, number],
+    ...(opts.right ? { alignment: 'right' as const } : {}),
+    margin: [0, opts.pad ?? 1.2, 0, opts.pad ?? 1.2],
   });
 
-  const GRID = {
-    hLineWidth: () => 0.5,
-    vLineWidth: () => 0.5,
-    hLineColor: () => '#000000',
-    vLineColor: () => '#000000',
-    paddingLeft: () => 1,
-    paddingRight: () => 1,
-    paddingTop: () => 0,
-    paddingBottom: () => 0,
+  /* ---- header: title, then dates on one line ------------------------- */
+  const title: Content = {
+    text: settled ? 'FEE RECEIPT' : 'FEE VOUCHER',
+    fontSize: 8.5,
+    bold: true,
+    alignment: 'center',
+    margin: [0, 3, 0, 3],
   };
 
-  const duesTable: Content = {
-    table: {
-      headerRows: 1,
-      widths: [12, 28, '*', 32, 34],
-      body: [
-        [
-          cell('S.No', { bold: true, alignment: 'center' }),
-          cell('V.No', { bold: true, alignment: 'center' }),
-          cell('Fee Type', { bold: true }),
-          cell('Month', { bold: true, alignment: 'center' }),
-          cell('Current Fee', { bold: true, alignment: 'right' }),
+  const dateBits: Content[] = [
+    { text: [{ text: 'Issued: ', bold: true }, dmy(c.issueDate)], fontSize: 6.5 },
+    { text: [{ text: 'Due: ', bold: true }, dmy(c.dueDate)], fontSize: 6.5, alignment: 'right' },
+  ];
+  // Only a paid voucher has a payment date, so only a receipt shows one.
+  if (settled && c.lastPaymentDate) {
+    dateBits.splice(1, 0, {
+      text: [{ text: 'Paid: ', bold: true }, dmy(c.lastPaymentDate)],
+      fontSize: 6.5,
+      alignment: 'center',
+    });
+  }
+  const dates: Content = { columns: dateBits, margin: [5, 3, 5, 3] };
+
+  /* ---- school block: logo and text share the same band ---------------- */
+  const schoolText: Content = {
+    stack: [
+      { text: school.name.toUpperCase(), fontSize: 8, bold: true, lineHeight: 1.05 },
+      ...(school.address ? [{ text: school.address, fontSize: 5.5, lineHeight: 1.05 }] : []),
+      ...(school.phone ? [{ text: school.phone, fontSize: 5.5, lineHeight: 1.05 }] : []),
+    ],
+  };
+  const schoolBlock: Content = hasLogo
+    ? {
+        columns: [
+          { image: 'logo', fit: [30, 30], width: 32 },
+          { ...(schoolText as any), margin: [0, 1, 0, 0] },
         ],
-        ...lines.map((l, i) => [
-          cell(String(i + 1), { alignment: 'center' }),
-          cell(l.voucherNo, { alignment: 'center' }),
-          cell(l.feeType),
-          cell(l.month, { alignment: 'center' }),
-          cell(money(l.amount), { alignment: 'right' }),
-        ]),
-      ],
-    },
-    layout: GRID,
+        columnGap: 5,
+        margin: [5, 4, 5, 4],
+      }
+    : { ...(schoolText as any), margin: [5, 4, 5, 4] };
+
+  /* ---- student: labels inline, voucher number beside the ID ----------- */
+  const kv = (label: string, value: string) => ({
+    text: [{ text: `${label}: `, bold: true }, value || '-'],
+    fontSize: 6.5,
+    margin: [0, 0.6, 0, 0.6] as [number, number, number, number],
+  });
+
+  const student: Content = {
+    stack: [
+      {
+        columns: [
+          kv('Student ID', c.student.admissionNo),
+          { ...kv('Voucher', c.challanNo.replace(/^CH-/, '')), alignment: 'right' },
+        ],
+      },
+      kv('Student', c.student.name),
+      kv('Father', c.student.parentName ?? ''),
+      kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
+    ],
+    margin: [5, 3, 5, 3],
+  };
+
+  /* ---- fee details: description and amount, nothing else -------------- */
+  const feeTable: Content = {
+    stack: [
+      { text: 'FEE DETAILS', fontSize: 6, bold: true, characterSpacing: 0.4, margin: [0, 0, 0, 2] },
+      {
+        table: {
+          headerRows: 1,
+          widths: ['*', 52],
+          body: [
+            [
+              T('Fee Description', { size: 6, bold: true, pad: 1 }),
+              T('Amount', { size: 6, bold: true, right: true, pad: 1 }),
+            ],
+            ...lines.map((l) => [T(l.label), T(money(l.amount), { right: true })]),
+          ],
+        },
+        // Horizontal rules only: a vertical line between description and amount
+        // adds ink without adding meaning.
+        layout: {
+          hLineWidth: (i: number) => (i === 1 ? 0.5 : 0.25),
+          vLineWidth: () => 0,
+          hLineColor: () => '#000000',
+          paddingLeft: () => 0,
+          paddingRight: () => 0,
+          paddingTop: () => 0,
+          paddingBottom: () => 0,
+        },
+      },
+    ],
+    margin: [5, 3, 5, 3],
   };
 
   /*
    * The late fee reads as the surcharge that applies once the due date passes,
-   * which is how the school's own vouchers are written, so "within date"
-   * excludes it and "after due date" includes it. Both are derived from the
-   * same stored total rather than invented, so the two figures always
-   * reconcile against the ledger.
+   * which is how the school's own vouchers are written, so "payable by" excludes
+   * it and "after due date" includes it. Both come from the same stored total,
+   * so the two figures always reconcile against the ledger.
    */
   const payableAfter = Number(c.totalPayable);
   const lateFee = Number(c.lateFee);
-  const payableWithin = Math.max(0, payableAfter - lateFee);
+  const payableBy = Math.max(0, payableAfter - lateFee);
 
-  const totalRow = (label: string, value: string, bold = false) => [
-    {
-      text: label,
-      fontSize: 6,
-      bold,
-      alignment: 'right' as const,
-      margin: [2, 1.5, 2, 1.5] as [number, number, number, number],
-      colSpan: 4,
-    },
-    { text: '' },
-    { text: '' },
-    { text: '' },
-    {
-      text: value,
-      fontSize: 6,
-      bold,
-      alignment: 'right' as const,
-      margin: [2, 1.5, 2, 1.5] as [number, number, number, number],
-    },
+  const sumRow = (label: string, value: string, strong = false): Cell[] => [
+    T(label, { size: strong ? 6.5 : 6, bold: strong, pad: 1 }),
+    T(money(value), { size: strong ? 6.5 : 6, bold: strong, right: true, pad: 1 }),
   ];
 
-  const totalsTable: Content = {
-    table: {
-      widths: [12, 28, '*', 32, 34],
-      body: [
-        totalRow('Total', money(c.baseAmount)),
-        totalRow('Previous Dues', money(c.previousBalance)),
-        totalRow('Discount', money(c.discount)),
-        ...(Number(c.cashPaid) > 0 ? [totalRow('Fee Paid', money(c.cashPaid))] : []),
-        ...(Number(c.staffCovered) > 0 ? [totalRow('Covered from Salary', money(c.staffCovered))] : []),
-        ...(Number(c.advanceCredit) > 0 ? [totalRow('Advance on File', money(c.advanceCredit))] : []),
-        totalRow('Payable within Date', money(payableWithin), true),
-        totalRow('Late Fee', money(lateFee)),
-        totalRow('Payable After Due Date', money(payableAfter), true),
-      ],
-    },
+  const summaryBody: Cell[][] = [
+    sumRow('Subtotal', c.baseAmount),
+    sumRow('Previous Dues', c.previousBalance),
+    sumRow('Discount', c.discount),
+    ...(Number(c.cashPaid) > 0 ? [sumRow('Fee Paid', c.cashPaid)] : []),
+    ...(Number(c.staffCovered) > 0 ? [sumRow('Covered from Salary', c.staffCovered)] : []),
+    ...(Number(c.advanceCredit) > 0 ? [sumRow('Advance on File', c.advanceCredit)] : []),
+    sumRow(`PAYABLE BY ${dmy(c.dueDate)}`, String(payableBy), true),
+    sumRow('Late Fee', String(lateFee)),
+    sumRow('PAYABLE AFTER DUE DATE', String(payableAfter), true),
+  ];
+  // The rule sits above the emphasised figure, wherever the optional rows push it.
+  const ruleAt = summaryBody.length - 3;
+
+  const summary: Content = {
+    table: { widths: ['*', 52], body: summaryBody },
     layout: {
-      ...GRID,
-      vLineWidth: (i: number, node: any) => (i === 0 || i === node.table.widths.length ? 0.5 : 0),
+      hLineWidth: (i: number) => (i === ruleAt ? 0.6 : 0),
+      vLineWidth: () => 0,
+      hLineColor: () => '#000000',
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
     },
+    margin: [5, 3, 5, 3],
   };
 
-  const datesRow: Content = {
-    table: {
-      widths: ['auto', '*', 'auto', '*'],
-      body: [
-        [
-          cell('Issue Date', { bold: true }),
-          cell(pktDayString(c.issueDate), { alignment: 'center' }),
-          cell('Due Date', { bold: true }),
-          cell(c.dueDate, { alignment: 'center' }),
-        ],
-      ],
-    },
-    layout: GRID,
+  const signature: Content = {
+    text: 'Parent / Guardian Signature: ______________________',
+    fontSize: 5.5,
+    margin: [5, 5, 5, 5],
   };
 
-  const schoolText: Content = {
-    stack: [
-      { text: school.name.toUpperCase(), fontSize: 7, bold: true, lineHeight: 1 },
-      ...(school.address ? [{ text: `Address: ${school.address}`, fontSize: 5.5, lineHeight: 1 }] : []),
-      ...(school.phone ? [{ text: school.phone, fontSize: 5.5, lineHeight: 1 }] : []),
-    ],
-  };
-
-  const schoolBlock: Content = hasLogo
-    ? {
-        columns: [{ image: 'logo', fit: [32, 32], width: 34 }, schoolText],
-        columnGap: 4,
-        margin: [3, 3, 3, 3],
-      }
-    : { ...(schoolText as any), margin: [3, 3, 3, 3] };
-
-  const infoLine = (label: string, value: string) => [
-    { text: label, fontSize: 6, bold: true, margin: [3, 1, 2, 1] as [number, number, number, number] },
-    { text: value, fontSize: 6, margin: [2, 1, 3, 1] as [number, number, number, number] },
-  ];
-
-  const studentInfo: Content = {
-    table: {
-      widths: [56, '*'],
-      body: [
-        infoLine('Student ID', c.student.admissionNo),
-        infoLine('Student Name', dash(c.student.name)),
-        infoLine("Father's Name", dash(c.student.parentName ?? '')),
-        infoLine('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
-      ],
-    },
-    layout: 'noBorders',
-  };
-
+  /* ---- assemble ------------------------------------------------------- */
   return {
     table: {
       widths: ['*'],
-      body: [
-        [{ text: 'FEE VOUCHER', fontSize: 7.5, bold: true, alignment: 'center', margin: [0, 2, 0, 2] }],
-        [datesRow],
-        [schoolBlock],
-        [studentInfo],
-        [duesTable],
-        [totalsTable],
-      ],
+      body: [[title], [dates], [schoolBlock], [student], [feeTable], [summary], [signature]],
     },
+    // One heavy frame, lighter rules between sections, nothing inside them.
     layout: {
       hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length ? 1 : 0.5),
       vLineWidth: () => 1,
