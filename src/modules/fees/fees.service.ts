@@ -1499,7 +1499,7 @@ export async function listPayments(query: {
           parent: { select: { user: { select: { fullName: true, phone: true } } } },
         },
       },
-      allocations: { include: { challan: { select: { challanNo: true, year: true, month: true } } } },
+      allocations: { include: { challan: { select: { id: true, challanNo: true, year: true, month: true } } } },
       receivedBy: { select: { fullName: true } },
     },
     orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
@@ -1534,6 +1534,7 @@ export async function listPayments(query: {
       reversalReason: p.reversalReason,
       allocations: p.allocations
         .map((a) => ({
+          challanId: a.challan.id,
           challanNo: a.challan.challanNo,
           period: `${MONTHS[a.challan.month] ?? a.challan.month} ${a.challan.year}`,
           amountApplied: toMoneyString(a.amountApplied),
