@@ -33,52 +33,13 @@ const voucher = (items: number, dues = 0) => ({
 });
 
 describe('perPageFor', () => {
-  test('a plain one-line tuition voucher packs eight to a sheet', () => {
-    assert.equal(perPageFor(Array.from({ length: 8 }, () => voucher(1))), 8);
+  test('always returns 4 vouchers per A4 page (2x2 grid)', () => {
+    assert.equal(perPageFor(Array.from({ length: 4 }, () => voucher(1))), 4);
+    assert.equal(perPageFor(Array.from({ length: 20 }, () => voucher(1))), 4);
+    assert.equal(perPageFor([voucher(1, 10)]), 4);
   });
 
-  test('the imported arrears vouchers — one line each — pack eight up', () => {
-    // What the August import produced: a single "Arrears as at 01-08-2026" line.
-    assert.equal(perPageFor(Array.from({ length: 222 }, () => voucher(1))), 8);
-  });
-
-  test('steps down to six up past three lines', () => {
-    assert.equal(perPageFor([voucher(3)]), 8, 'three lines is the last that fits eight up');
-    assert.equal(perPageFor([voucher(4)]), 6, 'four must not be squeezed in');
-  });
-
-  test('steps down to four up past eleven lines', () => {
-    assert.equal(perPageFor([voucher(1, 10)]), 6, 'eleven lines still fits six up');
-    assert.equal(perPageFor([voucher(1, 11)]), 4, 'twelve needs the taller cell');
-  });
-
-  test('falls back to a whole sheet past eighteen lines', () => {
-    assert.equal(perPageFor([voucher(1, 17)]), 4, 'eighteen still fits four up');
-    assert.equal(perPageFor([voucher(1, 18)]), 1, 'beyond that it takes the sheet');
-  });
-
-  test('never returns a two-up layout', () => {
-    // Two-up has the same row height as four-up, so it would waste half a sheet
-    // without buying any of the height that actually runs out.
-    for (let n = 0; n <= 40; n++) {
-      assert.notEqual(perPageFor([voucher(1, n)]), 2, `${n + 1} lines must not choose two-up`);
-    }
-  });
-
-  test('the LARGEST voucher decides the layout for the whole batch', () => {
-    // Uniformity matters more than density: a sheet of mixed sizes has no
-    // straight line to cut along.
-    const batch = [voucher(1), voucher(1), voucher(1, 30), voucher(1)];
-    assert.equal(perPageFor(batch), 1, 'one oversized voucher sets the sheet layout');
-  });
-
-  test('charge lines and brought-forward dues both count toward the height', () => {
-    assert.equal(perPageFor([voucher(4, 0)]), 6);
-    assert.equal(perPageFor([voucher(0, 4)]), 6);
-    assert.equal(perPageFor([voucher(2, 2)]), 6);
-  });
-
-  test('an empty batch does not crash the print run', () => {
-    assert.equal(perPageFor([]), 8);
+  test('empty batch returns 4-up default', () => {
+    assert.equal(perPageFor([]), 4);
   });
 });

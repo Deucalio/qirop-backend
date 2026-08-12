@@ -98,59 +98,59 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     opts: { size?: number; bold?: boolean; right?: boolean; pad?: number } = {},
   ): Cell => ({
     text,
-    fontSize: opts.size ?? 6.5,
+    fontSize: opts.size ?? 8,
     bold: opts.bold ?? false,
     ...(opts.right ? { alignment: 'right' as const } : {}),
-    margin: [0, opts.pad ?? 1.2, 0, opts.pad ?? 1.2],
+    margin: [0, opts.pad ?? 2, 0, opts.pad ?? 2],
   });
 
   /* ---- header: title, then dates on one line ------------------------- */
   const title: Content = {
     text: settled ? 'FEE RECEIPT' : 'FEE VOUCHER',
-    fontSize: 8.5,
+    fontSize: 10.5,
     bold: true,
     alignment: 'center',
-    margin: [0, 2, 0, 2],
+    margin: [0, 3, 0, 3],
   };
 
   const dateBits: Content[] = [
-    { text: [{ text: 'Issued: ', bold: true }, dmy(c.issueDate)], fontSize: 6.5 },
-    { text: [{ text: 'Due: ', bold: true }, dmy(c.dueDate)], fontSize: 6.5, alignment: 'right' },
+    { text: [{ text: 'Issued: ', bold: true }, dmy(c.issueDate)], fontSize: 8 },
+    { text: [{ text: 'Due: ', bold: true }, dmy(c.dueDate)], fontSize: 8, alignment: 'right' },
   ];
   // Only a paid voucher has a payment date, so only a receipt shows one.
   if (settled && c.lastPaymentDate) {
     dateBits.splice(1, 0, {
       text: [{ text: 'Paid: ', bold: true }, dmy(c.lastPaymentDate)],
-      fontSize: 6.5,
+      fontSize: 8,
       alignment: 'center',
     });
   }
-  const dates: Content = { columns: dateBits, margin: [5, 2, 5, 2] };
+  const dates: Content = { columns: dateBits, margin: [6, 3, 6, 3] };
 
   /* ---- school block: logo and text share the same band ---------------- */
   const schoolText: Content = {
     stack: [
-      { text: school.name.toUpperCase(), fontSize: 8, bold: true, lineHeight: 1.05 },
-      ...(school.address ? [{ text: school.address, fontSize: 5.5, lineHeight: 1.05 }] : []),
-      ...(school.phone ? [{ text: school.phone, fontSize: 5.5, lineHeight: 1.05 }] : []),
+      { text: school.name.toUpperCase(), fontSize: 9.5, bold: true, lineHeight: 1.1 },
+      ...(school.address ? [{ text: school.address, fontSize: 7.5, lineHeight: 1.1 }] : []),
+      ...(school.phone ? [{ text: school.phone, fontSize: 7.5, lineHeight: 1.1 }] : []),
     ],
   };
   const schoolBlock: Content = hasLogo
     ? {
         columns: [
-          { image: 'logo', fit: [22, 22], width: 24 },
+          { image: 'logo', fit: [26, 26], width: 28 },
           { ...(schoolText as any), margin: [0, 1, 0, 0] },
         ],
-        columnGap: 5,
-        margin: [5, 2.5, 5, 2.5],
+        columnGap: 6,
+        margin: [6, 3.5, 6, 3.5],
       }
-    : { ...(schoolText as any), margin: [5, 2.5, 5, 2.5] };
+    : { ...(schoolText as any), margin: [6, 3.5, 6, 3.5] };
 
   /* ---- student: labels inline, voucher number beside the ID ----------- */
   const kv = (label: string, value: string) => ({
     text: [{ text: `${label}: `, bold: true }, value || '-'],
-    fontSize: 6.5,
-    margin: [0, 0.4, 0, 0.4] as [number, number, number, number],
+    fontSize: 8.5,
+    margin: [0, 0.8, 0, 0.8] as [number, number, number, number],
   });
 
   const student: Content = {
@@ -165,7 +165,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       kv('Father', c.student.parentName ?? ''),
       kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
     ],
-    margin: [5, 2, 5, 2],
+    margin: [6, 3.5, 6, 3.5],
   };
 
   /* ---- fee details: description and amount, nothing else -------------- */
@@ -174,11 +174,11 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       {
         table: {
           headerRows: 1,
-          widths: ['*', 52],
+          widths: ['*', 60],
           body: [
             [
-              T('Fee Description', { size: 6, bold: true, pad: 1 }),
-              T('Amount', { size: 6, bold: true, right: true, pad: 1 }),
+              T('Fee Description', { size: 8, bold: true, pad: 1.5 }),
+              T('Amount', { size: 8, bold: true, right: true, pad: 1.5 }),
             ],
             ...lines.map((l) => [T(l.label), T(money(l.amount), { right: true })]),
           ],
@@ -196,7 +196,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
         },
       },
     ],
-    margin: [5, 2, 5, 2],
+    margin: [6, 3, 6, 3],
   };
 
   /*
@@ -210,8 +210,8 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   const payableBy = Math.max(0, payableAfter - lateFee);
 
   const sumRow = (label: string, value: string, strong = false): Cell[] => [
-    T(label, { size: strong ? 6.5 : 6, bold: strong, pad: 1 }),
-    T(money(value), { size: strong ? 6.5 : 6, bold: strong, right: true, pad: 1 }),
+    T(label, { size: strong ? 8.5 : 8, bold: strong, pad: 1.5 }),
+    T(money(value), { size: strong ? 8.5 : 8, bold: strong, right: true, pad: 1.5 }),
   ];
 
   const summaryBody: Cell[][] = [
@@ -229,7 +229,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   const ruleAt = summaryBody.length - 3;
 
   const summary: Content = {
-    table: { widths: ['*', 52], body: summaryBody },
+    table: { widths: ['*', 60], body: summaryBody },
     layout: {
       hLineWidth: (i: number) => (i === ruleAt ? 0.6 : 0),
       vLineWidth: () => 0,
@@ -239,13 +239,13 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       paddingTop: () => 0,
       paddingBottom: () => 0,
     },
-    margin: [5, 2, 5, 2],
+    margin: [6, 3, 6, 3],
   };
 
   const signature: Content = {
     text: 'Parent / Guardian Signature: ______________________',
-    fontSize: 5.5,
-    margin: [5, 3, 5, 3],
+    fontSize: 7.5,
+    margin: [6, 5, 6, 5],
   };
 
   /* ---- assemble ------------------------------------------------------- */
@@ -271,41 +271,21 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
 /**
  * How many vouchers fit on one A4 sheet.
  *
- * Eight fit in two columns of four when every voucher is a line or three,
- * which is the usual shape of a monthly run. A voucher grows with its dues
- * lines, so the sheet steps down rather than clipping a student carrying
- * months of arrears.
- *
- * The bounds are measured, and measured in the WORST case — every voucher in
- * the batch as tall as the tallest. Grid rows size to their own tallest cell,
- * so growing one challan only stretches its own row and flatters the result;
- * an earlier single-voucher measurement put eight-up at eleven lines when the
- * honest figure is three.
- *
- * There is no two-up step: two-up is one column of two rows, the same row
- * height as four-up, so it buys width rather than the height that is actually
- * scarce. Past four-up the next real step is a whole sheet.
- *
- * The whole document uses ONE layout, chosen by the largest voucher in the
- * batch: these are printed to be cut apart by hand, and a sheet of mixed sizes
- * has no straight line to cut along.
+ * Fixed at 4 vouchers per A4 sheet (2 columns × 2 rows), matching shipping label density
+ * so each challan occupies a comfortable A6-sized quadrant with clear, readable typography.
  */
-export function perPageFor(challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 1 | 4 | 6 | 8 {
-  const maxLines = Math.max(0, ...challans.map((c) => c.items.length + c.previousDues.length));
-  if (maxLines <= 3) return 8;
-  if (maxLines <= 11) return 6;
-  if (maxLines <= 18) return 4;
-  return 1;
+export function perPageFor(_challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 4 {
+  return 4;
 }
 
-/** Lay vouchers out in a grid, `perPage` to an A4 sheet. */
+/** Lay vouchers out in a grid, 4 per A4 sheet (2x2). */
 function voucherGrid(
   challans: ChallanData[],
   school: SchoolInfo,
   hasLogo: boolean,
-  perPage: 1 | 4 | 6 | 8,
+  perPage: 4 = 4,
 ): Content[] {
-  const cols = perPage >= 4 ? 2 : 1;
+  const cols = 2;
   const pages: Content[] = [];
 
   for (let i = 0; i < challans.length; i += perPage) {
@@ -320,14 +300,14 @@ function voucherGrid(
     }
 
     pages.push({
-      table: { widths: cols === 2 ? ['*', '*'] : ['*'], body: rows as any },
+      table: { widths: ['*', '*'], body: rows as any },
       layout: {
         hLineWidth: () => 0,
         vLineWidth: () => 0,
-        paddingLeft: () => 3,
-        paddingRight: () => 3,
-        paddingTop: () => 3,
-        paddingBottom: () => 10,
+        paddingLeft: () => 5,
+        paddingRight: () => 5,
+        paddingTop: () => 5,
+        paddingBottom: () => 12,
       },
       ...(i + perPage < challans.length ? { pageBreak: 'after' as const } : {}),
     });
