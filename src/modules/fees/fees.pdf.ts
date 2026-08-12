@@ -64,6 +64,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   };
 
   const settled = Number(c.balance) <= 0 && Number(c.paidAmount) > 0;
+  const statusTag = settled ? ' (PAID)' : Number(c.paidAmount) > 0 ? ' (PARTIAL)' : '';
 
   /*
    * One line per thing being charged. The month is folded into the description
@@ -72,11 +73,11 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
    */
   const lines: { label: string; amount: string }[] = [
     ...c.items.map((it) => ({
-      label: `${MONTHS[c.month] ?? ''} ${c.year} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
+      label: `${MONTHS[c.month] ?? ''} ${c.year}${statusTag} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
       amount: String(it.amount),
     })),
     ...c.previousDues.map((d) => ({
-      label: `${MONTHS[d.month] ?? ''} ${d.year} — Previous Due${d.staffBilled ? ' (salary)' : ''}`,
+      label: `${MONTHS[d.month] ?? ''} ${d.year}${settled ? ' (PAID)' : ''} — Previous Due${d.staffBilled ? ' (salary)' : ''}`,
       amount: String(d.balance),
     })),
   ];
@@ -108,7 +109,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
 
   /* ---- header: title, then dates on one line ------------------------- */
   const title: Content = {
-    text: `${settled ? 'FEE RECEIPT' : 'FEE VOUCHER'} — ${monthName.toUpperCase()}`,
+    text: `${settled ? 'FEE RECEIPT (PAID)' : 'FEE VOUCHER'} — ${monthName.toUpperCase()}`,
     fontSize: 11,
     bold: true,
     alignment: 'center',
@@ -168,7 +169,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       {
         columns: [
           kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
-          { ...kv('Fee Month', monthName), alignment: 'right' },
+          { ...kv(settled ? 'Paid Month' : 'Fee Month', `${monthName}${statusTag}`), alignment: 'right' },
         ],
       },
     ],
