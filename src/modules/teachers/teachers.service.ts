@@ -14,6 +14,7 @@ import { formatPartialCnic } from '../../utils/cnic';
 import { nextEmployeeId } from '../../utils/employeeId';
 import type { Response } from 'express';
 import { TEACHING_STAFF_ROLES, isTeachingRole, STAFF_ROLE_LABELS } from '../../utils/staffRoles';
+import { assertRouteCarries } from '../transport/transport.service';
 
 export interface Actor {
   userId: string;
@@ -132,6 +133,8 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
 async function applyTeacherTransport(teacherId: string, routeId: string | null | undefined): Promise<void> {
   if (routeId === undefined) return;
   if (routeId) {
+    // Same rule as the Transport tab — see assertRouteCarries.
+    await assertRouteCarries(routeId, 'staff');
     const r = await prisma.transportRoute.findUnique({ where: { id: routeId } });
     if (!r) throw NotFound('Transport route not found');
     await prisma.transportAssignment.upsert({

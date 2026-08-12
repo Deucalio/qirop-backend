@@ -11,6 +11,7 @@ import type { CreateStudentInput, ListStudentsQuery, UpdateStudentInput } from '
 import { logAudit } from '../audit/audit.service';
 import type { Response } from 'express';
 import { formatPartialCnic } from '../../utils/cnic';
+import { assertRouteCarries } from '../transport/transport.service';
 
 export interface Actor {
   userId: string;
@@ -135,6 +136,9 @@ async function applyStudentLinks(
 
   if (input.transportRouteId !== undefined) {
     if (input.transportRouteId) {
+      // The same rule the Transport tab enforces: a route with no student rate
+      // does not carry students, whichever screen the assignment comes from.
+      await assertRouteCarries(input.transportRouteId, 'student');
       const r = await prisma.transportRoute.findUnique({ where: { id: input.transportRouteId } });
       if (!r) throw NotFound('Transport route not found');
       await prisma.transportAssignment.upsert({

@@ -169,6 +169,34 @@ export async function createRoute(actor: Actor, input: CreateRouteInput) {
   return getRoute(r.id);
 }
 
+/**
+ * Assert a route carries this kind of rider, throwing if it does not.
+ *
+ * Exported because transport is assigned from three places — this module, the
+ * student form and the staff form — and the first version of this guard lived
+ * only here, so both forms could put someone on a route with no rate for them
+ * and bill them nothing. A rule enforced in one of three doorways is not a
+ * rule.
+ */
+export async function assertRouteCarries(routeId: string, kind: 'student' | 'staff'): Promise<void> {
+  const route = await prisma.transportRoute.findUnique({ where: { id: routeId } });
+  if (!route) throw NotFound('Transport route not found');
+  if (kind === 'student' && route.studentMonthlyFee === null) {
+    throw new AppError(
+      `"${route.name}" has no student rate set, so students cannot be assigned to it. Set a student rate on the route first.`,
+      409,
+      'NO_STUDENT_RATE',
+    );
+  }
+  if (kind === 'staff' && route.staffMonthlyFee === null) {
+    throw new AppError(
+      `"${route.name}" has no staff rate set, so staff cannot be assigned to it. Set a staff rate on the route first.`,
+      409,
+      'NO_STAFF_RATE',
+    );
+  }
+}
+
 /** A rate for display: "Rs 1500.00", or plainly that the route does not carry them. */
 function rateLabel(v: Prisma.Decimal | null): string {
   return v === null ? 'not carried' : `Rs ${v.toFixed(2)}`;
@@ -279,19 +307,7 @@ export async function assign(actor: Actor, input: AssignInput) {
   if (input.studentId) {
     const s = await prisma.student.findUnique({ where: { id: input.studentId } });
     if (!s) throw NotFound('Student not found');
-    /*
-     * A route with no student rate does not carry students. Allowing the
-     * assignment anyway would bill the family nothing and look like a working
-     * arrangement — the rider would simply travel free and nobody would notice
-     * until someone audited the route.
-     */
-    if (route.studentMonthlyFee === null) {
-      throw new AppError(
-        `"${route.name}" has no student rate set, so students cannot be assigned to it. Set a student rate on the route first.`,
-        409,
-        'NO_STUDENT_RATE',
-      );
-    }
+    await assertRouteCarries(route.id, 'student');
     await prisma.transportAssignment.upsert({
       where: { studentId: input.studentId },
       create: { routeId: input.routeId, studentId: input.studentId },
@@ -311,14 +327,7 @@ export async function assign(actor: Actor, input: AssignInput) {
   } else if (input.teacherId) {
     const t = await prisma.teacherProfile.findUnique({ where: { id: input.teacherId } });
     if (!t) throw NotFound('Teacher not found');
-    // Same for staff: no rate means the route does not carry them.
-    if (route.staffMonthlyFee === null) {
-      throw new AppError(
-        `"${route.name}" has no staff rate set, so staff cannot be assigned to it. Set a staff rate on the route first.`,
-        409,
-        'NO_STAFF_RATE',
-      );
-    }
+    await assertRouteCarries(route.id, 'staff');
     await prisma.transportAssignment.upsert({
       where: { teacherId: input.teacherId },
       create: { routeId: input.routeId, teacherId: input.teacherId },
