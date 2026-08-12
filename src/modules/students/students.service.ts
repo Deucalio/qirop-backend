@@ -832,9 +832,32 @@ export async function setPhoto(id: string, buffer: Buffer, originalName: string,
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw NotFound('Student not found');
   const newPath = await replaceFile(student.photoUrl, buffer, originalName, `/students/${id}`, contentType);
-  await prisma.student.update({ where: { id }, data: { photoUrl: newPath } });
+  const updated = await prisma.student.update({
+    where: { id },
+    data: { photoUrl: newPath },
+    include: {
+      section: { include: { class: true } },
+      parent: { include: { user: true } },
+    },
+  });
   if (actor) {
-    await logStudentEvent(id, actor.userId, 'UPDATED', 'Student photo updated.');
+    const studentName = `${updated.firstName}${updated.lastName ? ` ${updated.lastName}` : ''}`;
+    await logStudentEvent(
+      id,
+      actor,
+      'UPDATED',
+      'Student photo updated.',
+      `${studentName} (${updated.rollNo || updated.admissionNo})`,
+      {
+        photoUrl: { before: student.photoUrl ? 'Previous photo' : 'None', after: 'Updated photo' },
+        _meta: {
+          photoUrl: publicUrl(newPath),
+          guardianName: updated.parent?.user.fullName,
+          guardianPhone: updated.parent?.user.phone,
+          classSection: updated.section ? `${updated.section.class.name}-${updated.section.name}` : undefined,
+        },
+      },
+    );
   }
   return getStudent(id, actor);
 }
