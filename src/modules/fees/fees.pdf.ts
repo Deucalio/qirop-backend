@@ -101,16 +101,16 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     fontSize: opts.size ?? 8,
     bold: opts.bold ?? false,
     ...(opts.right ? { alignment: 'right' as const } : {}),
-    margin: [0, opts.pad ?? 2, 0, opts.pad ?? 2],
+    margin: [0, opts.pad ?? 3, 0, opts.pad ?? 3],
   });
 
   /* ---- header: title, then dates on one line ------------------------- */
   const title: Content = {
     text: settled ? 'FEE RECEIPT' : 'FEE VOUCHER',
-    fontSize: 10.5,
+    fontSize: 11,
     bold: true,
     alignment: 'center',
-    margin: [0, 3, 0, 3],
+    margin: [0, 4.5, 0, 4.5],
   };
 
   const dateBits: Content[] = [
@@ -125,7 +125,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       alignment: 'center',
     });
   }
-  const dates: Content = { columns: dateBits, margin: [6, 3, 6, 3] };
+  const dates: Content = { columns: dateBits, margin: [8, 4, 8, 4] };
 
   /* ---- school block: logo and text share the same band ---------------- */
   const schoolText: Content = {
@@ -138,19 +138,19 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   const schoolBlock: Content = hasLogo
     ? {
         columns: [
-          { image: 'logo', fit: [26, 26], width: 28 },
+          { image: 'logo', fit: [28, 28], width: 30 },
           { ...(schoolText as any), margin: [0, 1, 0, 0] },
         ],
         columnGap: 6,
-        margin: [6, 3.5, 6, 3.5],
+        margin: [8, 4.5, 8, 4.5],
       }
-    : { ...(schoolText as any), margin: [6, 3.5, 6, 3.5] };
+    : { ...(schoolText as any), margin: [8, 4.5, 8, 4.5] };
 
   /* ---- student: labels inline, voucher number beside the ID ----------- */
   const kv = (label: string, value: string) => ({
     text: [{ text: `${label}: `, bold: true }, value || '-'],
     fontSize: 8.5,
-    margin: [0, 0.8, 0, 0.8] as [number, number, number, number],
+    margin: [0, 1.2, 0, 1.2] as [number, number, number, number],
   });
 
   const student: Content = {
@@ -165,7 +165,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       kv('Father', c.student.parentName ?? ''),
       kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
     ],
-    margin: [6, 3.5, 6, 3.5],
+    margin: [8, 4.5, 8, 4.5],
   };
 
   /* ---- fee details: description and amount, nothing else -------------- */
@@ -174,11 +174,11 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       {
         table: {
           headerRows: 1,
-          widths: ['*', 60],
+          widths: ['*', 65],
           body: [
             [
-              T('Fee Description', { size: 8, bold: true, pad: 1.5 }),
-              T('Amount', { size: 8, bold: true, right: true, pad: 1.5 }),
+              T('Fee Description', { size: 8, bold: true, pad: 2.5 }),
+              T('Amount', { size: 8, bold: true, right: true, pad: 2.5 }),
             ],
             ...lines.map((l) => [T(l.label), T(money(l.amount), { right: true })]),
           ],
@@ -196,40 +196,53 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
         },
       },
     ],
-    margin: [6, 3, 6, 3],
+    margin: [8, 4, 8, 4],
   };
 
+  const sumRow = (label: string, value: string, strong = false): Cell[] => [
+    T(label, { size: strong ? 8.5 : 8, bold: strong, pad: 2.5 }),
+    T(money(value), { size: strong ? 8.5 : 8, bold: strong, right: true, pad: 2.5 }),
+  ];
+
   /*
-   * The late fee reads as the surcharge that applies once the due date passes,
-   * which is how the school's own vouchers are written, so "payable by" excludes
-   * it and "after due date" includes it. Both come from the same stored total,
-   * so the two figures always reconcile against the ledger.
+   * Visual hierarchy for Fee Summary:
+   * A paid receipt highlights FEE PAID and BALANCE DUE (de-emphasising payable-after/late fee),
+   * while an unpaid voucher lists due date surcharges.
    */
   const payableAfter = Number(c.totalPayable);
   const lateFee = Number(c.lateFee);
   const payableBy = Math.max(0, payableAfter - lateFee);
 
-  const sumRow = (label: string, value: string, strong = false): Cell[] => [
-    T(label, { size: strong ? 8.5 : 8, bold: strong, pad: 1.5 }),
-    T(money(value), { size: strong ? 8.5 : 8, bold: strong, right: true, pad: 1.5 }),
-  ];
+  let summaryBody: Cell[][];
+  let ruleAt: number;
 
-  const summaryBody: Cell[][] = [
-    sumRow('Subtotal', c.baseAmount),
-    sumRow('Previous Dues', c.previousBalance),
-    sumRow('Discount', c.discount),
-    ...(Number(c.cashPaid) > 0 ? [sumRow('Fee Paid', c.cashPaid)] : []),
-    ...(Number(c.staffCovered) > 0 ? [sumRow('Covered from Salary', c.staffCovered)] : []),
-    ...(Number(c.advanceCredit) > 0 ? [sumRow('Advance on File', c.advanceCredit)] : []),
-    sumRow(`PAYABLE BY ${dmy(c.dueDate)}`, String(payableBy), true),
-    sumRow('Late Fee', String(lateFee)),
-    sumRow('PAYABLE AFTER DUE DATE', String(payableAfter), true),
-  ];
-  // The rule sits above the emphasised figure, wherever the optional rows push it.
-  const ruleAt = summaryBody.length - 3;
+  if (settled) {
+    const totalPaid = Number(c.paidAmount) > 0 ? c.paidAmount : String(Number(c.cashPaid) + Number(c.staffCovered));
+    summaryBody = [
+      sumRow('Total Fee', c.baseAmount),
+      sumRow('Previous Dues', c.previousBalance),
+      sumRow('Discount', c.discount),
+      sumRow('FEE PAID', String(totalPaid), true),
+      sumRow('BALANCE DUE', String(c.balance), true),
+    ];
+    ruleAt = summaryBody.length - 2;
+  } else {
+    summaryBody = [
+      sumRow('Subtotal', c.baseAmount),
+      sumRow('Previous Dues', c.previousBalance),
+      sumRow('Discount', c.discount),
+      ...(Number(c.cashPaid) > 0 ? [sumRow('Fee Paid', c.cashPaid)] : []),
+      ...(Number(c.staffCovered) > 0 ? [sumRow('Covered from Salary', c.staffCovered)] : []),
+      ...(Number(c.advanceCredit) > 0 ? [sumRow('Advance on File', c.advanceCredit)] : []),
+      sumRow(`PAYABLE BY ${dmy(c.dueDate)}`, String(payableBy), true),
+      sumRow('Late Fee', String(lateFee)),
+      sumRow('PAYABLE AFTER DUE DATE', String(payableAfter), true),
+    ];
+    ruleAt = summaryBody.length - 3;
+  }
 
   const summary: Content = {
-    table: { widths: ['*', 60], body: summaryBody },
+    table: { widths: ['*', 65], body: summaryBody },
     layout: {
       hLineWidth: (i: number) => (i === ruleAt ? 0.6 : 0),
       vLineWidth: () => 0,
@@ -239,13 +252,13 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       paddingTop: () => 0,
       paddingBottom: () => 0,
     },
-    margin: [6, 3, 6, 3],
+    margin: [8, 4, 8, 4],
   };
 
   const signature: Content = {
     text: 'Parent / Guardian Signature: ______________________',
-    fontSize: 7.5,
-    margin: [6, 5, 6, 5],
+    fontSize: 8,
+    margin: [8, 10, 8, 10],
   };
 
   /* ---- assemble ------------------------------------------------------- */
@@ -304,10 +317,10 @@ function voucherGrid(
       layout: {
         hLineWidth: () => 0,
         vLineWidth: () => 0,
-        paddingLeft: () => 5,
-        paddingRight: () => 5,
-        paddingTop: () => 5,
-        paddingBottom: () => 12,
+        paddingLeft: () => 6,
+        paddingRight: () => 6,
+        paddingTop: () => 8,
+        paddingBottom: () => 18,
       },
       ...(i + perPage < challans.length ? { pageBreak: 'after' as const } : {}),
     });
