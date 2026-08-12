@@ -63,8 +63,17 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     return d && m && y ? `${d}-${m}-${y}` : iso;
   };
 
-  const settled = Number(c.balance) <= 0 && Number(c.paidAmount) > 0;
-  const statusTag = settled ? ' (PAID)' : Number(c.paidAmount) > 0 ? ' (PARTIAL)' : '';
+  const thisMonthPaid = Number(c.balance) <= 0 && Number(c.paidAmount) > 0;
+  const totalOwed = Math.max(0, Number(c.baseAmount) + Number(c.previousBalance) - Number(c.discount));
+  const paidSoFar = Number(c.paidAmount) > 0 ? Number(c.paidAmount) : (Number(c.cashPaid) + Number(c.staffCovered));
+  const balanceRemaining = Math.max(0, totalOwed - paidSoFar);
+
+  const fullySettled = paidSoFar > 0 && balanceRemaining <= 0;
+  const partiallyPaid = paidSoFar > 0 && balanceRemaining > 0;
+  const isPaidReceipt = paidSoFar > 0;
+
+  const headerStatus = fullySettled ? ' (PAID)' : partiallyPaid ? ' (PARTIAL)' : '';
+  const monthTag = thisMonthPaid ? ' (PAID)' : Number(c.paidAmount) > 0 ? ' (PARTIAL)' : '';
 
   /*
    * One line per thing being charged. The month is folded into the description
@@ -73,11 +82,11 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
    */
   const lines: { label: string; amount: string }[] = [
     ...c.items.map((it) => ({
-      label: `${MONTHS[c.month] ?? ''} ${c.year}${statusTag} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
+      label: `${MONTHS[c.month] ?? ''} ${c.year}${monthTag} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
       amount: String(it.amount),
     })),
     ...c.previousDues.map((d) => ({
-      label: `${MONTHS[d.month] ?? ''} ${d.year}${settled ? ' (PAID)' : ''} — Previous Due${d.staffBilled ? ' (salary)' : ''}`,
+      label: `${MONTHS[d.month] ?? ''} ${d.year} (UNPAID) — Previous Due${d.staffBilled ? ' (salary)' : ''}`,
       amount: String(d.balance),
     })),
   ];
@@ -109,7 +118,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
 
   /* ---- header: title, then dates on one line ------------------------- */
   const title: Content = {
-    text: `${settled ? 'FEE RECEIPT (PAID)' : 'FEE VOUCHER'} — ${monthName.toUpperCase()}`,
+    text: `${isPaidReceipt ? `FEE RECEIPT${headerStatus}` : 'FEE VOUCHER'} — ${monthName.toUpperCase()}`,
     fontSize: 11,
     bold: true,
     alignment: 'center',
@@ -121,7 +130,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     { text: [{ text: 'Due: ', bold: true }, dmy(c.dueDate)], fontSize: 8, alignment: 'right' },
   ];
   // Only a paid voucher has a payment date, so only a receipt shows one.
-  if (settled && c.lastPaymentDate) {
+  if (isPaidReceipt && c.lastPaymentDate) {
     dateBits.splice(1, 0, {
       text: [{ text: 'Paid: ', bold: true }, dmy(c.lastPaymentDate)],
       fontSize: 8,
@@ -169,7 +178,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       {
         columns: [
           kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
-          { ...kv(settled ? 'Paid Month' : 'Fee Month', `${monthName}${statusTag}`), alignment: 'right' },
+          { ...kv(isPaidReceipt ? 'Paid Month' : 'Fee Month', `${monthName}${monthTag}`), alignment: 'right' },
         ],
       },
     ],
@@ -224,14 +233,13 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   let summaryBody: Cell[][];
   let ruleAt: number;
 
-  if (settled) {
-    const totalPaid = Number(c.paidAmount) > 0 ? c.paidAmount : String(Number(c.cashPaid) + Number(c.staffCovered));
+  if (isPaidReceipt) {
     summaryBody = [
       sumRow('Total Fee', c.baseAmount),
-      sumRow('Previous Dues', c.previousBalance),
+      ...(Number(c.previousBalance) > 0 ? [sumRow('Previous Dues', c.previousBalance)] : []),
       sumRow('Discount', c.discount),
-      sumRow('FEE PAID', String(totalPaid), true),
-      sumRow('BALANCE DUE', String(c.balance), true),
+      sumRow('FEE PAID', String(paidSoFar), true),
+      sumRow('BALANCE DUE', String(balanceRemaining), true),
     ];
     ruleAt = summaryBody.length - 2;
   } else {
