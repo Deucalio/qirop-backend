@@ -289,9 +289,10 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       const isFirstChallan = (await tx.feeChallan.count({ where: { studentId: s.id } })) === 0;
       const admission = isFirstChallan ? money(structure?.admissionFee ?? 0) : ZERO;
       // Transport: a rider's route fee lands on their challan (billed to the
-      // teacher-parent's salary too, if this is a staff child).
+      // teacher-parent's salary too, if this is a staff child). A route with no
+      // student rate does not carry students, so it contributes nothing.
       const route = s.transportAssignment?.route;
-      const transport = route?.active ? money(route.monthlyFee) : ZERO;
+      const transport = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
 
       // Tuition only when a fee structure is actually set (monthly > 0). Classes
       // with no structure produce no tuition — and no challan at all unless some
@@ -872,7 +873,7 @@ export async function generatePreview(query: {
       teacherParentId: true,
       feeDiscount: true,
       section: { select: { classId: true, class: { select: { name: true, order: true, feeStructure: true } } } },
-      transportAssignment: { select: { route: { select: { active: true, monthlyFee: true } } } },
+      transportAssignment: { select: { route: { select: { active: true, studentMonthlyFee: true } } } },
     },
   });
 
@@ -930,7 +931,7 @@ export async function generatePreview(query: {
     if (alreadyBilled) row.alreadyBilled++;
 
     const route = s.transportAssignment?.route;
-    const transport = route?.active ? money(route.monthlyFee) : ZERO;
+    const transport = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
     if (transport.greaterThan(0)) row.transportRiders++;
     if (s.teacherParentId) row.staffChildren++;
 
@@ -965,7 +966,7 @@ export async function generatePreview(query: {
     const cls = s.section.class;
     const monthly = money(cls.feeStructure?.monthlyFee ?? 0);
     const route = s.transportAssignment?.route;
-    const transport = route?.active ? money(route.monthlyFee) : ZERO;
+    const transport = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
     const admission = money(cls.feeStructure?.admissionFee ?? 0);
     const isFirst = !everBilled.has(s.id);
     if (monthly.greaterThan(0) || transport.greaterThan(0) || (isFirst && admission.greaterThan(0))) {
@@ -1495,6 +1496,7 @@ export async function listPayments(query: {
         select: {
           id: true, firstName: true, lastName: true, admissionNo: true, status: true,
           section: { select: { name: true, class: { select: { name: true } } } },
+          parent: { select: { user: { select: { fullName: true, phone: true } } } },
         },
       },
       allocations: { include: { challan: { select: { challanNo: true, year: true, month: true } } } },
@@ -1514,6 +1516,8 @@ export async function listPayments(query: {
       studentId: p.student.id,
       studentName: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''}`,
       admissionNo: p.student.admissionNo,
+      parentName: p.student.parent?.user?.fullName ?? null,
+      parentPhone: p.student.parent?.user?.phone ?? null,
       /** The student's own status — an inactive student can still hold records. */
       studentStatus: p.student.status,
       className: p.student.section.class.name,
