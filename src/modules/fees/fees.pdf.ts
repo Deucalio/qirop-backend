@@ -104,9 +104,11 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     margin: [0, opts.pad ?? 3, 0, opts.pad ?? 3],
   });
 
+  const monthName = `${MONTHS[c.month] ?? ''} ${c.year}`.trim();
+
   /* ---- header: title, then dates on one line ------------------------- */
   const title: Content = {
-    text: settled ? 'FEE RECEIPT' : 'FEE VOUCHER',
+    text: `${settled ? 'FEE RECEIPT' : 'FEE VOUCHER'} — ${monthName.toUpperCase()}`,
     fontSize: 11,
     bold: true,
     alignment: 'center',
@@ -163,7 +165,12 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       },
       kv('Student', c.student.name),
       kv('Father', c.student.parentName ?? ''),
-      kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
+      {
+        columns: [
+          kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
+          { ...kv('Fee Month', monthName), alignment: 'right' },
+        ],
+      },
     ],
     margin: [8, 4.5, 8, 4.5],
   };
