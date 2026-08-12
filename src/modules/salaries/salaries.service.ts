@@ -55,7 +55,7 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
         const netBefore = basic; // allowances/deductions are 0 at generation
 
         const ownTransport = t.transportAssignment?.route?.active
-          ? money(t.transportAssignment.route.monthlyFee)
+          ? money(t.transportAssignment.route.staffMonthlyFee ?? 0)
           : ZERO;
 
         const childChallans = await tx.feeChallan.findMany({
@@ -347,7 +347,7 @@ export async function getSalary(id: string) {
     breakdown: {
       transportRoute: ownRoute?.name ?? null,
       // The teacher's own commute fee (shown even if the salary didn't cover it).
-      transportFee: toMoneyString(ownRoute?.active ? ownRoute.monthlyFee : 0),
+      transportFee: toMoneyString(ownRoute?.active ? (ownRoute.staffMonthlyFee ?? 0) : 0),
       transportCovered: toMoneyString(transportCovered),
       childrenCovered: toMoneyString(childrenCovered),
       children,
@@ -382,7 +382,7 @@ export async function listSalaryStructure() {
     salary: toMoneyString(t.salary),
     childrenEnrolled: t._count.staffChildren,
     transport: t.transportAssignment?.route
-      ? { name: t.transportAssignment.route.name, monthlyFee: toMoneyString(t.transportAssignment.route.monthlyFee) }
+      ? { name: t.transportAssignment.route.name, monthlyFee: toMoneyString(t.transportAssignment.route.staffMonthlyFee ?? 0) }
       : null,
   }));
 }

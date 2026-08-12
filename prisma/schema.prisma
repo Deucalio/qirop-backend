@@ -898,7 +898,20 @@ model AuditLog {
 model TransportRoute {
   id          String  @id @default(cuid())
   name        String // "Route 1 — Gulberg"
-  monthlyFee  Decimal @db.Decimal(10, 2)
+
+  /// What a STUDENT rider is billed each month. Null means this route does not
+  /// carry students, and one cannot be assigned to it — a rate of 0 is a free
+  /// ride, which is a different thing and must stay expressible.
+  ///
+  /// Mapped to the original `monthlyFee` column: the same van charged everyone
+  /// the same, and splitting the rate must not disturb the values already
+  /// billed against it.
+  studentMonthlyFee Decimal? @map("monthlyFee") @db.Decimal(10, 2)
+
+  /// What a STAFF rider has deducted from their salary each month. Null means
+  /// this route does not carry staff. Kept separate from the student rate
+  /// because a school commonly subsidises one and not the other.
+  staffMonthlyFee   Decimal? @db.Decimal(10, 2)
   vehicleInfo String? // "Hiace · LEB-1234"
   driverName  String?
   driverPhone String?

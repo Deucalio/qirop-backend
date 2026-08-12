@@ -121,7 +121,7 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
       ? {
           routeId: profile.transportAssignment.routeId,
           name: profile.transportAssignment.route.name,
-          monthlyFee: profile.transportAssignment.route.monthlyFee.toFixed(2),
+          monthlyFee: (profile.transportAssignment.route.staffMonthlyFee ?? 0).toFixed(2),
           active: profile.transportAssignment.route.active,
         }
       : null,

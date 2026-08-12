@@ -49,7 +49,11 @@ export async function listRoutes() {
     return {
       id: r.id,
       name: r.name,
-      monthlyFee: toMoneyString(r.monthlyFee),
+      studentMonthlyFee: r.studentMonthlyFee === null ? null : toMoneyString(r.studentMonthlyFee),
+      staffMonthlyFee: r.staffMonthlyFee === null ? null : toMoneyString(r.staffMonthlyFee),
+      /** Null means the route does not carry that kind of rider at all. */
+      carriesStudents: r.studentMonthlyFee !== null,
+      carriesStaff: r.staffMonthlyFee !== null,
       vehicleInfo: r.vehicleInfo,
       driverName: r.driverName,
       driverPhone: r.driverPhone,
@@ -58,7 +62,11 @@ export async function listRoutes() {
       studentRiders,
       teacherRiders,
       riders,
-      monthlyTotal: toMoneyString(money(r.monthlyFee).times(riders)),
+      // Each rider type at its own rate — one fee times a head count would be
+      // wrong the moment the two rates differ.
+      monthlyTotal: toMoneyString(
+        money(r.studentMonthlyFee ?? 0).times(studentRiders).plus(money(r.staffMonthlyFee ?? 0).times(teacherRiders)),
+      ),
     };
   });
 }
@@ -107,7 +115,10 @@ export async function getRoute(id: string) {
   return {
     id: r.id,
     name: r.name,
-    monthlyFee: toMoneyString(r.monthlyFee),
+    studentMonthlyFee: r.studentMonthlyFee === null ? null : toMoneyString(r.studentMonthlyFee),
+    staffMonthlyFee: r.staffMonthlyFee === null ? null : toMoneyString(r.staffMonthlyFee),
+    carriesStudents: r.studentMonthlyFee !== null,
+    carriesStaff: r.staffMonthlyFee !== null,
     vehicleInfo: r.vehicleInfo,
     driverName: r.driverName,
     driverPhone: r.driverPhone,
@@ -115,7 +126,9 @@ export async function getRoute(id: string) {
     active: r.active,
     students,
     teachers,
-    monthlyTotal: toMoneyString(money(r.monthlyFee).times(students.length + teachers.length)),
+    monthlyTotal: toMoneyString(
+      money(r.studentMonthlyFee ?? 0).times(students.length).plus(money(r.staffMonthlyFee ?? 0).times(teachers.length)),
+    ),
   };
 }
 
@@ -123,7 +136,8 @@ export async function createRoute(actor: Actor, input: CreateRouteInput) {
   const r = await prisma.transportRoute.create({
     data: {
       name: input.name,
-      monthlyFee: input.monthlyFee,
+      studentMonthlyFee: input.studentMonthlyFee ?? null,
+      staffMonthlyFee: input.staffMonthlyFee ?? null,
       vehicleInfo: input.vehicleInfo ?? null,
       driverName: input.driverName ?? null,
       driverPhone: input.driverPhone ?? null,
@@ -131,7 +145,11 @@ export async function createRoute(actor: Actor, input: CreateRouteInput) {
       active: input.active ?? true,
     },
   });
-  await audit(actor.userId, 'TRANSPORT_ROUTE_CREATED', r.id, { name: r.name, monthlyFee: r.monthlyFee.toString() });
+  await audit(actor.userId, 'TRANSPORT_ROUTE_CREATED', r.id, {
+    name: r.name,
+    studentMonthlyFee: r.studentMonthlyFee?.toString() ?? 'not carried',
+    staffMonthlyFee: r.staffMonthlyFee?.toString() ?? 'not carried',
+  });
   return getRoute(r.id);
 }
 
@@ -142,7 +160,8 @@ export async function updateRoute(actor: Actor, id: string, input: UpdateRouteIn
     where: { id },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.monthlyFee !== undefined ? { monthlyFee: input.monthlyFee } : {}),
+      ...(input.studentMonthlyFee !== undefined ? { studentMonthlyFee: input.studentMonthlyFee } : {}),
+      ...(input.staffMonthlyFee !== undefined ? { staffMonthlyFee: input.staffMonthlyFee } : {}),
       ...(input.vehicleInfo !== undefined ? { vehicleInfo: input.vehicleInfo } : {}),
       ...(input.driverName !== undefined ? { driverName: input.driverName } : {}),
       ...(input.driverPhone !== undefined ? { driverPhone: input.driverPhone } : {}),
@@ -181,6 +200,19 @@ export async function assign(actor: Actor, input: AssignInput) {
   if (input.studentId) {
     const s = await prisma.student.findUnique({ where: { id: input.studentId } });
     if (!s) throw NotFound('Student not found');
+    /*
+     * A route with no student rate does not carry students. Allowing the
+     * assignment anyway would bill the family nothing and look like a working
+     * arrangement — the rider would simply travel free and nobody would notice
+     * until someone audited the route.
+     */
+    if (route.studentMonthlyFee === null) {
+      throw new AppError(
+        `"${route.name}" has no student rate set, so students cannot be assigned to it. Set a student rate on the route first.`,
+        409,
+        'NO_STUDENT_RATE',
+      );
+    }
     await prisma.transportAssignment.upsert({
       where: { studentId: input.studentId },
       create: { routeId: input.routeId, studentId: input.studentId },
@@ -190,6 +222,14 @@ export async function assign(actor: Actor, input: AssignInput) {
   } else if (input.teacherId) {
     const t = await prisma.teacherProfile.findUnique({ where: { id: input.teacherId } });
     if (!t) throw NotFound('Teacher not found');
+    // Same for staff: no rate means the route does not carry them.
+    if (route.staffMonthlyFee === null) {
+      throw new AppError(
+        `"${route.name}" has no staff rate set, so staff cannot be assigned to it. Set a staff rate on the route first.`,
+        409,
+        'NO_STAFF_RATE',
+      );
+    }
     await prisma.transportAssignment.upsert({
       where: { teacherId: input.teacherId },
       create: { routeId: input.routeId, teacherId: input.teacherId },
@@ -216,17 +256,25 @@ export async function getPersonRoute(kind: 'student' | 'teacher', id: string) {
     include: { route: true },
   });
   if (!a) return null;
-  return { routeId: a.routeId, name: a.route.name, monthlyFee: toMoneyString(a.route.monthlyFee), active: a.route.active };
+  // Whoever is asking, quote the rate that applies to them.
+  const rate = a.studentId ? a.route.studentMonthlyFee : a.route.staffMonthlyFee;
+  return { routeId: a.routeId, name: a.route.name, monthlyFee: toMoneyString(rate ?? 0), active: a.route.active };
 }
 
 /** Total monthly transport revenue across all riders (dashboard helper). */
 export async function transportSummary() {
   const routes = await prisma.transportRoute.findMany({
     where: { active: true },
-    include: { assignments: { select: { id: true } } },
+    include: { assignments: { select: { id: true, studentId: true, teacherId: true } } },
   });
   const totalRoutes = routes.length;
   const totalRiders = routes.reduce((n, r) => n + r.assignments.length, 0);
-  const monthlyBilled = sum(routes.map((r) => money(r.monthlyFee).times(r.assignments.length)));
+  const monthlyBilled = sum(
+    routes.map((r) =>
+      money(r.studentMonthlyFee ?? 0)
+        .times(r.assignments.filter((a) => a.studentId).length)
+        .plus(money(r.staffMonthlyFee ?? 0).times(r.assignments.filter((a) => a.teacherId).length)),
+    ),
+  );
   return { totalRoutes, totalRiders, monthlyBilled: toMoneyString(monthlyBilled) };
 }

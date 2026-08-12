@@ -27,7 +27,13 @@ const moneyInput = (opts: { min?: number } = {}) =>
 
 export const createRouteSchema = z.object({
   name: z.string().trim().min(1, 'Route name is required').max(80),
-  monthlyFee: moneyInput({ min: 0 }),
+  /*
+   * Both rates are optional, and null is meaningful: it says this route does
+   * not carry that kind of rider, which is why assigning one is then refused.
+   * Zero is a different statement — a free ride — and stays expressible.
+   */
+  studentMonthlyFee: moneyInput({ min: 0 }).nullable().optional(),
+  staffMonthlyFee: moneyInput({ min: 0 }).nullable().optional(),
   vehicleInfo: z.string().trim().max(80).nullable().optional(),
   driverName: z.string().trim().max(80).nullable().optional(),
   driverPhone: z.string().trim().max(30).nullable().optional(),

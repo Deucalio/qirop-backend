@@ -503,7 +503,12 @@ export async function getPurgeDetailedItems() {
         id: tr.id,
         title: tr.name,
         subtitle: `${tr._count.assignments} assigned rider(s) · ${tr.vehicleInfo || 'No vehicle info'}`,
-        amount: `Rs ${Number(tr.monthlyFee).toLocaleString()}`,
+        amount: [
+          tr.studentMonthlyFee !== null ? `Students Rs ${Number(tr.studentMonthlyFee).toLocaleString()}` : null,
+          tr.staffMonthlyFee !== null ? `Staff Rs ${Number(tr.staffMonthlyFee).toLocaleString()}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'No rates set',
         dateStr: dt.dateStr,
         timeStr: dt.timeStr,
       };

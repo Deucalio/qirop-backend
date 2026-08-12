@@ -76,7 +76,7 @@ function shapeListItem(s: StudentWithRels) {
       ? {
           routeId: s.transportAssignment.routeId,
           name: s.transportAssignment.route.name,
-          monthlyFee: s.transportAssignment.route.monthlyFee.toFixed(2),
+          monthlyFee: (s.transportAssignment.route.studentMonthlyFee ?? 0).toFixed(2),
           active: s.transportAssignment.route.active,
         }
       : null,
@@ -142,7 +142,7 @@ async function applyStudentLinks(
         create: { studentId, routeId: r.id },
         update: { routeId: r.id },
       });
-      changes.push(`Transport route set to ${r.name} (Rs ${r.monthlyFee.toFixed(2)}/month)`);
+      changes.push(`Transport route set to ${r.name} (Rs ${(r.studentMonthlyFee ?? 0).toFixed(2)}/month)`);
     } else {
       await prisma.transportAssignment.deleteMany({ where: { studentId } });
       changes.push('Transport route removed');
