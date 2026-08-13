@@ -30,13 +30,21 @@ import { perPageFor } from './fees.pdf';
 const voucher = (items: number, dues = 0) => ({
   items: Array.from({ length: items }, () => ({})) as any,
   previousDues: Array.from({ length: dues }, () => ({})) as any,
+  paidAmount: '0',
+  cashPaid: '0',
+  staffCovered: '0',
 });
 
 describe('perPageFor', () => {
-  test('always returns 4 vouchers per A4 page (2x2 grid)', () => {
+  test('always returns 4 vouchers per A4 page (2x2 grid) for unpaid', () => {
     assert.equal(perPageFor(Array.from({ length: 4 }, () => voucher(1))), 4);
     assert.equal(perPageFor(Array.from({ length: 20 }, () => voucher(1))), 4);
     assert.equal(perPageFor([voucher(1, 10)]), 4);
+  });
+
+  test('returns 1 voucher per page (full page receipt) for paid receipts', () => {
+    const paidVoucher = () => ({ ...voucher(1), paidAmount: '1000', cashPaid: '0', staffCovered: '0' });
+    assert.equal(perPageFor([paidVoucher(), paidVoucher()]), 1);
   });
 
   test('empty batch returns 4-up default', () => {

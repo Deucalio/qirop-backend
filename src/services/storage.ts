@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { randomUUID } from 'crypto';
 import type { Response } from 'express';
 import { env } from '../config/env';
@@ -33,17 +34,55 @@ function uniqueName(originalName: string): string {
   return `${randomUUID()}-${safe}`;
 }
 
-/** Upload a buffer to `dir`, returning the stored virtual path. */
-export async function uploadFile(
+/**
+ * Automatically optimize and convert uploaded image buffers:
+ * - Auto-orients photos based on EXIF camera orientation metadata.
+ * - Converts HEIC, HEIF, BMP, TIFF, PNG to web-friendly JPEG.
+ * - Resizes large photos to a max 800x800 box (under 100KB), loading fast on mobile data.
+ */
+export async function optimizeImageBuffer(
   buffer: Buffer,
   originalName: string,
-  dir: string,
   contentType?: string,
+): Promise<{ buffer: Buffer; name: string; contentType: string }> {
+  const isImage =
+    (contentType && contentType.startsWith('image/')) ||
+    /\.(heic|heif|png|jpe?g|webp|gif|bmp|tiff)$/i.test(originalName);
+
+  if (!isImage) {
+    return { buffer, name: originalName, contentType: contentType || 'application/octet-stream' };
+  }
+
+  try {
+    const processed = await sharp(buffer)
+      .rotate()
+      .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+
+    const baseName = originalName.replace(/\.[^/.]+$/, '') || 'photo';
+    return {
+      buffer: processed,
+      name: `${baseName}.jpg`,
+      contentType: 'image/jpeg',
+    };
+  } catch {
+    return { buffer, name: originalName, contentType: contentType || 'application/octet-stream' };
+  }
+}
+
+/** Upload a buffer to `dir`, returning the stored virtual path. */
+export async function uploadFile(
+  rawBuffer: Buffer,
+  originalName: string,
+  dir: string,
+  rawContentType?: string,
 ): Promise<string> {
   ensureConfigured();
+  const { buffer, name, contentType } = await optimizeImageBuffer(rawBuffer, originalName, rawContentType);
   const form = new FormData();
   const blob = new Blob([buffer as unknown as ArrayBuffer], contentType ? { type: contentType } : undefined);
-  form.append('file', blob, uniqueName(originalName));
+  form.append('file', blob, uniqueName(name));
   form.append('path', dir);
 
   const res = await fetch(`${BASE}/files/upload`, { method: 'POST', headers: authHeaders(), body: form });
@@ -64,8 +103,9 @@ export async function uploadFilesBatch(
   ensureConfigured();
   const form = new FormData();
   for (const f of files) {
-    const blob = new Blob([f.buffer as unknown as ArrayBuffer], f.contentType ? { type: f.contentType } : undefined);
-    form.append('files[]', blob, uniqueName(f.originalName));
+    const opt = await optimizeImageBuffer(f.buffer, f.originalName, f.contentType);
+    const blob = new Blob([opt.buffer as unknown as ArrayBuffer], opt.contentType ? { type: opt.contentType } : undefined);
+    form.append('files[]', blob, uniqueName(opt.name));
   }
   form.append('path', dir);
 
@@ -143,14 +183,35 @@ export async function replaceFile(
   return newPath;
 }
 
-/** Public, token-less preview URL for an image (safe to put in <img src>). Scoped by app id. */
+/** Public, token-less preview URL served through our backend same-origin proxy. */
 export function getPublicPreviewUrl(path: string): string {
-  return `${BASE}/files/preview?path=${encodeURIComponent(path)}&app=${encodeURIComponent(APP_ID)}`;
+  if (!path) return '';
+  if (path.startsWith('/api/media/preview')) return path;
+  return `/api/media/preview?path=${encodeURIComponent(path)}`;
 }
 
 /** getPublicPreviewUrl but null-safe (for optional stored paths). */
 export function publicUrl(path: string | null | undefined): string | null {
   return path ? getPublicPreviewUrl(path) : null;
+}
+
+/**
+ * Stream a public image preview back to the client via our server.
+ * Ensures images are served same-origin (bypassing third-party domain/DNS blocks on mobile carriers).
+ */
+export async function proxyPublicPreview(path: string, res: Response): Promise<void> {
+  ensureConfigured();
+  const upstream = await fetch(
+    `${BASE}/files/preview?path=${encodeURIComponent(path)}&app=${encodeURIComponent(APP_ID)}`,
+  );
+  if (!upstream.ok) {
+    throw new AppError('Image not found', upstream.status === 404 ? 404 : 502, 'DOWNLOAD_FAILED');
+  }
+  const contentType = upstream.headers.get('content-type') ?? 'image/jpeg';
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+  const buffer = Buffer.from(await upstream.arrayBuffer());
+  res.send(buffer);
 }
 
 /**

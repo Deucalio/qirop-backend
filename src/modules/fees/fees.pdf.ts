@@ -303,18 +303,22 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
  * Fixed at 4 vouchers per A4 sheet (2 columns × 2 rows), matching shipping label density
  * so each challan occupies a comfortable A6-sized quadrant with clear, readable typography.
  */
-export function perPageFor(_challans: Pick<ChallanData, 'items' | 'previousDues'>[]): 4 {
-  return 4;
+export function perPageFor(
+  challans: Array<Partial<Pick<ChallanData, 'items' | 'previousDues' | 'paidAmount' | 'cashPaid' | 'staffCovered'>>>,
+): number {
+  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount || 0) > 0 || (Number(c.cashPaid || 0) + Number(c.staffCovered || 0)) > 0));
+  return isPaid ? 1 : 4;
 }
 
-/** Lay vouchers out in a grid, 4 per A4 sheet (2x2). */
+/** Lay vouchers out in a grid, 4 per A4 sheet (2x2) or 1 per page for receipts. */
 function voucherGrid(
   challans: ChallanData[],
   school: SchoolInfo,
   hasLogo: boolean,
-  perPage: 4 = 4,
+  perPage: number = 4,
 ): Content[] {
-  const cols = 2;
+  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount) > 0 || (Number(c.cashPaid) + Number(c.staffCovered)) > 0));
+  const cols = isPaid ? 1 : 2;
   const pages: Content[] = [];
 
   for (let i = 0; i < challans.length; i += perPage) {
@@ -328,15 +332,17 @@ function voucherGrid(
       rows.push(rowCells);
     }
 
+    const widths = cols === 2 ? ['*', '*'] : ['*'];
+
     pages.push({
-      table: { widths: ['*', '*'], body: rows as any },
+      table: { widths, body: rows as any },
       layout: {
         hLineWidth: () => 0,
         vLineWidth: () => 0,
-        paddingLeft: () => 6,
-        paddingRight: () => 6,
-        paddingTop: () => 8,
-        paddingBottom: () => 18,
+        paddingLeft: () => (isPaid ? 0 : 6),
+        paddingRight: () => (isPaid ? 0 : 6),
+        paddingTop: () => (isPaid ? 0 : 8),
+        paddingBottom: () => (isPaid ? 0 : 18),
       },
       ...(i + perPage < challans.length ? { pageBreak: 'after' as const } : {}),
     });
@@ -373,6 +379,19 @@ function render(doc: TDocumentDefinitions): Promise<Buffer> {
   });
 }
 
+function calculatePaidReceiptHeight(c: ChallanData): number {
+  const lineCount = (c.items?.length || 0) + (c.previousDues?.length || 0);
+  const hasPrev = Number(c.previousBalance || 0) > 0;
+  const summaryCount = 4 + (hasPrev ? 1 : 0);
+
+  // Top/bottom margins (28) + Title (22) + Dates (18) + School (42) + Student (48) + FeeHeader (15) + Signature (28) + Borders (8) = ~209
+  const baseHeight = 209;
+  const itemLinesHeight = lineCount * 15;
+  const summaryLinesHeight = summaryCount * 14.5;
+
+  return Math.ceil(baseHeight + itemLinesHeight + summaryLinesHeight);
+}
+
 /**
  * Build the document. Margins are tight because a voucher is cut out of the
  * sheet, so page edges are waste rather than white space.
@@ -382,9 +401,17 @@ function voucherDoc(
   school: SchoolInfo & { logoDataUri: string | null },
 ): TDocumentDefinitions {
   const perPage = perPageFor(challans);
+  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount) > 0 || (Number(c.cashPaid) + Number(c.staffCovered)) > 0));
+
+  let pageHeight = 380;
+  if (isPaid && challans.length > 0) {
+    const heights = challans.map(calculatePaidReceiptHeight);
+    pageHeight = Math.max(...heights);
+  }
+
   return {
-    pageSize: 'A4',
-    pageMargins: [14, 14, 14, 14],
+    pageSize: isPaid ? { width: 595, height: pageHeight } : 'A4',
+    pageMargins: isPaid ? [14, 14, 14, 14] : [14, 14, 14, 14],
     content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
     ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
     defaultStyle: { font: 'Roboto', fontSize: 6 },

@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import * as svc from './salaries.service';
-import { renderSalarySlipPdf } from './salaries.pdf';
+import { renderSalarySlipPdf, renderBulkSalarySlipsPdf } from './salaries.pdf';
 import { listSalariesQuerySchema } from './salaries.schema';
 import { Unauthorized, AppError } from '../../utils/apiResponse';
 
@@ -38,7 +38,9 @@ export async function markPaid(req: Request, res: Response) {
 }
 export async function summary(req: Request, res: Response) {
   const now = new Date();
-  res.json(await svc.salariesSummary(Number(req.query.year) || now.getFullYear(), Number(req.query.month) || now.getMonth() + 1));
+  const year = Number(req.query.year) || now.getFullYear();
+  const month = req.query.month === 'all' ? undefined : Number(req.query.month) || now.getMonth() + 1;
+  res.json(await svc.salariesSummary(year, month));
 }
 export async function preflight(req: Request, res: Response) {
   const now = new Date();
@@ -58,6 +60,21 @@ export async function deleteSalariesForMonth(req: Request, res: Response) {
     throw new AppError('Year and month are required', 400, 'INVALID_PARAMS');
   }
   res.json(await svc.deleteSalariesForMonth(actor(req), year, month));
+}
+
+export async function bulkPdf(req: Request, res: Response) {
+  const ids = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError('No slip IDs provided', 400, 'INVALID_PARAMS');
+  }
+
+  // Ensure actor can view all slips
+  await Promise.all(ids.map(id => svc.assertCanViewSalarySlip(actor(req), id)));
+
+  const { buffer, filename } = await renderBulkSalarySlipsPdf(ids);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${filename}"`);
+  res.send(buffer);
 }
 
 export async function listMySlips(req: Request, res: Response) {

@@ -506,15 +506,15 @@ export async function markSalariesPaid(actor: Actor, slipIds: string[], paidDate
 }
 
 /** Month-scoped payroll summary (for the dashboard/overview). */
-export async function salariesSummary(year: number, month: number) {
-  const slips = await prisma.salarySlip.findMany({ where: { year, month } });
+export async function salariesSummary(year: number, month?: number) {
+  const slips = await prisma.salarySlip.findMany({ where: { year, ...(month ? { month } : {}) } });
   const totalNet = sum(slips.map((s) => s.netSalary));
   const totalBasic = sum(slips.map((s) => s.basicSalary));
   const totalStaffDeduction = sum(slips.map((s) => s.staffFeeDeduction));
   const paid = slips.filter((s) => s.status === 'PAID');
   return {
     year,
-    month,
+    month: month ?? null,
     slips: slips.length,
     paidCount: paid.length,
     totalNet: toMoneyString(totalNet),

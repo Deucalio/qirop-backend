@@ -50,6 +50,7 @@ import { expensesRouter, financeRouter } from './modules/expenses/expenses.route
 import auditRouter from './modules/audit/audit.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
 import { searchRouter } from './modules/search/search.routes';
+import { proxyPublicPreview } from './services/storage';
 import { requireAuth } from './middleware/requireAuth';
 import { requireRole } from './middleware/requireRole';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -99,6 +100,21 @@ export function createApp(): Express {
       res.json({ status: 'ok-two', db: 'connected-two', timestamp: new Date().toISOString() });
     } catch {
       res.status(503).json({ status: 'error', db: 'disconnected' });
+    }
+  });
+
+  // Public same-origin media preview proxy (avatars, staff/student photos, school logos).
+  // Serves images directly through qiropschool.com so mobile carrier networks & browsers never block 3rd-party domains.
+  app.get('/api/media/preview', async (req: Request, res: Response, next) => {
+    try {
+      const path = req.query.path;
+      if (!path || typeof path !== 'string') {
+        res.status(400).json({ error: { message: 'Missing path parameter' } });
+        return;
+      }
+      await proxyPublicPreview(path, res);
+    } catch (err) {
+      next(err);
     }
   });
 

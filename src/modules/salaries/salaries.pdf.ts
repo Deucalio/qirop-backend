@@ -29,19 +29,24 @@ function render(doc: TDocumentDefinitions): Promise<Buffer> {
   });
 }
 
-export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer; filename: string }> {
-  const [s, school] = await Promise.all([getSalary(id), prisma.school.findFirst()]);
+
+const amountRow = (label: string, value: string, opts: { strong?: boolean; color?: string } = {}): Content => ({
+  columns: [
+    { text: label, fontSize: 9, color: opts.color ?? MUTED, bold: opts.strong },
+    { text: value, fontSize: 9, alignment: 'right', color: opts.color ?? INK, bold: opts.strong },
+  ],
+  margin: [0, 2, 0, 2],
+});
+
+function generateSlipContent(s: any, school: any, addPageBreak: boolean = false): Content[] {
   const b = s.breakdown;
+  const content: Content[] = [];
 
-  const amountRow = (label: string, value: string, opts: { strong?: boolean; color?: string } = {}): Content => ({
-    columns: [
-      { text: label, fontSize: 9, color: opts.color ?? MUTED, bold: opts.strong },
-      { text: value, fontSize: 9, alignment: 'right', color: opts.color ?? INK, bold: opts.strong },
-    ],
-    margin: [0, 2, 0, 2],
-  });
+  if (addPageBreak) {
+    content.push({ text: '', pageBreak: 'before' });
+  }
 
-  const content: Content[] = [
+  content.push(
     {
       columns: [
         [
@@ -57,9 +62,10 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
           },
         ],
       ],
-    },
+    }
+  );
+  content.push(
     { canvas: [{ type: 'line', x1: 0, y1: 8, x2: 515, y2: 8, lineWidth: 2, lineColor: BRAND }], margin: [0, 6, 0, 10] },
-
     {
       columns: [
         [
@@ -73,7 +79,6 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
       ],
       margin: [0, 0, 0, 14],
     },
-
     // Earnings / deductions
     {
       columns: [
@@ -96,15 +101,14 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
         },
       ],
     },
-
     { canvas: [{ type: 'line', x1: 0, y1: 6, x2: 515, y2: 6, lineWidth: 1, lineColor: LINE }], margin: [0, 10, 0, 8] },
     {
       columns: [
         { text: 'NET SALARY', fontSize: 12, bold: true, color: INK },
         { text: formatPKR(s.netSalary), fontSize: 14, bold: true, alignment: 'right', color: '#166534' },
       ],
-    },
-  ];
+    }
+  );
 
   // Staff-fee deduction breakdown (§7) — amber callout + child & transport tables.
   if (Number(s.staffFeeDeduction) > 0 || b.children.length > 0 || b.transportRoute) {
@@ -177,7 +181,7 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
               { text: 'From salary', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
               { text: 'Still payable', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
             ],
-            ...b.children.map((c): TableCell[] => [
+            ...b.children.map((c: any): TableCell[] => [
               { text: `${c.studentName} — ${MONTHS[c.period.month]} ${c.period.year} (${c.challanNo})`, fontSize: 9 },
               { text: formatPKR(c.billable), fontSize: 9, alignment: 'right' },
               { text: formatPKR(c.covered), fontSize: 9, alignment: 'right', color: '#7c3aed' },
@@ -196,7 +200,31 @@ export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer;
   }
 
   content.push({ text: 'This is a computer-generated salary slip.', fontSize: 8, italics: true, color: MUTED, alignment: 'center', margin: [0, 20, 0, 0] });
+  return content;
+}
 
+export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer; filename: string }> {
+  const [s, school] = await Promise.all([getSalary(id), prisma.school.findFirst()]);
+  const content = generateSlipContent(s, school);
   const buffer = await render({ pageSize: 'A4', pageMargins: [40, 40, 40, 40], content, defaultStyle: { font: 'Roboto' } });
   return { buffer, filename: `salary-${s.employeeId}-${s.year}-${String(s.month).padStart(2, '0')}.pdf` };
+}
+
+export async function renderBulkSalarySlipsPdf(ids: string[]): Promise<{ buffer: Buffer; filename: string }> {
+  const [slips, school] = await Promise.all([
+    Promise.all(ids.map(id => getSalary(id))),
+    prisma.school.findFirst()
+  ]);
+
+  if (slips.length === 0) {
+    throw new Error('No salary slips found.');
+  }
+
+  const content: Content[] = [];
+  slips.forEach((s, index) => {
+    content.push(...generateSlipContent(s, school, index > 0));
+  });
+
+  const buffer = await render({ pageSize: 'A4', pageMargins: [40, 40, 40, 40], content, defaultStyle: { font: 'Roboto' } });
+  return { buffer, filename: `salaries-bulk.pdf` };
 }
