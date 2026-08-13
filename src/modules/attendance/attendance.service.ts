@@ -219,6 +219,7 @@ export async function getSectionMonthlyAttendance(actor: Actor, sectionId: strin
 
   const students = await prisma.student.findMany({
     where: { sectionId, status: UserStatus.ACTIVE },
+    include: { parent: { include: { user: true } } },
     orderBy: [{ rollNo: 'asc' }, { firstName: 'asc' }],
   });
 
@@ -274,6 +275,8 @@ export async function getSectionMonthlyAttendance(actor: Actor, sectionId: strin
         name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
         rollNo: s.rollNo,
         photoUrl: publicUrl(s.photoUrl),
+        parentName: s.parent?.user?.fullName ?? null,
+        parentPhone: s.parent?.user?.phone ?? null,
         days,
         summary: {
           present: presentCount,
