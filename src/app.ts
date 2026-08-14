@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import { Role } from '@prisma/client';
 import { env } from './config/env';
 import { prisma } from './config/prisma';
@@ -78,6 +79,25 @@ export function createApp(): Express {
         }
       },
       credentials: true,
+    }),
+  );
+  /*
+   * Gzip every response above a kilobyte. The student list alone is ~624 KB of
+   * JSON and was going out raw, which on a phone is seconds of transfer for
+   * text that compresses by roughly ninety per cent.
+   *
+   * Images skip this deliberately — JPEG and PNG are already compressed, so
+   * running them through gzip costs CPU on a single-threaded server and returns
+   * nothing. The media proxy sets its own Content-Type, which the filter reads.
+   */
+  app.use(
+    compression({
+      threshold: 1024,
+      filter: (req, res) => {
+        const type = String(res.getHeader('Content-Type') ?? '');
+        if (type.startsWith('image/') || type.startsWith('video/')) return false;
+        return compression.filter(req, res);
+      },
     }),
   );
   app.use(express.json({ limit: '1mb' }));
