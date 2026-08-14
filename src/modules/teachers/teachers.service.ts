@@ -733,7 +733,7 @@ export async function setPhoto(id: string, buffer: Buffer, originalName: string,
   if ((profile.user.role === Role.ADMIN || profile.user.role === Role.SUPERADMIN) && actorRole !== Role.SUPERADMIN) {
     throw Forbidden('Only Super Administrators can modify Administrator & System User photos.');
   }
-  const newPath = await replaceFile(profile.user.avatarUrl, buffer, originalName, `/teachers/${id}`, contentType);
+  const newPath = await replaceFile(profile.user.avatarUrl, buffer, originalName, `/teachers/${id}`, contentType, 'photo');
   await prisma.user.update({ where: { id: profile.userId }, data: { avatarUrl: newPath } });
   return getTeacher(id, true);
 }
@@ -983,7 +983,7 @@ export async function addTeacherDocument(
   const teacher = await prisma.teacherProfile.findUnique({ where: { id } });
   if (!teacher) throw NotFound('Teacher not found');
 
-  const fileUrl = await uploadFile(buffer, originalName, `/teachers/${id}/documents`, contentType);
+  const fileUrl = await uploadFile(buffer, originalName, `/teachers/${id}/documents`, contentType, 'document');
   await prisma.teacherDocument.create({
     data: {
       teacherId: id,

@@ -835,7 +835,7 @@ export async function setStatus(id: string, status: UserStatus, actor?: Actor) {
 export async function setPhoto(id: string, buffer: Buffer, originalName: string, contentType: string, actor?: Actor) {
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw NotFound('Student not found');
-  const newPath = await replaceFile(student.photoUrl, buffer, originalName, `/students/${id}`, contentType);
+  const newPath = await replaceFile(student.photoUrl, buffer, originalName, `/students/${id}`, contentType, 'photo');
   const updated = await prisma.student.update({
     where: { id },
     data: { photoUrl: newPath },
@@ -953,7 +953,7 @@ export async function addDocument(id: string, label: string, buffer: Buffer, ori
   const student = await prisma.student.findUnique({ where: { id } });
   if (!student) throw NotFound('Student not found');
 
-  const fileUrl = await uploadFile(buffer, originalName, `/students/${id}/documents`, contentType);
+  const fileUrl = await uploadFile(buffer, originalName, `/students/${id}/documents`, contentType, 'document');
   const doc = await prisma.studentDocument.create({
     data: {
       studentId: id,

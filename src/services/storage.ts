@@ -35,15 +35,44 @@ function uniqueName(originalName: string): string {
 }
 
 /**
- * Automatically optimize and convert uploaded image buffers:
- * - Auto-orients photos based on EXIF camera orientation metadata.
- * - Converts HEIC, HEIF, BMP, TIFF, PNG to web-friendly JPEG.
- * - Resizes large photos to a max 800x800 box (under 100KB), loading fast on mobile data.
+ * What an upload is FOR, which decides how hard it may be compressed.
+ *
+ * This is not a detail the optimiser can infer. A face and a scanned B-Form are
+ * both `image/jpeg`, but squeezing a face to 800px is invisible while doing the
+ * same to an A4 page leaves it at roughly 68 DPI — too coarse to read printed
+ * text. The caller is the only one who knows which it has, so it must say.
+ */
+export type UploadKind = 'photo' | 'document';
+
+/**
+ * Longest permitted edge, and how hard to compress, per kind.
+ *
+ * 800px covers a face at any size it is displayed, including a printed ID card.
+ * 2000px puts an A4 scan at about 170 DPI, comfortably readable and enough for
+ * OCR, at roughly half a megabyte — a document is opened one at a time, not
+ * twenty-five to a page, so it does not reproduce the list-loading problem.
+ */
+const RULES: Record<UploadKind, { maxEdge: number; quality: number }> = {
+  photo: { maxEdge: 800, quality: 82 },
+  document: { maxEdge: 2000, quality: 88 },
+};
+
+/**
+ * Shrink and re-encode an uploaded image. Non-images pass through untouched,
+ * so a PDF scan is stored exactly as it arrived.
+ *
+ * Documents keep their format where the browser can display it: JPEG stays
+ * JPEG, PNG stays PNG. PNG is worth preserving for a scan because it is
+ * lossless — re-encoding line art and small print as JPEG introduces ringing
+ * around exactly the strokes that carry the meaning. Formats a browser cannot
+ * show (HEIC from an iPhone, TIFF, BMP) are still converted to JPEG, since an
+ * unviewable document is worse than a recompressed one.
  */
 export async function optimizeImageBuffer(
   buffer: Buffer,
   originalName: string,
-  contentType?: string,
+  contentType: string | undefined,
+  kind: UploadKind,
 ): Promise<{ buffer: Buffer; name: string; contentType: string }> {
   const isImage =
     (contentType && contentType.startsWith('image/')) ||
@@ -53,19 +82,29 @@ export async function optimizeImageBuffer(
     return { buffer, name: originalName, contentType: contentType || 'application/octet-stream' };
   }
 
-  try {
-    const processed = await sharp(buffer)
-      .rotate()
-      .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 82, mozjpeg: true })
-      .toBuffer();
+  const { maxEdge, quality } = RULES[kind];
+  const keepPng = kind === 'document' && (contentType === 'image/png' || /\.png$/i.test(originalName));
 
-    const baseName = originalName.replace(/\.[^/.]+$/, '') || 'photo';
-    return {
-      buffer: processed,
-      name: `${baseName}.jpg`,
-      contentType: 'image/jpeg',
-    };
+  try {
+    const pipeline = sharp(buffer)
+      // Phone cameras record orientation in EXIF rather than in the pixels;
+      // applying it here means the stored file is upright everywhere.
+      .rotate()
+      .resize(maxEdge, maxEdge, { fit: 'inside', withoutEnlargement: true });
+
+    const processed = keepPng
+      ? await pipeline.png({ compressionLevel: 9 }).toBuffer()
+      : await pipeline.jpeg({ quality, mozjpeg: true }).toBuffer();
+
+    // Re-encoding can enlarge an already-small file; never make it worse.
+    if (processed.length >= buffer.length) {
+      return { buffer, name: originalName, contentType: contentType || 'application/octet-stream' };
+    }
+
+    const baseName = originalName.replace(/\.[^/.]+$/, '') || 'upload';
+    return keepPng
+      ? { buffer: processed, name: `${baseName}.png`, contentType: 'image/png' }
+      : { buffer: processed, name: `${baseName}.jpg`, contentType: 'image/jpeg' };
   } catch {
     return { buffer, name: originalName, contentType: contentType || 'application/octet-stream' };
   }
@@ -76,10 +115,12 @@ export async function uploadFile(
   rawBuffer: Buffer,
   originalName: string,
   dir: string,
-  rawContentType?: string,
+  rawContentType: string | undefined,
+  /** Required so no caller can silently inherit the wrong compression. */
+  kind: UploadKind,
 ): Promise<string> {
   ensureConfigured();
-  const { buffer, name, contentType } = await optimizeImageBuffer(rawBuffer, originalName, rawContentType);
+  const { buffer, name, contentType } = await optimizeImageBuffer(rawBuffer, originalName, rawContentType, kind);
   const form = new FormData();
   const blob = new Blob([buffer as unknown as ArrayBuffer], contentType ? { type: contentType } : undefined);
   form.append('file', blob, uniqueName(name));
@@ -98,12 +139,13 @@ export async function uploadFile(
 export async function uploadFilesBatch(
   files: Array<{ buffer: Buffer; originalName: string; contentType?: string }>,
   dir: string,
+  kind: UploadKind,
 ): Promise<string[]> {
   if (files.length === 0) return [];
   ensureConfigured();
   const form = new FormData();
   for (const f of files) {
-    const opt = await optimizeImageBuffer(f.buffer, f.originalName, f.contentType);
+    const opt = await optimizeImageBuffer(f.buffer, f.originalName, f.contentType, kind);
     const blob = new Blob([opt.buffer as unknown as ArrayBuffer], opt.contentType ? { type: opt.contentType } : undefined);
     form.append('files[]', blob, uniqueName(opt.name));
   }
@@ -176,9 +218,10 @@ export async function replaceFile(
   buffer: Buffer,
   originalName: string,
   dir: string,
-  contentType?: string,
+  contentType: string | undefined,
+  kind: UploadKind,
 ): Promise<string> {
-  const newPath = await uploadFile(buffer, originalName, dir, contentType);
+  const newPath = await uploadFile(buffer, originalName, dir, contentType, kind);
   if (oldPath) await deleteFile(oldPath).catch(() => undefined);
   return newPath;
 }

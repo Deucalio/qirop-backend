@@ -146,7 +146,7 @@ export async function createHomework(
     },
   });
   if (file) {
-    const path = await storage.uploadFile(file.buffer, file.originalname, `/homework/${hw.id}`, file.mimetype);
+    const path = await storage.uploadFile(file.buffer, file.originalname, `/homework/${hw.id}`, file.mimetype, 'document');
     await prisma.homework.update({ where: { id: hw.id }, data: { attachmentUrl: path } });
   }
 
@@ -186,7 +186,7 @@ export async function updateHomework(
 
   let attachmentUrl: string | null | undefined;
   if (file) {
-    attachmentUrl = await storage.replaceFile(hw.attachmentUrl, file.buffer, file.originalname, `/homework/${id}`, file.mimetype);
+    attachmentUrl = await storage.replaceFile(hw.attachmentUrl, file.buffer, file.originalname, `/homework/${id}`, file.mimetype, 'document');
   } else if (input.clearAttachment && hw.attachmentUrl) {
     await storage.deleteFile(hw.attachmentUrl);
     attachmentUrl = null;

@@ -249,9 +249,12 @@ export async function addExpenseAttachmentsBatch(
     );
   }
 
+  // Receipts and invoices: the figures on them have to stay readable, so these
+  // are documents rather than pictures.
   const paths = await uploadFilesBatch(
     files.map((f) => ({ buffer: f.buffer, originalName: f.originalName, contentType: f.mimeType })),
     `/expenses/${expenseId}`,
+    'document',
   );
 
   await prisma.expenseAttachment.createMany({

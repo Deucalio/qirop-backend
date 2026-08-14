@@ -472,7 +472,7 @@ export async function setAvatar(
   contentType: string,
 ) {
   const target = await loadAdminTarget(id);
-  const newPath = await replaceFile(target.avatarUrl, buffer, originalName, `/users/${target.id}`, contentType);
+  const newPath = await replaceFile(target.avatarUrl, buffer, originalName, `/users/${target.id}`, contentType, 'photo');
   await prisma.user.update({ where: { id: target.id }, data: { avatarUrl: newPath } });
 
   await logAudit(null, {
