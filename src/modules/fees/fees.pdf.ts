@@ -639,9 +639,43 @@ async function loadSchool(): Promise<SchoolInfo & { logoDataUri: string | null }
   };
 }
 
+/**
+ * Tell a reader not to resize this document when printing it.
+ *
+ * The receipt's page is deliberately its own size rather than A4, so a viewer
+ * that helpfully scales it "to fit" undoes the point. `/PrintScaling /None` is
+ * the standard way to say so, and a `CropBox` equal to the `MediaBox` leaves a
+ * reader nothing to infer — the box is only implied by default, and an implied
+ * value is one a viewer can decide differently about.
+ *
+ * Both are set through pdfkit's document object because pdfmake exposes no
+ * option for either. `ViewerPreferences` must be a reference: pdfkit calls
+ * `.end()` on whatever it finds there. A plain JS string becomes a PDF name,
+ * which is what `/None` needs to be.
+ */
+function stampPageMetadata(pdf: PdfKitDoc): void {
+  const doc = pdf as unknown as {
+    _root?: { data: Record<string, unknown> };
+    _pageBuffer?: Array<{ dictionary: { data: Record<string, unknown> } }>;
+    ref?: (data: Record<string, unknown>) => unknown;
+  };
+  try {
+    if (doc._root && typeof doc.ref === 'function') {
+      doc._root.data.ViewerPreferences = doc.ref({ PrintScaling: 'None' });
+    }
+    for (const page of doc._pageBuffer ?? []) {
+      if (page.dictionary.data.MediaBox) page.dictionary.data.CropBox = page.dictionary.data.MediaBox;
+    }
+  } catch {
+    // Reaching into pdfkit's internals is a convenience, not a requirement:
+    // a PDF without these is still correct, just more open to interpretation.
+  }
+}
+
 function render(doc: TDocumentDefinitions): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const pdf = printer.createPdfKitDocument(doc);
+    stampPageMetadata(pdf);
     const chunks: Buffer[] = [];
     pdf.on('data', (chunk: Buffer) => chunks.push(chunk));
     pdf.on('end', () => resolve(Buffer.concat(chunks)));
@@ -690,9 +724,16 @@ function voucherDoc(
  */
 let lastReceiptHeight = 660;
 
-/** How many pages a rendered PDF turned out to have. */
+/**
+ * How many pages a rendered PDF has, read from the page tree's own `/Count`.
+ *
+ * Counting `/Type /Page` occurrences instead means trusting a pattern that can
+ * also appear inside a content stream, and a miscount here picks the wrong page
+ * height — once producing a 630pt page for a receipt that measures 654.
+ */
 function pageCount(pdf: Buffer): number {
-  return (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+  const counts = [...pdf.toString('latin1').matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
+  return counts.length ? Math.max(...counts) : 0;
 }
 
 /**
@@ -740,11 +781,33 @@ async function measuredReceiptHeight(
   return h + 2;
 }
 
+/**
+ * Render at the chosen height, and fall back to A4 if it did not hold.
+ *
+ * The height is arrived at by measurement, and a measurement can be wrong; the
+ * cost of it being wrong is a receipt split across two pages or cut off. This
+ * checks the actual output and, if the page turned out too short, reissues on
+ * A4 — a page with space to spare is a far better failure than a truncated
+ * record of a payment.
+ */
+async function renderVerified(
+  challans: ChallanData[],
+  school: SchoolInfo & { logoDataUri: string | null },
+  height: number | undefined,
+): Promise<Buffer> {
+  const buffer = await render(voucherDoc(challans, school, height));
+  if (height === undefined) return buffer;
+
+  const expected = challans.length;
+  if (pageCount(buffer) <= expected) return buffer;
+  return render(voucherDoc(challans, school, undefined));
+}
+
 /** Render one challan to a PDF buffer. */
 export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; challanNo: string }> {
   const [c, school] = await Promise.all([getChallan(id), loadSchool()]);
   const height = allPaid([c]) ? await measuredReceiptHeight([c], school) : undefined;
-  const buffer = await render(voucherDoc([c], school, height));
+  const buffer = await renderVerified([c], school, height);
   return { buffer, challanNo: c.challanNo };
 }
 
@@ -756,5 +819,5 @@ export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
   // these are filed together, and a stack of different-sized sheets is worse
   // than a little space on the shorter ones.
   const height = allPaid(challans) ? await measuredReceiptHeight(challans, school) : undefined;
-  return render(voucherDoc(challans, school, height));
+  return renderVerified(challans, school, height);
 }
