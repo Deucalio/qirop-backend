@@ -276,7 +276,9 @@ export async function getSectionMonthlyAttendance(actor: Actor, sectionId: strin
         rollNo: s.rollNo,
         photoUrl: publicUrl(s.photoUrl),
         parentName: s.parent?.user?.fullName ?? null,
-        parentPhone: s.parent?.user?.phone ?? null,
+        // Caste rather than the parent's phone: this grid is used to identify a
+        // child at a glance while marking a register, not to call anyone.
+        caste: s.caste ?? null,
         days,
         summary: {
           present: presentCount,
