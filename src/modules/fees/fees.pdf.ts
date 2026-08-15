@@ -650,42 +650,101 @@ function render(doc: TDocumentDefinitions): Promise<Buffer> {
   });
 }
 
+/** True when every challan in the batch has money against it. */
+function allPaid(challans: ChallanData[]): boolean {
+  return (
+    challans.length > 0 &&
+    challans.every((c) => Number(c.paidAmount) > 0 || Number(c.cashPaid) + Number(c.staffCovered) > 0)
+  );
+}
+
+const RECEIPT_WIDTH = 595.28; // the width the receipt is laid out for
+const RECEIPT_MARGIN = 28;
+
 function voucherDoc(
   challans: ChallanData[],
   school: SchoolInfo & { logoDataUri: string | null },
+  /** Explicit page height, for the receipt once its content has been measured. */
+  pageHeight?: number,
 ): TDocumentDefinitions {
   const perPage = perPageFor(challans);
-  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount) > 0 || (Number(c.cashPaid) + Number(c.staffCovered)) > 0));
-
-  /*
-   * A paid receipt prints one to a sheet, so its page must BE the sheet.
-   *
-   * It used to be sized to hug its content (380 x 415pt, aspect 0.916). A
-   * browser's "fit to paper" scales a page uniformly, so a page whose shape
-   * differs from the paper is letterboxed however the print dialog is set —
-   * 0.916 against A4's 0.707 left about a fifth of the sheet blank and blew
-   * the type up 1.6x, which is what made it look coarse. Generating at true A4
-   * makes that scaling 1:1.
-   */
+  const isPaid = allPaid(challans);
 
   return {
-    pageSize: process.env.PROBE_H ? { width: 595.28, height: Number(process.env.PROBE_H) } : 'A4',
-    /*
-     * A proper margin for the receipt, which is handed to a parent: a document
-     * pressed against the paper edge reads as a printout rather than a receipt.
-     * The 4-up vouchers keep the tight margin, since they are cut apart.
-     */
-    pageMargins: isPaid ? [28, 28, 28, 28] : [14, 14, 14, 14],
+    pageSize: pageHeight ? { width: RECEIPT_WIDTH, height: pageHeight } : 'A4',
+    pageMargins: isPaid
+      ? [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN]
+      : [14, 14, 14, 14],
     content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
     ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
     defaultStyle: { font: 'Roboto', fontSize: 6 },
   };
 }
 
+/**
+ * Remembered across calls so the search starts from the right answer.
+ *
+ * The receipt's rows are fixed — only text wrapping moves its height — so one
+ * receipt's height is a good guess for the next. The first print pays for the
+ * search; the rest confirm it in two renders.
+ */
+let lastReceiptHeight = 660;
+
+/** How many pages a rendered PDF turned out to have. */
+function pageCount(pdf: Buffer): number {
+  return (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+}
+
+/**
+ * The shortest page that still holds the receipt, found by rendering it.
+ *
+ * A receipt is a receipt: its page should be the height of the thing, the way a
+ * shipping label's page is the size of the label. Fixing it to A4 left a
+ * quarter of the page empty, and padding the rows until they reached the bottom
+ * inflated a compact document to fill paper it was never meant to fill.
+ *
+ * MEASURED rather than estimated. An estimator has to model every row, font and
+ * wrap, and drifts silently the moment the layout changes; the renderer cannot
+ * be wrong about its own output. Searching blind cost about a dozen renders, so
+ * it walks in steps from the last known height instead — typically two renders,
+ * on a single-threaded server where CPU spent here is CPU taken from every
+ * other request.
+ */
+async function measuredReceiptHeight(
+  challans: ChallanData[],
+  school: SchoolInfo & { logoDataUri: string | null },
+): Promise<number> {
+  const wanted = challans.length; // paid receipts are one to a page
+  const STEP = 8;
+  const MIN = 200;
+  const MAX = 1400;
+  const fits = async (h: number) =>
+    pageCount(await render(voucherDoc(challans, school, h))) <= wanted;
+
+  let h = Math.min(MAX, Math.max(MIN, lastReceiptHeight));
+
+  if (await fits(h)) {
+    // Walk down while it still fits, so the page ends up minimal rather than
+    // merely sufficient.
+    while (h - STEP >= MIN && (await fits(h - STEP))) h -= STEP;
+  } else {
+    // This receipt is taller than the last — grow until it fits rather than
+    // let it spill onto a second page.
+    while (h < MAX && !(await fits(h + STEP))) h += STEP;
+    h = Math.min(MAX, h + STEP);
+  }
+
+  lastReceiptHeight = h;
+  // A little slack so a hairline rule at the very bottom is not clipped by a
+  // rounding difference between layout and output.
+  return h + 2;
+}
+
 /** Render one challan to a PDF buffer. */
 export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; challanNo: string }> {
   const [c, school] = await Promise.all([getChallan(id), loadSchool()]);
-  const buffer = await render(voucherDoc([c], school));
+  const height = allPaid([c]) ? await measuredReceiptHeight([c], school) : undefined;
+  const buffer = await render(voucherDoc([c], school, height));
   return { buffer, challanNo: c.challanNo };
 }
 
@@ -693,5 +752,9 @@ export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; ch
 export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
   const school = await loadSchool();
   const challans = await Promise.all(ids.map((id) => getChallan(id)));
-  return render(voucherDoc(challans, school));
+  // One page height for the whole batch, sized to the tallest receipt in it —
+  // these are filed together, and a stack of different-sized sheets is worse
+  // than a little space on the shorter ones.
+  const height = allPaid(challans) ? await measuredReceiptHeight(challans, school) : undefined;
+  return render(voucherDoc(challans, school, height));
 }
