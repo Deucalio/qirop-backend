@@ -70,11 +70,11 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
   // 1. Top payment information
   const dateOfPaymentRow: Content = {
     text: [
-      { text: 'Date of Payment: ', bold: true, fontSize: 9.5 },
-      { text: paymentDate, fontSize: 9.5 },
+      { text: 'Date of Payment: ', bold: true, fontSize: 15.31 },
+      { text: paymentDate, fontSize: 15.31 },
     ],
     alignment: 'center',
-    margin: [0, 2, 0, 6],
+    margin: [0.0, 3.22, 0.0, 9.67],
   };
 
   const datesTable: Content = {
@@ -83,12 +83,12 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       body: [
         [
           {
-            text: [{ text: 'Issued Date: ', bold: true, fontSize: 8.5 }, dmy(c.issueDate)],
-            margin: [6, 3, 6, 3],
+            text: [{ text: 'Issued Date: ', bold: true, fontSize: 13.7 }, dmy(c.issueDate)],
+            margin: [9.67, 4.83, 9.67, 4.83],
           },
           {
-            text: [{ text: 'Due Date: ', bold: true, fontSize: 8.5 }, dmy(c.dueDate)],
-            margin: [6, 3, 6, 3],
+            text: [{ text: 'Due Date: ', bold: true, fontSize: 13.7 }, dmy(c.dueDate)],
+            margin: [9.67, 4.83, 9.67, 4.83],
           },
         ],
       ],
@@ -103,16 +103,16 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
 
   // 2. School identity section
   const schoolDetails: Content[] = [
-    { text: school.name.toUpperCase(), fontSize: 10.5, bold: true, margin: [0, 0, 0, 2] },
+    { text: school.name.toUpperCase(), fontSize: 16.92, bold: true, margin: [0.0, 0.0, 0.0, 3.22] },
   ];
   if (school.address) {
     const lines = school.address.split('\n');
     lines.forEach((l) => {
-      schoolDetails.push({ text: `Address: ${l}`, fontSize: 7.5, margin: [0, 0.5, 0, 0.5] });
+      schoolDetails.push({ text: `Address: ${l}`, fontSize: 12.09, margin: [0.0, 0.81, 0.0, 0.81] });
     });
   }
   if (school.phone) {
-    schoolDetails.push({ text: school.phone, fontSize: 7.5, margin: [0, 0.5, 0, 0.5] });
+    schoolDetails.push({ text: school.phone, fontSize: 12.09, margin: [0.0, 0.81, 0.0, 0.81] });
   }
 
   const schoolBlock: Content = {
@@ -120,14 +120,16 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: hasLogo ? ['*', 55] : ['*'],
       body: [
         [
-          { stack: schoolDetails, margin: [6, 4, 6, 4] },
+          { stack: schoolDetails, margin: [9.67, 6.45, 9.67, 6.45] },
           ...(hasLogo
             ? [
                 {
                   image: 'logo',
-                  fit: [45, 45],
+                  // Written as tuples, not arrays: pdfmake's TableCell union
+                  // rejects a widened number[] and blames the whole table.
+                  fit: [73, 73] as [number, number],
                   alignment: 'right' as const,
-                  margin: [2, 4, 6, 4],
+                  margin: [3.22, 6.45, 9.67, 6.45] as [number, number, number, number],
                 },
               ]
             : []),
@@ -150,17 +152,17 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
         [
           {
             text: [
-              { text: 'Student ID: ', bold: true, fontSize: 8.5 },
-              { text: ` ${c.student.admissionNo}`, bold: true, fontSize: 8.5 },
+              { text: 'Student ID: ', bold: true, fontSize: 13.7 },
+              { text: ` ${c.student.admissionNo}`, bold: true, fontSize: 13.7 },
             ],
-            margin: [6, 3, 6, 3],
+            margin: [9.67, 4.83, 9.67, 4.83],
           },
           {
             text: [
-              { text: 'Voucher No. ', bold: true, fontSize: 8.5 },
-              { text: ` ${c.challanNo.replace(/^CH-/, '')}`, bold: true, fontSize: 8.5 },
+              { text: 'Voucher No. ', bold: true, fontSize: 13.7 },
+              { text: ` ${c.challanNo.replace(/^CH-/, '')}`, bold: true, fontSize: 13.7 },
             ],
-            margin: [6, 3, 6, 3],
+            margin: [9.67, 4.83, 9.67, 4.83],
           },
         ],
       ],
@@ -175,19 +177,19 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
 
   const studentDetailsTable: Content = {
     table: {
-      widths: [95, '*'],
+      widths: [153, '*'],
       body: [
         [
-          { text: 'Student Name:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: c.student.name, bold: true, fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Student Name:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: c.student.name, bold: true, fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
         [
-          { text: "Father's Name:", bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: c.student.parentName || '-', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: "Father's Name:", bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: c.student.parentName || '-', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
         [
-          { text: 'Class:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: `${c.student.className} ${c.student.sectionName}`.trim(), fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Class:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: `${c.student.className} ${c.student.sectionName}`.trim(), fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
       ],
     },
@@ -207,16 +209,16 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Fee Type:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: feeTypeLabel, alignment: 'right', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Fee Type:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: feeTypeLabel, alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
         [
-          { text: 'Month Name:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: monthName, alignment: 'right', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Month Name:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: monthName, alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
         [
-          { text: 'Year:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: String(c.year), alignment: 'right', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Year:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: String(c.year), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
       ],
     },
@@ -244,20 +246,20 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Arrears:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: fmtInt(previousDuesVal), alignment: 'right', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Arrears:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: fmtInt(previousDuesVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
         [
-          { text: 'Fee:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: fmtInt(baseAmountVal), alignment: 'right', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Fee:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: fmtInt(baseAmountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
         [
-          { text: 'Late Fee:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: fmtInt(lateFeeVal), alignment: 'right', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Late Fee:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: fmtInt(lateFeeVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
         [
-          { text: 'Discount Amount:', bold: true, fontSize: 8.5, margin: [6, 2.5, 0, 2.5] },
-          { text: fmtInt(discountVal), alignment: 'right', fontSize: 8.5, margin: [0, 2.5, 6, 2.5] },
+          { text: 'Discount Amount:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
+          { text: fmtInt(discountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
         ],
       ],
     },
@@ -275,8 +277,8 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Total Fees Payable:', bold: true, fontSize: 9, margin: [6, 3.5, 0, 3.5] },
-          { text: fmtInt(totalPayableVal), bold: true, alignment: 'right', fontSize: 9, margin: [0, 3.5, 6, 3.5] },
+          { text: 'Total Fees Payable:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
+          { text: fmtInt(totalPayableVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
         ],
       ],
     },
@@ -294,8 +296,8 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Fee Paid:', bold: true, fontSize: 9, margin: [6, 3.5, 0, 3.5] },
-          { text: fmtInt(paidVal), bold: true, alignment: 'right', fontSize: 9, margin: [0, 3.5, 6, 3.5] },
+          { text: 'Fee Paid:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
+          { text: fmtInt(paidVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
         ],
       ],
     },
@@ -313,8 +315,8 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Balance Due:', bold: true, fontSize: 9, margin: [6, 3.5, 0, 3.5] },
-          { text: fmtInt(balanceDueVal), bold: true, alignment: 'right', fontSize: 9, margin: [0, 3.5, 6, 3.5] },
+          { text: 'Balance Due:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
+          { text: fmtInt(balanceDueVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
         ],
       ],
     },
@@ -338,6 +340,53 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       totalPayableTable,
       feePaidTable,
       balanceDueTable,
+      /*
+       * Scaling to A4's width still leaves roughly a fifth of the sheet: the
+       * receipt is nearly square (0.916) and A4 is not (0.707), and uniform
+       * scaling can never fill both axes. A signature and stamp band is what a
+       * handed-over receipt needs anyway, so the remaining height carries
+       * something rather than being padded out.
+       */
+      {
+        table: {
+          widths: ['*', '*'],
+          heights: [76],
+          body: [
+            [
+              {
+                stack: [
+                  { text: 'Received By', bold: true, fontSize: 12, margin: [10, 8, 0, 0] },
+                  { text: '(School Stamp & Signature)', fontSize: 9, color: '#555555', margin: [10, 2, 0, 0] },
+                ],
+              },
+              {
+                stack: [
+                  { text: 'Parent / Guardian', bold: true, fontSize: 12, alignment: 'right', margin: [0, 8, 10, 0] },
+                  { text: '(Signature)', fontSize: 9, color: '#555555', alignment: 'right', margin: [0, 2, 10, 0] },
+                ],
+              },
+            ],
+          ],
+        },
+        layout: {
+          hLineWidth: () => 1,
+          vLineWidth: () => 1,
+          hLineColor: () => '#000000',
+          vLineColor: () => '#000000',
+          paddingLeft: () => 0,
+          paddingRight: () => 0,
+          paddingTop: () => 0,
+          paddingBottom: () => 0,
+        },
+      },
+      {
+        text: 'This is a computer-generated receipt. Please retain it for your records.',
+        fontSize: 9,
+        italics: true,
+        color: '#555555',
+        alignment: 'center',
+        margin: [0, 10, 0, 0],
+      },
     ],
   };
 }
@@ -609,12 +658,6 @@ function render(doc: TDocumentDefinitions): Promise<Buffer> {
   });
 }
 
-function calculatePaidReceiptHeight(c: ChallanData): number {
-  const lineCount = (c.items?.length || 1) + (c.previousDues?.length || 0);
-  const extraLines = Math.max(0, lineCount - 1);
-  return 415 + (extraLines * 15);
-}
-
 function voucherDoc(
   challans: ChallanData[],
   school: SchoolInfo & { logoDataUri: string | null },
@@ -622,15 +665,20 @@ function voucherDoc(
   const perPage = perPageFor(challans);
   const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount) > 0 || (Number(c.cashPaid) + Number(c.staffCovered)) > 0));
 
-  let pageSizeConfig: any = 'A4';
-  if (isPaid && challans.length > 0) {
-    const heights = challans.map(calculatePaidReceiptHeight);
-    pageSizeConfig = { width: 380, height: Math.max(...heights) };
-  }
+  /*
+   * A paid receipt prints one to a sheet, so its page must BE the sheet.
+   *
+   * It used to be sized to hug its content (380 x 415pt, aspect 0.916). A
+   * browser's "fit to paper" scales a page uniformly, so a page whose shape
+   * differs from the paper is letterboxed however the print dialog is set —
+   * 0.916 against A4's 0.707 left about a fifth of the sheet blank and blew
+   * the type up 1.6x, which is what made it look coarse. Generating at true A4
+   * makes that scaling 1:1.
+   */
 
   return {
-    pageSize: pageSizeConfig,
-    pageMargins: isPaid ? [14, 14, 14, 14] : [14, 14, 14, 14],
+    pageSize: 'A4',
+    pageMargins: [14, 14, 14, 14],
     content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
     ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
     defaultStyle: { font: 'Roboto', fontSize: 6 },
