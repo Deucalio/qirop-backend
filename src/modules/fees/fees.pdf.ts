@@ -74,7 +74,7 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       { text: paymentDate, fontSize: 15.31 },
     ],
     alignment: 'center',
-    margin: [0.0, 3.22, 0.0, 9.67],
+    margin: [0.0, 5.8, 0.0, 17.41],
   };
 
   const datesTable: Content = {
@@ -84,11 +84,11 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
         [
           {
             text: [{ text: 'Issued Date: ', bold: true, fontSize: 13.7 }, dmy(c.issueDate)],
-            margin: [9.67, 4.83, 9.67, 4.83],
+            margin: [9.67, 8.69, 9.67, 8.69],
           },
           {
             text: [{ text: 'Due Date: ', bold: true, fontSize: 13.7 }, dmy(c.dueDate)],
-            margin: [9.67, 4.83, 9.67, 4.83],
+            margin: [9.67, 8.69, 9.67, 8.69],
           },
         ],
       ],
@@ -103,16 +103,16 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
 
   // 2. School identity section
   const schoolDetails: Content[] = [
-    { text: school.name.toUpperCase(), fontSize: 16.92, bold: true, margin: [0.0, 0.0, 0.0, 3.22] },
+    { text: school.name.toUpperCase(), fontSize: 16.92, bold: true, margin: [0.0, 0.0, 0.0, 5.8] },
   ];
   if (school.address) {
     const lines = school.address.split('\n');
     lines.forEach((l) => {
-      schoolDetails.push({ text: `Address: ${l}`, fontSize: 12.09, margin: [0.0, 0.81, 0.0, 0.81] });
+      schoolDetails.push({ text: `Address: ${l}`, fontSize: 12.09, margin: [0.0, 1.46, 0.0, 1.46] });
     });
   }
   if (school.phone) {
-    schoolDetails.push({ text: school.phone, fontSize: 12.09, margin: [0.0, 0.81, 0.0, 0.81] });
+    schoolDetails.push({ text: school.phone, fontSize: 12.09, margin: [0.0, 1.46, 0.0, 1.46] });
   }
 
   const schoolBlock: Content = {
@@ -120,7 +120,7 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: hasLogo ? ['*', 55] : ['*'],
       body: [
         [
-          { stack: schoolDetails, margin: [9.67, 6.45, 9.67, 6.45] },
+          { stack: schoolDetails, margin: [9.67, 11.61, 9.67, 11.61] },
           ...(hasLogo
             ? [
                 {
@@ -129,7 +129,7 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
                   // rejects a widened number[] and blames the whole table.
                   fit: [73, 73] as [number, number],
                   alignment: 'right' as const,
-                  margin: [3.22, 6.45, 9.67, 6.45] as [number, number, number, number],
+                  margin: [3.22, 11.61, 9.67, 11.61] as [number, number, number, number],
                 },
               ]
             : []),
@@ -155,14 +155,14 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
               { text: 'Student ID: ', bold: true, fontSize: 13.7 },
               { text: ` ${c.student.admissionNo}`, bold: true, fontSize: 13.7 },
             ],
-            margin: [9.67, 4.83, 9.67, 4.83],
+            margin: [9.67, 8.69, 9.67, 8.69],
           },
           {
             text: [
               { text: 'Voucher No. ', bold: true, fontSize: 13.7 },
               { text: ` ${c.challanNo.replace(/^CH-/, '')}`, bold: true, fontSize: 13.7 },
             ],
-            margin: [9.67, 4.83, 9.67, 4.83],
+            margin: [9.67, 8.69, 9.67, 8.69],
           },
         ],
       ],
@@ -180,16 +180,16 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: [153, '*'],
       body: [
         [
-          { text: 'Student Name:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: c.student.name, bold: true, fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Student Name:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: c.student.name, bold: true, fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
         [
-          { text: "Father's Name:", bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: c.student.parentName || '-', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: "Father's Name:", bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: c.student.parentName || '-', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
         [
-          { text: 'Class:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: `${c.student.className} ${c.student.sectionName}`.trim(), fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Class:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: `${c.student.className} ${c.student.sectionName}`.trim(), fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
       ],
     },
@@ -209,16 +209,16 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Fee Type:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: feeTypeLabel, alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Fee Type:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: feeTypeLabel, alignment: 'right', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
         [
-          { text: 'Month Name:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: monthName, alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Month Name:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: monthName, alignment: 'right', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
         [
-          { text: 'Year:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: String(c.year), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Year:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: String(c.year), alignment: 'right', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
       ],
     },
@@ -246,20 +246,20 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Arrears:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(previousDuesVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Arrears:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: fmtInt(previousDuesVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
         [
-          { text: 'Fee:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(baseAmountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Fee:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: fmtInt(baseAmountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
         [
-          { text: 'Late Fee:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(lateFeeVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Late Fee:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: fmtInt(lateFeeVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
         [
-          { text: 'Discount Amount:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(discountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
+          { text: 'Discount Amount:', bold: true, fontSize: 13.7, margin: [9.67, 7.25, 0.0, 7.25] },
+          { text: fmtInt(discountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 7.25, 9.67, 7.25] },
         ],
       ],
     },
@@ -277,8 +277,8 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Total Fees Payable:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
-          { text: fmtInt(totalPayableVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
+          { text: 'Total Fees Payable:', bold: true, fontSize: 14.5, margin: [9.67, 10.15, 0.0, 10.15] },
+          { text: fmtInt(totalPayableVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 10.15, 9.67, 10.15] },
         ],
       ],
     },
@@ -296,8 +296,8 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Fee Paid:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
-          { text: fmtInt(paidVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
+          { text: 'Fee Paid:', bold: true, fontSize: 14.5, margin: [9.67, 10.15, 0.0, 10.15] },
+          { text: fmtInt(paidVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 10.15, 9.67, 10.15] },
         ],
       ],
     },
@@ -315,8 +315,8 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       widths: ['*', '*'],
       body: [
         [
-          { text: 'Balance Due:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
-          { text: fmtInt(balanceDueVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
+          { text: 'Balance Due:', bold: true, fontSize: 14.5, margin: [9.67, 10.15, 0.0, 10.15] },
+          { text: fmtInt(balanceDueVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 10.15, 9.67, 10.15] },
         ],
       ],
     },
@@ -350,19 +350,19 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
       {
         table: {
           widths: ['*', '*'],
-          heights: [76],
+          heights: [125],
           body: [
             [
               {
                 stack: [
-                  { text: 'Received By', bold: true, fontSize: 12, margin: [10, 8, 0, 0] },
-                  { text: '(School Stamp & Signature)', fontSize: 9, color: '#555555', margin: [10, 2, 0, 0] },
+                  { text: 'Received By', bold: true, fontSize: 12, margin: [10.0, 14.4, 0.0, 0.0] },
+                  { text: '(School Stamp & Signature)', fontSize: 9, color: '#555555', margin: [10.0, 3.6, 0.0, 0.0] },
                 ],
               },
               {
                 stack: [
-                  { text: 'Parent / Guardian', bold: true, fontSize: 12, alignment: 'right', margin: [0, 8, 10, 0] },
-                  { text: '(Signature)', fontSize: 9, color: '#555555', alignment: 'right', margin: [0, 2, 10, 0] },
+                  { text: 'Parent / Guardian', bold: true, fontSize: 12, alignment: 'right', margin: [0.0, 14.4, 10.0, 0.0] },
+                  { text: '(Signature)', fontSize: 9, color: '#555555', alignment: 'right', margin: [0.0, 3.6, 10.0, 0.0] },
                 ],
               },
             ],
@@ -378,14 +378,6 @@ function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean):
           paddingTop: () => 0,
           paddingBottom: () => 0,
         },
-      },
-      {
-        text: 'This is a computer-generated receipt. Please retain it for your records.',
-        fontSize: 9,
-        italics: true,
-        color: '#555555',
-        alignment: 'center',
-        margin: [0, 10, 0, 0],
       },
     ],
   };
