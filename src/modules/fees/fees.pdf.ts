@@ -244,7 +244,8 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
 export function perPageFor(
   challans: Array<Partial<Pick<ChallanData, 'items' | 'previousDues' | 'paidAmount' | 'cashPaid' | 'staffCovered'>>>,
 ): number {
-  return 4;
+  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount || 0) > 0 || (Number(c.cashPaid || 0) + Number(c.staffCovered || 0)) > 0));
+  return isPaid ? 1 : 4;
 }
 
 /** Lay vouchers out in a grid, 4 per A4 sheet (2x2) or 1 per page for receipts. */
@@ -254,7 +255,8 @@ function voucherGrid(
   hasLogo: boolean,
   perPage: number = 4,
 ): Content[] {
-  const cols = 2;
+  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount) > 0 || (Number(c.cashPaid) + Number(c.staffCovered)) > 0));
+  const cols = isPaid ? 1 : 2;
   const pages: Content[] = [];
 
   for (let i = 0; i < challans.length; i += perPage) {
@@ -359,9 +361,10 @@ function voucherDoc(
   school: SchoolInfo & { logoDataUri: string | null },
 ): TDocumentDefinitions {
   const perPage = perPageFor(challans);
+  const isPaid = allPaid(challans);
 
   return {
-    pageSize: 'A4',
+    pageSize: isPaid ? 'A6' : 'A4',
     pageOrientation: 'portrait',
     pageMargins: [14, 14, 14, 14],
     content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
