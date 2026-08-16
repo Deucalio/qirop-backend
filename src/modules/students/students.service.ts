@@ -53,7 +53,9 @@ function shapeListItem(s: StudentWithRels) {
     caste: s.caste,
     religion: s.religion,
     photoUrl: publicUrl(s.photoUrl),
-    section: { id: s.section.id, name: s.section.name },
+    // isDefault: a class that was never split into sections still has one, and
+    // callers must be able to say "Main" rather than name a section nobody chose.
+    section: { id: s.section.id, name: s.section.name, isDefault: s.section.isDefault },
     class: { id: s.section.class.id, name: s.section.class.name },
     parent: {
       id: s.parent.id,
