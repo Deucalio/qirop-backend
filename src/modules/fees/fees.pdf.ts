@@ -353,18 +353,58 @@ function allPaid(challans: ChallanData[]): boolean {
   );
 }
 
-const RECEIPT_WIDTH = 595.28; // the width the receipt is laid out for
-const RECEIPT_MARGIN = 40;
+const RECEIPT_WIDTH = 297.64; // roughly half of A4 for consistent layout
+
+let lastReceiptHeight = 350;
+
+function pageCount(pdf: Buffer): number {
+  const counts = [...pdf.toString('latin1').matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
+  return counts.length ? Math.max(...counts) : 0;
+}
+
+async function measuredReceiptHeight(
+  challans: ChallanData[],
+  school: SchoolInfo & { logoDataUri: string | null },
+): Promise<number> {
+  const wanted = challans.length;
+  const STEP = 8;
+  const MIN = 100;
+  const MAX = 800;
+  const fits = async (h: number) => pageCount(await render(voucherDoc(challans, school, h))) <= wanted;
+
+  let h = Math.min(MAX, Math.max(MIN, lastReceiptHeight));
+  if (await fits(h)) {
+    while (h - STEP >= MIN && (await fits(h - STEP))) h -= STEP;
+  } else {
+    while (h < MAX && !(await fits(h + STEP))) h += STEP;
+    h = Math.min(MAX, h + STEP);
+  }
+  lastReceiptHeight = h;
+  return h + 2;
+}
+
+async function renderVerified(
+  challans: ChallanData[],
+  school: SchoolInfo & { logoDataUri: string | null },
+  height: number | undefined,
+): Promise<Buffer> {
+  const buffer = await render(voucherDoc(challans, school, height));
+  if (height === undefined) return buffer;
+  const expected = challans.length;
+  if (pageCount(buffer) <= expected) return buffer;
+  return render(voucherDoc(challans, school, undefined));
+}
 
 function voucherDoc(
   challans: ChallanData[],
   school: SchoolInfo & { logoDataUri: string | null },
+  pageHeight?: number,
 ): TDocumentDefinitions {
   const perPage = perPageFor(challans);
   const isPaid = allPaid(challans);
 
   return {
-    pageSize: isPaid ? 'A6' : 'A4',
+    pageSize: isPaid && pageHeight ? { width: RECEIPT_WIDTH, height: pageHeight } : 'A4',
     pageOrientation: 'portrait',
     pageMargins: [14, 14, 14, 14],
     content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
@@ -376,7 +416,8 @@ function voucherDoc(
 /** Render one challan to a PDF buffer. */
 export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; challanNo: string }> {
   const [c, school] = await Promise.all([getChallan(id), loadSchool()]);
-  const buffer = await render(voucherDoc([c], school));
+  const height = allPaid([c]) ? await measuredReceiptHeight([c], school) : undefined;
+  const buffer = await renderVerified([c], school, height);
   return { buffer, challanNo: c.challanNo };
 }
 
@@ -384,5 +425,6 @@ export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; ch
 export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
   const school = await loadSchool();
   const challans = await Promise.all(ids.map((id) => getChallan(id)));
-  return render(voucherDoc(challans, school));
+  const height = allPaid(challans) ? await measuredReceiptHeight(challans, school) : undefined;
+  return renderVerified(challans, school, height);
 }
