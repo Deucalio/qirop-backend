@@ -486,8 +486,17 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
     for (const p of partners) partnerSectionIds.add(p.sectionId);
   }
 
-  // ---- Combined-class candidates -------------------------------------------
-  // A section can join only if the SAME teacher takes the SAME subject there.
+  /* ---- Combined-class candidates -------------------------------------------
+   *
+   * A section can join only if the SAME teacher takes the SAME subject there.
+   *
+   * Any class, not just a sibling section. Sections of one class was the
+   * original rule, but only Pri-Nursery, Nursery and Class 1 have a second
+   * section — every other class has one, so the feature could never reach the
+   * case it was wanted for: one teacher taking a subject to Classes 6, 7 and 8
+   * together. Period timings are school-wide, so a period means the same clock
+   * time in every class and combining across them is sound.
+   */
   const combinableBySubject = new Map<
     string,
     { sectionId: string; sectionName: string; className: string }[]
@@ -496,9 +505,6 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
     const siblings = await prisma.teachingAssignment.findMany({
       where: {
         sectionId: { not: sectionId },
-        // Only other sections of the SAME class: combining Class 1 with Class 7
-        // makes no sense even when one teacher covers both.
-        section: { classId: section.classId },
         OR: assignments.map((a) => ({ subjectId: a.subjectId, teacherId: a.teacherId })),
       },
       include: { section: { include: { class: true } } },
@@ -661,17 +667,15 @@ export async function setSlot(
   const extraIds = [...new Set(options.withSectionIds ?? [])].filter((id) => id !== sectionId);
   const sections = [section];
   for (const id of extraIds) {
-    const extra = await loadSectionOr404(id);
-    // A combined class is two sections of the same class sitting together —
-    // different year groups can't share a lesson.
-    if (extra.classId !== section.classId) {
-      throw new AppError(
-        `Only sections of the same class can be combined. ${extra.class.name} · Section ${extra.name} is not part of ${section.class.name}.`,
-        409,
-        'COMBINED_DIFFERENT_CLASS',
-      );
-    }
-    sections.push(extra);
+    /*
+     * Any class may join. What makes a combined lesson coherent is not that the
+     * participants are the same year group but that it is one subject, one
+     * teacher, one room — which the checks below enforce. A small school
+     * routinely takes Islamiat or PE to several year groups at once, and every
+     * class above Class 1 here has a single section, so restricting this to
+     * sibling sections put it out of reach entirely.
+     */
+    sections.push(await loadSectionOr404(id));
   }
 
   // The subject must be offered, and the SAME teacher assigned, in every section —
@@ -808,15 +812,42 @@ export async function getTeacherTimetable(userId: string) {
     subjectColorIndexes(),
   ]);
 
-  return {
-    ...base,
-    slots: slots.map((s) => ({
-      day: s.day,
-      periodIndex: s.periodIndex,
-      subject: { id: s.subject.id, name: s.subject.name, color: colors.get(s.subject.id) ?? BUILT_IN_COLORS[0] },
-      section: { id: s.section.id, name: s.section.name, className: s.section.class.name },
-    })),
-  };
+  /*
+   * A combined lesson is ONE lesson, however many sections sit in it. Listed
+   * per row it appears two or three times in the same period and reads as a
+   * double-booking — the thing a teacher's timetable exists to rule out. Rows
+   * sharing a groupId collapse into a single entry carrying every section.
+   */
+  const byGroup = new Map<string, typeof slots>();
+  for (const slot of slots) {
+    const key = slot.groupId ?? slot.id;
+    const list = byGroup.get(key) ?? [];
+    list.push(slot);
+    byGroup.set(key, list);
+  }
+
+  const collapsed = [...byGroup.values()].map((group) => {
+    const [first] = group;
+    const sections = group
+      .map((g) => ({ id: g.section.id, name: g.section.name, className: g.section.class.name }))
+      .sort((a, b) => a.className.localeCompare(b.className) || a.name.localeCompare(b.name));
+    return {
+      day: first.day,
+      periodIndex: first.periodIndex,
+      subject: {
+        id: first.subject.id,
+        name: first.subject.name,
+        color: colors.get(first.subject.id) ?? BUILT_IN_COLORS[0],
+      },
+      /** The first section, kept so existing single-section rendering is unchanged. */
+      section: sections[0],
+      /** Every section in the lesson; more than one means it is a combined class. */
+      sections,
+      isCombined: sections.length > 1,
+    };
+  });
+
+  return { ...base, slots: collapsed };
 }
 
 // ---------------------------------------------------------------------------

@@ -121,9 +121,25 @@ export async function upsertTeachingAssignment(sectionId: string, subjectId: str
   // be free at every scheduled (day, period) — no double-booking across sections.
   const scheduled = await prisma.timetableSlot.findMany({ where: { sectionId, subjectId } });
   if (scheduled.length > 0) {
+    /*
+     * Sections sharing a combined lesson with this one are not a clash — they
+     * are the same lesson in the same room. Without this they would be reported
+     * as one, and a teacher taking Classes 6, 7 and 8 together could never be
+     * changed: every partner section would look like a double-booking.
+     */
+    const groupIds = scheduled.map((s) => s.groupId).filter((g): g is string => !!g);
+    const partnerIds = groupIds.length
+      ? (
+          await prisma.timetableSlot.findMany({
+            where: { groupId: { in: groupIds } },
+            select: { sectionId: true },
+          })
+        ).map((r) => r.sectionId)
+      : [];
+
     const others = await prisma.timetableSlot.findMany({
       where: {
-        sectionId: { not: sectionId },
+        sectionId: { notIn: [...new Set([sectionId, ...partnerIds])] },
         OR: scheduled.map((s) => ({ day: s.day, periodIndex: s.periodIndex })),
       },
       include: { section: { include: { class: true } }, subject: true },
