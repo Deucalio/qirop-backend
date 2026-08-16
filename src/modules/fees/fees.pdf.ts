@@ -47,348 +47,9 @@ type ChallanData = Awaited<ReturnType<typeof getChallan>>;
 type SchoolInfo = { name: string; address: string | null; phone: string | null; email: string | null };
 
 /** Build the printable content block for a single challan. */
-/**
- * One fee voucher, laid out to match the school's existing printed vouchers.
- *
- * Deliberately monochrome and rule-based rather than the app's indigo cards:
- * these are printed in bulk on a shared office printer, colour ink is an
- * expense, and parents already recognise this form. Every figure sits in a
- * ruled box so a voucher stays readable after being folded into a schoolbag.
- */
-function paidVoucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Content {
-  const dmy = (iso: string) => {
-    if (!iso) return '-';
-    const [y, m, d] = iso.split('-');
-    return d && m && y ? `${d}-${m}-${y}` : iso;
-  };
-
-  const fmtInt = (val: string | number) => String(Math.round(Number(val || 0)));
-
-  const monthName = MONTHS[c.month] ?? '';
-  const paymentDate = c.lastPaymentDate ? dmy(c.lastPaymentDate) : dmy(c.issueDate);
-
-  // 1. Top payment information
-  const dateOfPaymentRow: Content = {
-    text: [
-      { text: 'Date of Payment: ', bold: true, fontSize: 15.31 },
-      { text: paymentDate, fontSize: 15.31 },
-    ],
-    alignment: 'center',
-    margin: [0.0, 3.22, 0.0, 9.67],
-  };
-
-  const datesTable: Content = {
-    table: {
-      widths: ['*', '*'],
-      body: [
-        [
-          {
-            text: [{ text: 'Issued Date: ', bold: true, fontSize: 13.7 }, dmy(c.issueDate)],
-            margin: [9.67, 4.83, 9.67, 4.83],
-          },
-          {
-            text: [{ text: 'Due Date: ', bold: true, fontSize: 13.7 }, dmy(c.dueDate)],
-            margin: [9.67, 4.83, 9.67, 4.83],
-          },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: (i: number) => (i === 1 ? 1 : 1),
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  // 2. School identity section
-  const schoolDetails: Content[] = [
-    { text: school.name.toUpperCase(), fontSize: 16.92, bold: true, margin: [0.0, 0.0, 0.0, 3.22] },
-  ];
-  if (school.address) {
-    const lines = school.address.split('\n');
-    lines.forEach((l) => {
-      schoolDetails.push({ text: `Address: ${l}`, fontSize: 12.09, margin: [0.0, 0.81, 0.0, 0.81] });
-    });
-  }
-  if (school.phone) {
-    schoolDetails.push({ text: school.phone, fontSize: 12.09, margin: [0.0, 0.81, 0.0, 0.81] });
-  }
-
-  const schoolBlock: Content = {
-    table: {
-      widths: hasLogo ? ['*', 55] : ['*'],
-      body: [
-        [
-          { stack: schoolDetails, margin: [9.67, 6.45, 9.67, 6.45] },
-          ...(hasLogo
-            ? [
-                {
-                  image: 'logo',
-                  // Written as tuples, not arrays: pdfmake's TableCell union
-                  // rejects a widened number[] and blames the whole table.
-                  fit: [73, 73] as [number, number],
-                  alignment: 'right' as const,
-                  margin: [3.22, 6.45, 9.67, 6.45] as [number, number, number, number],
-                },
-              ]
-            : []),
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  // 3. Student identification section
-  const studentHeaderTable: Content = {
-    table: {
-      widths: ['50%', '50%'],
-      body: [
-        [
-          {
-            text: [
-              { text: 'Student ID: ', bold: true, fontSize: 13.7 },
-              { text: ` ${c.student.admissionNo}`, bold: true, fontSize: 13.7 },
-            ],
-            margin: [9.67, 4.83, 9.67, 4.83],
-          },
-          {
-            text: [
-              { text: 'Voucher No. ', bold: true, fontSize: 13.7 },
-              { text: ` ${c.challanNo.replace(/^CH-/, '')}`, bold: true, fontSize: 13.7 },
-            ],
-            margin: [9.67, 4.83, 9.67, 4.83],
-          },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  const studentDetailsTable: Content = {
-    table: {
-      widths: [153, '*'],
-      body: [
-        [
-          { text: 'Student Name:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: c.student.name, bold: true, fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-        [
-          { text: "Father's Name:", bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: c.student.parentName || '-', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-        [
-          { text: 'Class:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: `${c.student.className} ${c.student.sectionName}`.trim(), fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length ? 1 : 0),
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  // 4. Fee information section
-  const feeTypeLabel = c.items.length > 0 ? (c.items[0].label || ITEM_LABEL[c.items[0].type] || 'Monthly Fee') : 'Monthly Fee';
-
-  const feeInfoTable: Content = {
-    table: {
-      widths: ['*', '*'],
-      body: [
-        [
-          { text: 'Fee Type:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: feeTypeLabel, alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-        [
-          { text: 'Month Name:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: monthName, alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-        [
-          { text: 'Year:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: String(c.year), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  // 5. Fee calculation section
-  const previousDuesVal = Math.round(Number(c.previousBalance || 0));
-  const baseAmountVal = Math.round(Number(c.baseAmount || 0));
-  const lateFeeVal = Math.round(Number(c.lateFee || 0));
-  const discountVal = Math.round(Number(c.discount || 0));
-
-  const totalPayableVal = Math.max(0, baseAmountVal + previousDuesVal + lateFeeVal - discountVal);
-  const paidSoFar = Number(c.paidAmount) > 0 ? Number(c.paidAmount) : (Number(c.cashPaid) + Number(c.staffCovered));
-  const paidVal = Math.round(paidSoFar);
-  const balanceDueVal = Math.max(0, totalPayableVal - paidVal);
-
-  const feeCalcTable: Content = {
-    table: {
-      widths: ['*', '*'],
-      body: [
-        [
-          { text: 'Arrears:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(previousDuesVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-        [
-          { text: 'Fee:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(baseAmountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-        [
-          { text: 'Late Fee:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(lateFeeVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-        [
-          { text: 'Discount Amount:', bold: true, fontSize: 13.7, margin: [9.67, 4.03, 0.0, 4.03] },
-          { text: fmtInt(discountVal), alignment: 'right', fontSize: 13.7, margin: [0.0, 4.03, 9.67, 4.03] },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  // 6. Total Fees Payable row
-  const totalPayableTable: Content = {
-    table: {
-      widths: ['*', '*'],
-      body: [
-        [
-          { text: 'Total Fees Payable:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
-          { text: fmtInt(totalPayableVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  // 7. Fee Paid row
-  const feePaidTable: Content = {
-    table: {
-      widths: ['*', '*'],
-      body: [
-        [
-          { text: 'Fee Paid:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
-          { text: fmtInt(paidVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  // 8. Balance Due row
-  const balanceDueTable: Content = {
-    table: {
-      widths: ['*', '*'],
-      body: [
-        [
-          { text: 'Balance Due:', bold: true, fontSize: 14.5, margin: [9.67, 5.64, 0.0, 5.64] },
-          { text: fmtInt(balanceDueVal), bold: true, alignment: 'right', fontSize: 14.5, margin: [0.0, 5.64, 9.67, 5.64] },
-        ],
-      ],
-    },
-    layout: {
-      hLineWidth: () => 1,
-      vLineWidth: () => 1,
-      hLineColor: () => '#000000',
-      vLineColor: () => '#000000',
-    },
-  };
-
-  return {
-    stack: [
-      dateOfPaymentRow,
-      datesTable,
-      schoolBlock,
-      studentHeaderTable,
-      studentDetailsTable,
-      feeInfoTable,
-      feeCalcTable,
-      totalPayableTable,
-      feePaidTable,
-      balanceDueTable,
-      /*
-       * Scaling to A4's width still leaves roughly a fifth of the sheet: the
-       * receipt is nearly square (0.916) and A4 is not (0.707), and uniform
-       * scaling can never fill both axes. A signature and stamp band is what a
-       * handed-over receipt needs anyway, so the remaining height carries
-       * something rather than being padded out.
-       */
-      {
-        table: {
-          widths: ['*', '*'],
-          heights: [70],
-          body: [
-            [
-              {
-                stack: [
-                  { text: 'Received By', bold: true, fontSize: 12, margin: [10, 8, 0, 0] },
-                  { text: '(School Stamp & Signature)', fontSize: 9, color: '#555555', margin: [10, 2, 0, 0] },
-                ],
-              },
-              {
-                stack: [
-                  { text: 'Parent / Guardian', bold: true, fontSize: 12, alignment: 'right', margin: [0, 8, 10, 0] },
-                  { text: '(Signature)', fontSize: 9, color: '#555555', alignment: 'right', margin: [0, 2, 10, 0] },
-                ],
-              },
-            ],
-          ],
-        },
-        layout: {
-          hLineWidth: () => 1,
-          vLineWidth: () => 1,
-          hLineColor: () => '#000000',
-          vLineColor: () => '#000000',
-          paddingLeft: () => 0,
-          paddingRight: () => 0,
-          paddingTop: () => 0,
-          paddingBottom: () => 0,
-        },
-      },
-    ],
-  };
-}
-
 /** Build the printable content block for a single challan. */
 function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Content {
   const paidSoFar = Number(c.paidAmount) > 0 ? Number(c.paidAmount) : (Number(c.cashPaid) + Number(c.staffCovered));
-  if (paidSoFar > 0) {
-    return paidVoucherBlock(c, school, hasLogo);
-  }
 
   const money = (v: string | number) => Number(v).toLocaleString('en-PK');
   /** YYYY-MM-DD to the DD-MM-YYYY the school's own vouchers use. */
@@ -429,7 +90,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   const monthName = `${MONTHS[c.month] ?? ''} ${c.year}`.trim();
 
   const title: Content = {
-    text: `FEE VOUCHER — ${monthName.toUpperCase()}`,
+    text: paidSoFar > 0 ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}` : `FEE VOUCHER — ${monthName.toUpperCase()}`,
     fontSize: 11,
     bold: true,
     alignment: 'center',
@@ -583,8 +244,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
 export function perPageFor(
   challans: Array<Partial<Pick<ChallanData, 'items' | 'previousDues' | 'paidAmount' | 'cashPaid' | 'staffCovered'>>>,
 ): number {
-  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount || 0) > 0 || (Number(c.cashPaid || 0) + Number(c.staffCovered || 0)) > 0));
-  return isPaid ? 1 : 4;
+  return 4;
 }
 
 /** Lay vouchers out in a grid, 4 per A4 sheet (2x2) or 1 per page for receipts. */
@@ -594,8 +254,7 @@ function voucherGrid(
   hasLogo: boolean,
   perPage: number = 4,
 ): Content[] {
-  const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount) > 0 || (Number(c.cashPaid) + Number(c.staffCovered)) > 0));
-  const cols = isPaid ? 1 : 2;
+  const cols = 2;
   const pages: Content[] = [];
 
   for (let i = 0; i < challans.length; i += perPage) {
@@ -616,10 +275,10 @@ function voucherGrid(
       layout: {
         hLineWidth: () => 0,
         vLineWidth: () => 0,
-        paddingLeft: () => (isPaid ? 0 : 6),
-        paddingRight: () => (isPaid ? 0 : 6),
-        paddingTop: () => (isPaid ? 0 : 8),
-        paddingBottom: () => (isPaid ? 0 : 18),
+        paddingLeft: () => 6,
+        paddingRight: () => 6,
+        paddingTop: () => 8,
+        paddingBottom: () => 18,
       },
       ...(i + perPage < challans.length ? { pageBreak: 'after' as const } : {}),
     });
@@ -693,121 +352,28 @@ function allPaid(challans: ChallanData[]): boolean {
 }
 
 const RECEIPT_WIDTH = 595.28; // the width the receipt is laid out for
-const RECEIPT_MARGIN = 28;
+const RECEIPT_MARGIN = 40;
 
 function voucherDoc(
   challans: ChallanData[],
   school: SchoolInfo & { logoDataUri: string | null },
-  /** Explicit page height, for the receipt once its content has been measured. */
-  pageHeight?: number,
 ): TDocumentDefinitions {
   const perPage = perPageFor(challans);
-  const isPaid = allPaid(challans);
 
   return {
-    pageSize: pageHeight ? { width: RECEIPT_WIDTH, height: pageHeight } : 'A4',
-    pageMargins: isPaid
-      ? [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN]
-      : [14, 14, 14, 14],
+    pageSize: 'A4',
+    pageOrientation: 'portrait',
+    pageMargins: [14, 14, 14, 14],
     content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
     ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
     defaultStyle: { font: 'Roboto', fontSize: 6 },
   };
 }
 
-/**
- * Remembered across calls so the search starts from the right answer.
- *
- * The receipt's rows are fixed — only text wrapping moves its height — so one
- * receipt's height is a good guess for the next. The first print pays for the
- * search; the rest confirm it in two renders.
- */
-let lastReceiptHeight = 660;
-
-/**
- * How many pages a rendered PDF has, read from the page tree's own `/Count`.
- *
- * Counting `/Type /Page` occurrences instead means trusting a pattern that can
- * also appear inside a content stream, and a miscount here picks the wrong page
- * height — once producing a 630pt page for a receipt that measures 654.
- */
-function pageCount(pdf: Buffer): number {
-  const counts = [...pdf.toString('latin1').matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
-  return counts.length ? Math.max(...counts) : 0;
-}
-
-/**
- * The shortest page that still holds the receipt, found by rendering it.
- *
- * A receipt is a receipt: its page should be the height of the thing, the way a
- * shipping label's page is the size of the label. Fixing it to A4 left a
- * quarter of the page empty, and padding the rows until they reached the bottom
- * inflated a compact document to fill paper it was never meant to fill.
- *
- * MEASURED rather than estimated. An estimator has to model every row, font and
- * wrap, and drifts silently the moment the layout changes; the renderer cannot
- * be wrong about its own output. Searching blind cost about a dozen renders, so
- * it walks in steps from the last known height instead — typically two renders,
- * on a single-threaded server where CPU spent here is CPU taken from every
- * other request.
- */
-async function measuredReceiptHeight(
-  challans: ChallanData[],
-  school: SchoolInfo & { logoDataUri: string | null },
-): Promise<number> {
-  const wanted = challans.length; // paid receipts are one to a page
-  const STEP = 8;
-  const MIN = 200;
-  const MAX = 1400;
-  const fits = async (h: number) =>
-    pageCount(await render(voucherDoc(challans, school, h))) <= wanted;
-
-  let h = Math.min(MAX, Math.max(MIN, lastReceiptHeight));
-
-  if (await fits(h)) {
-    // Walk down while it still fits, so the page ends up minimal rather than
-    // merely sufficient.
-    while (h - STEP >= MIN && (await fits(h - STEP))) h -= STEP;
-  } else {
-    // This receipt is taller than the last — grow until it fits rather than
-    // let it spill onto a second page.
-    while (h < MAX && !(await fits(h + STEP))) h += STEP;
-    h = Math.min(MAX, h + STEP);
-  }
-
-  lastReceiptHeight = h;
-  // A little slack so a hairline rule at the very bottom is not clipped by a
-  // rounding difference between layout and output.
-  return h + 2;
-}
-
-/**
- * Render at the chosen height, and fall back to A4 if it did not hold.
- *
- * The height is arrived at by measurement, and a measurement can be wrong; the
- * cost of it being wrong is a receipt split across two pages or cut off. This
- * checks the actual output and, if the page turned out too short, reissues on
- * A4 — a page with space to spare is a far better failure than a truncated
- * record of a payment.
- */
-async function renderVerified(
-  challans: ChallanData[],
-  school: SchoolInfo & { logoDataUri: string | null },
-  height: number | undefined,
-): Promise<Buffer> {
-  const buffer = await render(voucherDoc(challans, school, height));
-  if (height === undefined) return buffer;
-
-  const expected = challans.length;
-  if (pageCount(buffer) <= expected) return buffer;
-  return render(voucherDoc(challans, school, undefined));
-}
-
 /** Render one challan to a PDF buffer. */
 export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; challanNo: string }> {
   const [c, school] = await Promise.all([getChallan(id), loadSchool()]);
-  const height = allPaid([c]) ? await measuredReceiptHeight([c], school) : undefined;
-  const buffer = await renderVerified([c], school, height);
+  const buffer = await render(voucherDoc([c], school));
   return { buffer, challanNo: c.challanNo };
 }
 
@@ -815,9 +381,5 @@ export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; ch
 export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
   const school = await loadSchool();
   const challans = await Promise.all(ids.map((id) => getChallan(id)));
-  // One page height for the whole batch, sized to the tallest receipt in it —
-  // these are filed together, and a stack of different-sized sheets is worse
-  // than a little space on the shorter ones.
-  const height = allPaid(challans) ? await measuredReceiptHeight(challans, school) : undefined;
-  return renderVerified(challans, school, height);
+  return render(voucherDoc(challans, school));
 }
