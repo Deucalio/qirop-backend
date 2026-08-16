@@ -36,6 +36,7 @@ function shape(hw: HwWithRels) {
     id: hw.id,
     sectionId: hw.sectionId,
     sectionName: hw.section.name,
+    isDefault: hw.section.isDefault,
     classId: hw.section.classId,
     className: hw.section.class.name,
     subjectId: hw.subjectId,

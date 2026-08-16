@@ -54,13 +54,19 @@ type SectionRow = TeacherWithRels['classTeacherSections'][number];
 function shapeTeaching(ta: TeachingRow) {
   return {
     id: ta.id,
-    section: { id: ta.section.id, name: ta.section.name, classId: ta.section.classId, className: ta.section.class.name },
+    section: {
+      id: ta.section.id,
+      name: ta.section.name,
+      isDefault: ta.section.isDefault,
+      classId: ta.section.classId,
+      className: ta.section.class.name,
+    },
     subject: { id: ta.subject.id, name: ta.subject.name, colorHex: ta.subject.colorHex },
   };
 }
 
 function shapeClassTeacherSection(s: SectionRow) {
-  return { id: s.id, name: s.name, classId: s.classId, className: s.class.name };
+  return { id: s.id, name: s.name, isDefault: s.isDefault, classId: s.classId, className: s.class.name };
 }
 
 /** Shape a teacher for a detail view. `salary` is included ONLY when allowed. */
@@ -76,6 +82,7 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
     admissionNo: s.admissionNo,
     className: s.section.class.name,
     sectionName: s.section.name,
+    isDefault: s.section.isDefault,
     status: s.status,
     fees: feeMap.get(s.id) ?? { outstanding: '0.00', unpaidCount: 0, status: 'NO_DUES' as const, challans: [] },
   }));

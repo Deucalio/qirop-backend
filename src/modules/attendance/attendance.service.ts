@@ -591,6 +591,7 @@ export async function getAttendanceByDate(dateStr?: string, classId?: string, se
       sectionId: s.id,
       className: s.class.name,
       sectionName: s.name,
+      isDefault: s.isDefault,
       classTeacher: s.classTeacher ? { id: s.classTeacher.id, fullName: s.classTeacher.user.fullName } : null,
       studentCount,
       markedCount,

@@ -407,6 +407,8 @@ export async function getSectionTimetable(sectionId: string) {
   return {
     sectionId: section.id,
     sectionName: section.name,
+    /** True when the class was never split — the label then omits the section. */
+    isDefault: section.isDefault,
     classId: section.classId,
     className: section.class.name,
     days: layout.openDays,

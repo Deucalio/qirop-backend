@@ -543,6 +543,7 @@ export async function getSubjectDetails(id: string, includeTeachers: boolean) {
     assignments: assignments.map((a) => ({
       sectionId: a.sectionId,
       sectionName: a.section.name,
+      isDefault: a.section.isDefault,
       classId: a.section.classId,
       className: a.section.class.name,
       teacher: { id: a.teacher.id, fullName: a.teacher.user.fullName },
