@@ -90,7 +90,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   const monthName = `${MONTHS[c.month] ?? ''} ${c.year}`.trim();
 
   const title: Content = {
-    text: paidSoFar > 0 ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}` : `FEE VOUCHER — ${monthName.toUpperCase()}`,
+    text: paidSoFar > 0 ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}` : `UNPAID FEE VOUCHER — ${monthName.toUpperCase()}`,
     fontSize: 11,
     bold: true,
     alignment: 'center',
