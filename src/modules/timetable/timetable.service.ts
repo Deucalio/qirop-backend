@@ -383,7 +383,10 @@ export async function getSectionTimetable(sectionId: string) {
 
   // For combined lessons, name the other sections sharing each slot.
   const groupIds = slots.map((s) => s.groupId).filter((g): g is string => !!g);
-  const partnersByGroup = new Map<string, { sectionId: string; sectionName: string; className: string }[]>();
+  const partnersByGroup = new Map<
+    string,
+    { sectionId: string; sectionName: string; className: string; isDefault: boolean }[]
+  >();
   if (groupIds.length > 0) {
     const partners = await prisma.timetableSlot.findMany({
       where: { groupId: { in: groupIds }, sectionId: { not: sectionId } },
@@ -391,7 +394,12 @@ export async function getSectionTimetable(sectionId: string) {
     });
     for (const p of partners) {
       const list = partnersByGroup.get(p.groupId!) ?? [];
-      list.push({ sectionId: p.sectionId, sectionName: p.section.name, className: p.section.class.name });
+      list.push({
+        sectionId: p.sectionId,
+        sectionName: p.section.name,
+        className: p.section.class.name,
+        isDefault: p.section.isDefault,
+      });
       partnersByGroup.set(p.groupId!, list);
     }
   }
@@ -441,7 +449,10 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
   const teacherIds = [...new Set(assignments.map((a) => a.teacherId))];
 
   // Where each of those teachers already stands on this day, school-wide.
-  const commitmentsByTeacher = new Map<string, { periodIndex: number; className: string; sectionName: string; sectionId: string; subjectName: string }[]>();
+  const commitmentsByTeacher = new Map<
+    string,
+    { periodIndex: number; className: string; sectionName: string; sectionId: string; subjectName: string; isDefault: boolean }[]
+  >();
   if (teacherIds.length > 0) {
     const [daySlots, teacherAssignments] = await Promise.all([
       prisma.timetableSlot.findMany({
@@ -462,6 +473,7 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
         sectionName: slot.section.name,
         sectionId: slot.sectionId,
         subjectName: slot.subject.name,
+        isDefault: slot.section.isDefault,
       });
       commitmentsByTeacher.set(teacherId, list);
     }
@@ -499,7 +511,7 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
    */
   const combinableBySubject = new Map<
     string,
-    { sectionId: string; sectionName: string; className: string }[]
+    { sectionId: string; sectionName: string; className: string; isDefault: boolean }[]
   >();
   if (assignments.length > 0) {
     const siblings = await prisma.teachingAssignment.findMany({
@@ -515,6 +527,7 @@ export async function getSlotOptions(sectionId: string, day: DayOfWeek, periodIn
         sectionId: sib.sectionId,
         sectionName: sib.section.name,
         className: sib.section.class.name,
+        isDefault: sib.section.isDefault,
       });
       combinableBySubject.set(sib.subjectId, list);
     }
