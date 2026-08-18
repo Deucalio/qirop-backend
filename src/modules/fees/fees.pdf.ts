@@ -46,10 +46,25 @@ const MONTHS = [
 type ChallanData = Awaited<ReturnType<typeof getChallan>>;
 type SchoolInfo = { name: string; address: string | null; phone: string | null; email: string | null };
 
-/** Build the printable content block for a single challan. */
-/** Build the printable content block for a single challan. */
-function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Content {
+/**
+ * Build the printable content block for a single challan.
+ *
+ * Two variants share this function. An UNPAID voucher is one of four on an A4
+ * sheet, so it stays tight and unchanged. A settled challan prints as a RECEIPT,
+ * alone on a B6 sheet (the paper the school actually loads), so it carries the
+ * extra rows a receipt needs — date of payment, total payable, balance due, and
+ * a stamp area — at slightly larger type.
+ *
+ * `scale` is the fit pass's shrink factor and applies to the receipt only: B6 is
+ * fixed paper, so a challan carrying an unusual number of arrears lines has to
+ * shrink to stay on one sheet rather than grow its page. At the default, an
+ * unpaid voucher's measurements are exactly what they have always been.
+ */
+function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean, scale = 1): Content {
   const paidSoFar = Number(c.paidAmount) > 0 ? Number(c.paidAmount) : (Number(c.cashPaid) + Number(c.staffCovered));
+  const isPaid = paidSoFar > 0;
+  /** Size in points, scaled for the variant. The identity for an unpaid voucher. */
+  const s = (n: number) => Math.round(n * (isPaid ? RECEIPT_TYPE_SCALE * scale : 1) * 100) / 100;
 
   const money = (v: string | number) => Number(v).toLocaleString('en-PK');
   /** YYYY-MM-DD to the DD-MM-YYYY the school's own vouchers use. */
@@ -81,50 +96,58 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     opts: { size?: number; bold?: boolean; right?: boolean; pad?: number } = {},
   ): Cell => ({
     text,
-    fontSize: opts.size ?? 8,
+    fontSize: s(opts.size ?? 8),
     bold: opts.bold ?? false,
     ...(opts.right ? { alignment: 'right' as const } : {}),
-    margin: [0, opts.pad ?? 3, 0, opts.pad ?? 3],
+    margin: [0, s(opts.pad ?? 3), 0, s(opts.pad ?? 3)],
   });
 
   const monthName = `${MONTHS[c.month] ?? ''} ${c.year}`.trim();
 
   const title: Content = {
-    text: paidSoFar > 0 ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}` : `UNPAID FEE VOUCHER — ${monthName.toUpperCase()}`,
-    fontSize: 11,
+    text: isPaid ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}` : `UNPAID FEE VOUCHER — ${monthName.toUpperCase()}`,
+    fontSize: s(11),
     bold: true,
     alignment: 'center',
-    margin: [0, 4.5, 0, 4.5],
+    margin: [0, s(4.5), 0, s(4.5)],
   };
 
   const dateBits: Content[] = [
-    { text: [{ text: 'Issued: ', bold: true }, dmy(c.issueDate)], fontSize: 8 },
-    { text: [{ text: 'Due: ', bold: true }, dmy(c.dueDate)], fontSize: 8, alignment: 'right' },
+    { text: [{ text: 'Issued: ', bold: true }, dmy(c.issueDate)], fontSize: s(8) },
+    { text: [{ text: 'Due: ', bold: true }, dmy(c.dueDate)], fontSize: s(8), alignment: 'right' },
   ];
-  const dates: Content = { columns: dateBits, margin: [8, 4, 8, 4] };
+  const dates: Content = { columns: dateBits, margin: [s(8), s(4), s(8), s(4)] };
+
+  /** When the money actually arrived — the line a receipt is asked for most. */
+  const paymentDate: Content = {
+    text: [{ text: 'Date of Payment: ', bold: true }, c.lastPaymentDate ? dmy(c.lastPaymentDate) : '-'],
+    fontSize: s(8.5),
+    bold: true,
+    margin: [s(8), s(3), s(8), s(3)],
+  };
 
   const schoolText: Content = {
     stack: [
-      { text: school.name.toUpperCase(), fontSize: 9.5, bold: true, lineHeight: 1.1 },
-      ...(school.address ? [{ text: school.address, fontSize: 7.5, lineHeight: 1.1 }] : []),
-      ...(school.phone ? [{ text: school.phone, fontSize: 7.5, lineHeight: 1.1 }] : []),
+      { text: school.name.toUpperCase(), fontSize: s(9.5), bold: true, lineHeight: 1.1 },
+      ...(school.address ? [{ text: school.address, fontSize: s(7.5), lineHeight: 1.1 }] : []),
+      ...(school.phone ? [{ text: school.phone, fontSize: s(7.5), lineHeight: 1.1 }] : []),
     ],
   };
   const schoolBlock: Content = hasLogo
     ? {
         columns: [
-          { image: 'logo', fit: [28, 28], width: 30 },
+          { image: 'logo', fit: [s(28), s(28)], width: s(30) },
           { ...(schoolText as any), margin: [0, 1, 0, 0] },
         ],
-        columnGap: 6,
-        margin: [8, 4.5, 8, 4.5],
+        columnGap: s(6),
+        margin: [s(8), s(4.5), s(8), s(4.5)],
       }
-    : { ...(schoolText as any), margin: [8, 4.5, 8, 4.5] };
+    : { ...(schoolText as any), margin: [s(8), s(4.5), s(8), s(4.5)] };
 
   const kv = (label: string, value: string) => ({
     text: [{ text: `${label}: `, bold: true }, value || '-'],
-    fontSize: 8.5,
-    margin: [0, 1.2, 0, 1.2] as [number, number, number, number],
+    fontSize: s(8.5),
+    margin: [0, s(1.2), 0, s(1.2)] as [number, number, number, number],
   });
 
   const student: Content = {
@@ -144,7 +167,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
         ],
       },
     ],
-    margin: [8, 4.5, 8, 4.5],
+    margin: [s(8), s(4.5), s(8), s(4.5)],
   };
 
   const feeTable: Content = {
@@ -152,7 +175,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       {
         table: {
           headerRows: 1,
-          widths: ['*', 65],
+          widths: ['*', s(65)],
           body: [
             [
               T('Fee Description', { size: 8, bold: true, pad: 2.5 }),
@@ -172,7 +195,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
         },
       },
     ],
-    margin: [8, 4, 8, 4],
+    margin: [s(8), s(4), s(8), s(4)],
   };
 
   const sumRow = (label: string, value: string, strong = false): Cell[] => [
@@ -184,7 +207,27 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
   const lateFee = Number(c.lateFee);
   const payableBy = Math.max(0, payableAfter - lateFee);
 
-  const summaryBody: Cell[][] = [
+  /**
+   * A receipt answers "what was owed, what was handed over, what is left", so it
+   * totals BEFORE any payment and lands on Balance Due. An unpaid voucher
+   * answers "what do I pay, and by when", so it keeps its pay-by / after-due
+   * pair. The gross is `amount` (base − discount + late fee) plus arrears;
+   * subtracting everything received leaves exactly `totalPayable`.
+   */
+  const grossPayable = Number(c.amount) + Number(c.previousBalance);
+  const receiptBody: Cell[][] = [
+    sumRow('Fee', c.baseAmount),
+    sumRow('Arrears', c.previousBalance),
+    sumRow('Late Fee', String(lateFee)),
+    sumRow('Discount (−)', c.discount),
+    sumRow('TOTAL FEES PAYABLE', String(grossPayable), true),
+    sumRow('Fee Paid', c.cashPaid),
+    ...(Number(c.staffCovered) > 0 ? [sumRow('Covered from Salary', c.staffCovered)] : []),
+    ...(Number(c.advanceCredit) > 0 ? [sumRow('Advance on File', c.advanceCredit)] : []),
+    sumRow('BALANCE DUE', c.totalPayable, true),
+  ];
+
+  const voucherBody: Cell[][] = [
     sumRow('Subtotal', c.baseAmount),
     sumRow('Previous Dues', c.previousBalance),
     sumRow('Discount', c.discount),
@@ -195,12 +238,15 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
     sumRow('Late Fee', String(lateFee)),
     sumRow('PAYABLE AFTER DUE DATE', String(payableAfter), true),
   ];
-  const ruleAt = summaryBody.length - 3;
+
+  const summaryBody = isPaid ? receiptBody : voucherBody;
+  /** Rule above each strong total: the receipt's two, the voucher's single one. */
+  const ruleAt = isPaid ? 4 : summaryBody.length - 3;
 
   const summary: Content = {
-    table: { widths: ['*', 65], body: summaryBody },
+    table: { widths: ['*', s(65)], body: summaryBody },
     layout: {
-      hLineWidth: (i: number) => (i === ruleAt ? 0.6 : 0),
+      hLineWidth: (i: number) => (i === ruleAt || (isPaid && i === summaryBody.length - 1) ? 0.6 : 0),
       vLineWidth: () => 0,
       hLineColor: () => '#000000',
       paddingLeft: () => 0,
@@ -208,19 +254,52 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean): Con
       paddingTop: () => 0,
       paddingBottom: () => 0,
     },
-    margin: [8, 4, 8, 4],
+    margin: [s(8), s(4), s(8), s(4)],
   };
 
-  const signature: Content = {
-    text: 'Parent / Guardian Signature: ______________________',
-    fontSize: 8,
-    margin: [8, 10, 8, 10],
-  };
+  /**
+   * A receipt is proof of payment: the parent keeps it and the school stamps it,
+   * so it needs both hands on it. The gap above each rule is the space someone
+   * actually signs and stamps in — sized to be usable by hand, not to fill the
+   * page.
+   */
+  const signature: Content = isPaid
+    ? {
+        columns: [
+          {
+            width: '*',
+            stack: [
+              { text: ' ', fontSize: s(8), margin: [0, 0, 0, s(18)] },
+              { text: '_____________________', fontSize: s(8) },
+              { text: 'Received By / School Stamp & Signature', fontSize: s(6), margin: [0, s(1.5), 0, 0] },
+            ],
+          },
+          {
+            width: '*',
+            stack: [
+              { text: ' ', fontSize: s(8), margin: [0, 0, 0, s(18)] },
+              { text: '_____________________', fontSize: s(8), alignment: 'right' },
+              { text: 'Parent / Guardian Signature', fontSize: s(6), alignment: 'right', margin: [0, s(1.5), 0, 0] },
+            ],
+          },
+        ],
+        columnGap: s(10),
+        margin: [s(8), s(6), s(8), s(6)],
+      }
+    : {
+        text: 'Parent / Guardian Signature: ______________________',
+        fontSize: s(8),
+        margin: [s(8), s(10), s(8), s(10)],
+      };
+
+  const body: Content[][] = isPaid
+    ? [[title], [dates], [paymentDate], [schoolBlock], [student], [feeTable], [summary], [signature]]
+    : [[title], [dates], [schoolBlock], [student], [feeTable], [summary], [signature]];
 
   return {
     table: {
       widths: ['*'],
-      body: [[title], [dates], [schoolBlock], [student], [feeTable], [summary], [signature]],
+      body: body as any,
     },
     layout: {
       hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length ? 1 : 0.5),
@@ -254,6 +333,7 @@ function voucherGrid(
   school: SchoolInfo,
   hasLogo: boolean,
   perPage: number = 4,
+  scale = 1,
 ): Content[] {
   const isPaid = challans.length > 0 && challans.every(c => (Number(c.paidAmount) > 0 || (Number(c.cashPaid) + Number(c.staffCovered)) > 0));
   const cols = isPaid ? 1 : 2;
@@ -263,7 +343,7 @@ function voucherGrid(
     const group = challans.slice(i, i + perPage);
     const rows: Content[][] = [];
     for (let r = 0; r < group.length; r += cols) {
-      const rowCells: Content[] = group.slice(r, r + cols).map((c) => voucherBlock(c, school, hasLogo));
+      const rowCells: Content[] = group.slice(r, r + cols).map((c) => voucherBlock(c, school, hasLogo, scale));
       // Pad a short last row so a lone voucher keeps its column width instead
       // of stretching across the sheet.
       while (rowCells.length < cols) rowCells.push({ text: '' });
@@ -277,10 +357,13 @@ function voucherGrid(
       layout: {
         hLineWidth: () => 0,
         vLineWidth: () => 0,
-        paddingLeft: () => 6,
-        paddingRight: () => 6,
-        paddingTop: () => 8,
-        paddingBottom: () => 18,
+        // A voucher shares its sheet with three others and needs a cutting
+        // gutter; a receipt is alone on its B6 page, where that gutter is
+        // just unused paper.
+        paddingLeft: () => (isPaid ? 0 : 6),
+        paddingRight: () => (isPaid ? 0 : 6),
+        paddingTop: () => (isPaid ? 0 : 8),
+        paddingBottom: () => (isPaid ? 0 : 18),
       },
       ...(i + perPage < challans.length ? { pageBreak: 'after' as const } : {}),
     });
@@ -353,78 +436,108 @@ function allPaid(challans: ChallanData[]): boolean {
   );
 }
 
-const RECEIPT_WIDTH = 297.64; // roughly half of A4 for consistent layout
+/**
+ * Page geometry for the paid receipt.
+ *
+ * The school prints paid challans on physical B6 sheets, so the PDF page IS
+ * B6 — not A4 trusting the printer to shrink it, and not a bespoke size that
+ * happens to be close. PDF user space is points: 72 to the inch, 25.4 mm to
+ * the inch, so a millimetre is 72/25.4 points and the conversion is exact
+ * rather than a rounded constant someone has to trust.
+ *
+ * ISO B6 is 125 mm x 176 mm portrait = 354.33 x 498.9 pt.
+ */
+const MM_TO_PT = 72 / 25.4;
+export const B6_WIDTH_PT = 125 * MM_TO_PT;
+export const B6_HEIGHT_PT = 176 * MM_TO_PT;
 
-let lastReceiptHeight = 350;
+/**
+ * B6 gives a receipt more width than the quarter-A4 slot an unpaid voucher
+ * lives in, so the receipt's type is set proportionally larger. This is a
+ * typographic choice for the paper, not a stretch to consume space — every row
+ * keeps its natural height.
+ */
+const RECEIPT_TYPE_SCALE = 1.32;
+
+/** Trim on a B6 sheet: enough to clear a printer's unprintable edge, no more. */
+const RECEIPT_MARGIN = 10;
 
 function pageCount(pdf: Buffer): number {
   const counts = [...pdf.toString('latin1').matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
   return counts.length ? Math.max(...counts) : 0;
 }
 
-async function measuredReceiptHeight(
+/**
+ * Find the largest type scale that still keeps every receipt on its own sheet.
+ *
+ * The page can no longer grow to fit the content — the paper is a fixed
+ * physical size — so when a challan carries an unusual number of arrears lines
+ * the type shrinks instead. Nothing is dropped and no row is squashed
+ * individually; the whole block scales down together and stays proportional.
+ *
+ * Normal challans fit at 1 and never enter the loop, so the common path costs
+ * one render.
+ */
+async function fittedScale(
   challans: ChallanData[],
   school: SchoolInfo & { logoDataUri: string | null },
 ): Promise<number> {
   const wanted = challans.length;
-  const STEP = 8;
-  const MIN = 100;
-  const MAX = 800;
-  const fits = async (h: number) => pageCount(await render(voucherDoc(challans, school, h))) <= wanted;
-
-  let h = Math.min(MAX, Math.max(MIN, lastReceiptHeight));
-  if (await fits(h)) {
-    while (h - STEP >= MIN && (await fits(h - STEP))) h -= STEP;
-  } else {
-    while (h < MAX && !(await fits(h + STEP))) h += STEP;
-    h = Math.min(MAX, h + STEP);
+  const STEP = 0.04;
+  const MIN = 0.7;
+  let scale = 1;
+  while (scale > MIN) {
+    if (pageCount(await render(voucherDoc(challans, school, scale))) <= wanted) return scale;
+    scale = Math.round((scale - STEP) * 100) / 100;
   }
-  lastReceiptHeight = h;
-  return h + 2;
-}
-
-async function renderVerified(
-  challans: ChallanData[],
-  school: SchoolInfo & { logoDataUri: string | null },
-  height: number | undefined,
-): Promise<Buffer> {
-  const buffer = await render(voucherDoc(challans, school, height));
-  if (height === undefined) return buffer;
-  const expected = challans.length;
-  if (pageCount(buffer) <= expected) return buffer;
-  return render(voucherDoc(challans, school, undefined));
+  return MIN;
 }
 
 function voucherDoc(
   challans: ChallanData[],
   school: SchoolInfo & { logoDataUri: string | null },
-  pageHeight?: number,
+  scale = 1,
 ): TDocumentDefinitions {
   const perPage = perPageFor(challans);
   const isPaid = allPaid(challans);
 
   return {
-    pageSize: isPaid && pageHeight ? { width: RECEIPT_WIDTH, height: pageHeight } : 'A4',
+    // A paid receipt is a native B6 page. An unpaid voucher stays A4, 4-up.
+    pageSize: isPaid ? { width: B6_WIDTH_PT, height: B6_HEIGHT_PT } : 'A4',
     pageOrientation: 'portrait',
-    pageMargins: [14, 14, 14, 14],
-    content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage),
+    pageMargins: isPaid
+      ? [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN]
+      : [14, 14, 14, 14],
+    content: voucherGrid(challans, school, Boolean(school.logoDataUri), perPage, scale),
     ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
     defaultStyle: { font: 'Roboto', fontSize: 6 },
   };
 }
 
+/**
+ * Render already-loaded challans to PDF bytes.
+ *
+ * Split out from the two id-taking entry points so the real page geometry can
+ * be exercised without a database — the page size is the whole point of this
+ * module and is worth asserting on the actual bytes.
+ */
+export async function renderVouchers(
+  challans: ChallanData[],
+  school: SchoolInfo & { logoDataUri: string | null },
+): Promise<Buffer> {
+  const scale = allPaid(challans) ? await fittedScale(challans, school) : 1;
+  return render(voucherDoc(challans, school, scale));
+}
+
 /** Render one challan to a PDF buffer. */
 export async function renderChallanPdf(id: string): Promise<{ buffer: Buffer; challanNo: string }> {
   const [c, school] = await Promise.all([getChallan(id), loadSchool()]);
-  const height = allPaid([c]) ? await measuredReceiptHeight([c], school) : undefined;
-  const buffer = await renderVerified([c], school, height);
-  return { buffer, challanNo: c.challanNo };
+  return { buffer: await renderVouchers([c], school), challanNo: c.challanNo };
 }
 
 /** Render many challans into a single PDF, four to an A4 sheet where they fit. */
 export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
   const school = await loadSchool();
   const challans = await Promise.all(ids.map((id) => getChallan(id)));
-  const height = allPaid(challans) ? await measuredReceiptHeight(challans, school) : undefined;
-  return renderVerified(challans, school, height);
+  return renderVouchers(challans, school);
 }
