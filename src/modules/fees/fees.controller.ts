@@ -35,6 +35,8 @@ export async function generatePreview(req: Request, res: Response) {
       classId: (req.query.classId as string) || undefined,
       sectionId: (req.query.sectionId as string) || undefined,
       studentId: (req.query.studentId as string) || undefined,
+      // Query strings carry booleans as text; only an explicit 'true' waives.
+      skipTransport: req.query.skipTransport === 'true',
     }),
   );
 }

@@ -43,6 +43,7 @@ sectionAttendanceRouter.post('/:sectionId/attendance', validateBody(markSectionS
 export const attendanceRouter = Router();
 attendanceRouter.use(requireAuth, canView);
 attendanceRouter.get('/summary', asyncHandler(c.summary));
+attendanceRouter.get('/overall-summary', asyncHandler(c.overallSummary));
 attendanceRouter.get('/trend', asyncHandler(c.trend));
 attendanceRouter.get('/', asyncHandler(c.byDate));
 

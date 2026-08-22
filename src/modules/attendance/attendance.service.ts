@@ -616,6 +616,105 @@ export async function getSummary(dateStr?: string) {
   return { date: pktDayString(date), totalStudents, unmarked: totalStudents - summary.marked, ...summary };
 }
 
+export async function getOverallClassAttendance(startDateStr?: string, endDateStr?: string) {
+  const now = pktDay();
+  let startDate = now;
+  let endDate = now;
+
+  if (startDateStr) startDate = parsePktDay(startDateStr);
+  if (endDateStr) endDate = parsePktDay(endDateStr);
+
+  const marks = await prisma.studentAttendance.findMany({
+    where: {
+      date: {
+        gte: startDate,
+        lte: endDate,
+      }
+    },
+    select: {
+      sectionId: true,
+      status: true,
+      updatedAt: true,
+      markedBy: { select: { fullName: true } }
+    },
+    orderBy: {
+      updatedAt: 'desc'
+    }
+  });
+
+  const sections = await prisma.section.findMany({
+    include: { class: true }
+  });
+
+  const sectionToClassMap = new Map();
+  const classesMap = new Map();
+
+  for (const sec of sections) {
+    sectionToClassMap.set(sec.id, sec.classId);
+    if (!classesMap.has(sec.classId)) {
+      classesMap.set(sec.classId, {
+        classId: sec.classId,
+        className: sec.class.name,
+        classOrder: sec.class.order,
+        present: 0,
+        absent: 0,
+        late: 0,
+        leave: 0,
+        totalMarked: 0,
+        sections: []
+      });
+    }
+  }
+
+  const sectionStats = new Map();
+  for (const m of marks) {
+    if (!sectionStats.has(m.sectionId)) {
+      sectionStats.set(m.sectionId, {
+        sectionId: m.sectionId,
+        present: 0,
+        absent: 0,
+        late: 0,
+        leave: 0,
+        totalMarked: 0,
+        lastMarkedBy: m.markedBy.fullName,
+        lastMarkedAt: m.updatedAt,
+      });
+    }
+    const stat = sectionStats.get(m.sectionId);
+    stat.totalMarked++;
+    if (m.status === 'PRESENT') stat.present++;
+    else if (m.status === 'ABSENT') stat.absent++;
+    else if (m.status === 'LATE') stat.late++;
+    else if (m.status === 'LEAVE') stat.leave++;
+  }
+
+  for (const sec of sections) {
+    const clsStat = classesMap.get(sec.classId);
+    if (!clsStat) continue;
+
+    const stat = sectionStats.get(sec.id);
+    if (stat) {
+      clsStat.present += stat.present;
+      clsStat.absent += stat.absent;
+      clsStat.late += stat.late;
+      clsStat.leave += stat.leave;
+      clsStat.totalMarked += stat.totalMarked;
+      clsStat.sections.push({
+        sectionId: sec.id,
+        sectionName: sec.name,
+        isDefault: sec.isDefault,
+        ...stat
+      });
+    }
+  }
+
+  for (const cls of classesMap.values()) {
+    cls.sections.sort((a: any, b: any) => a.sectionName.localeCompare(b.sectionName));
+  }
+
+  return Array.from(classesMap.values()).sort((a: any, b: any) => a.classOrder - b.classOrder);
+}
+
 export async function getTrend(days: number) {
   const takeDays = Math.min(60, Math.max(1, days));
   const distinct = await prisma.studentAttendance.findMany({

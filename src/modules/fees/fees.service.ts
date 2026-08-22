@@ -258,12 +258,18 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
   const extraFees = (input.extraFees ?? []).filter((e) => money(e.amount).greaterThan(0));
   const extrasTotal = sum(extraFees.map((e) => e.amount));
   const staffPct = input.staffChildDiscountPercent ?? 0;
+  const skipTransport = input.skipTransport === true;
 
   const result = await prisma.$transaction(async (tx) => {
     let created = 0;
     let skipped = 0;
     let staffBilled = 0;
     let transportBilled = 0;
+    /** Riders whose route fee this run deliberately left off, and what it came to. */
+    let transportWaived = 0;
+    let transportWaivedAmount = ZERO;
+    /** Riders left with nothing billable once transport came off — no challan at all. */
+    let noChallanAfterSkip = 0;
     let total = ZERO;
     /**
      * Exactly who was billed, captured as the run goes. A generation is a bulk
@@ -292,7 +298,14 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       // teacher-parent's salary too, if this is a staff child). A route with no
       // student rate does not carry students, so it contributes nothing.
       const route = s.transportAssignment?.route;
-      const transport = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
+      const routeFee = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
+      // Waived for this run: the rider keeps their route, this month just isn't
+      // charged for it, and no later challan picks the amount back up.
+      const transport = skipTransport ? ZERO : routeFee;
+      if (skipTransport && routeFee.greaterThan(0)) {
+        transportWaived++;
+        transportWaivedAmount = transportWaivedAmount.plus(routeFee);
+      }
 
       // Tuition only when a fee structure is actually set (monthly > 0). Classes
       // with no structure produce no tuition — and no challan at all unless some
@@ -315,6 +328,10 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       // Nothing to bill (e.g. a class with no fee structure and no extras) → skip.
       if (items.length === 0) {
         skipped++;
+        // Worth separating: a rider who loses their only charge to the waiver
+        // gets no challan at all, which is a consequence of the choice rather
+        // than a student who was never billable.
+        if (skipTransport && routeFee.greaterThan(0)) noChallanAfterSkip++;
         continue;
       }
 
@@ -396,7 +413,11 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
         `Rs ${toMoneyString(total)} for ${MONTHS[month] ?? month} ${year} — scope: ${scope}, due ${dueDate}` +
         (skipped ? `. ${skipped} student(s) skipped (already had a challan for this month, or nothing to charge)` : '') +
         (extraFees.length ? `. Extra charges applied to everyone: ${extraFees.map((e) => `${e.label} Rs ${e.amount}`).join(', ')}` : '') +
-        (staffPct > 0 ? `. Staff-child discount: ${staffPct}%` : ''),
+        (staffPct > 0 ? `. Staff-child discount: ${staffPct}%` : '') +
+        (skipTransport
+          ? `. Transport WAIVED for this run: ${transportWaived} rider(s), Rs ${toMoneyString(transportWaivedAmount)} not billed` +
+            (noChallanAfterSkip ? ` (${noChallanAfterSkip} of them had no other charge and got no challan)` : '')
+          : ''),
       changes: {
         challansCreated: { before: 0, after: created },
         totalAmount: { before: '0.00', after: toMoneyString(total) },
@@ -408,12 +429,16 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
           skipped,
           staffBilled,
           transportBilled,
+          transportWaived,
+          transportWaivedAmount: toMoneyString(transportWaivedAmount),
+          noChallanAfterSkip,
           classes: classNames,
           sections: sectionNames,
           /** The choices made in the generate dialog, kept verbatim. */
           options: {
             extraFees: extraFees.map((e) => ({ label: e.label, amount: String(e.amount) })),
             staffChildDiscountPercent: staffPct,
+            skipTransport,
             selection: input.sectionId ? 'Single section' : input.classId ? 'Whole class' : input.studentIds ? 'Selected students' : 'Whole school',
           },
           /** Every challan this run produced, so the list survives the challans themselves. */
@@ -422,7 +447,16 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       },
     });
 
-    return { created, skipped, staffBilled, transportBilled, totalAmount: toMoneyString(total) };
+    return {
+      created,
+      skipped,
+      staffBilled,
+      transportBilled,
+      transportWaived,
+      transportWaivedAmount: toMoneyString(transportWaivedAmount),
+      noChallanAfterSkip,
+      totalAmount: toMoneyString(total),
+    };
     // Generous timeout: bulk generation makes many round-trips to a remote DB.
   }, { timeout: 120_000, maxWait: 20_000 });
 
@@ -857,8 +891,11 @@ export async function generatePreview(query: {
   classId?: string;
   sectionId?: string;
   studentId?: string;
+  /** Mirror the dialog's waiver toggle so the estimate matches what will happen. */
+  skipTransport?: boolean;
 }) {
   const { year, month } = query;
+  const skipTransport = query.skipTransport === true;
   const scope = {
     status: UserStatus.ACTIVE,
     ...(query.sectionId ? { sectionId: query.sectionId } : {}),
@@ -897,9 +934,13 @@ export async function generatePreview(query: {
     firstTimers: number;
     staffChildren: number;
     transportRiders: number;
+    /** What those riders' routes come to this month — the figure a waiver forgoes. */
+    transportTotal: string;
+    /** Riders who would get no challan at all if transport were waived. */
+    transportOnly: number;
     estimatedTotal: string;
   };
-  const byClass = new Map<string, Row & { _est: Money }>();
+  const byClass = new Map<string, Row & { _est: Money; _transport: Money }>();
 
   for (const s of students) {
     const cid = s.section.classId;
@@ -921,8 +962,11 @@ export async function generatePreview(query: {
         firstTimers: 0,
         staffChildren: 0,
         transportRiders: 0,
+        transportTotal: '0.00',
+        transportOnly: 0,
         estimatedTotal: '0.00',
         _est: ZERO,
+        _transport: ZERO,
       };
       byClass.set(cid, row);
     }
@@ -931,8 +975,13 @@ export async function generatePreview(query: {
     if (alreadyBilled) row.alreadyBilled++;
 
     const route = s.transportAssignment?.route;
-    const transport = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
-    if (transport.greaterThan(0)) row.transportRiders++;
+    const routeFee = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
+    // What the run will actually charge — zero for everyone once transport is waived.
+    const transport = skipTransport ? ZERO : routeFee;
+    if (routeFee.greaterThan(0)) {
+      row.transportRiders++;
+      row._transport = row._transport.plus(routeFee);
+    }
     if (s.teacherParentId) row.staffChildren++;
 
     if (!alreadyBilled) {
@@ -943,13 +992,21 @@ export async function generatePreview(query: {
         row.eligible++;
         if (isFirst && admission.greaterThan(0)) row.firstTimers++;
         row._est = row._est.plus(monthly).plus(transport).plus(isFirst ? admission : ZERO);
+      } else if (routeFee.greaterThan(0)) {
+        // The route fee was this student's only charge, so waiving it leaves
+        // nothing to bill and they drop out of the run entirely.
+        row.transportOnly++;
       }
     }
   }
 
   const rows = [...byClass.values()]
     .sort((a, b) => a.order - b.order)
-    .map(({ _est, ...r }) => ({ ...r, estimatedTotal: toMoneyString(_est) }));
+    .map(({ _est, _transport, ...r }) => ({
+      ...r,
+      transportTotal: toMoneyString(_transport),
+      estimatedTotal: toMoneyString(_est),
+    }));
 
   /*
    * Credit that generation will silently spend.
@@ -1029,6 +1086,8 @@ export async function generatePreview(query: {
       willGenerate: rows.reduce((n, r) => n + r.eligible, 0),
       staffChildren: rows.reduce((n, r) => n + r.staffChildren, 0),
       transportRiders: rows.reduce((n, r) => n + r.transportRiders, 0),
+      transportTotal: toMoneyString(sum(rows.map((r) => r.transportTotal))),
+      transportOnly: rows.reduce((n, r) => n + r.transportOnly, 0),
       classesWithoutStructure: rows.filter((r) => !r.hasStructure).length,
       estimatedTotal: toMoneyString(sum(rows.map((r) => r.estimatedTotal))),
     },

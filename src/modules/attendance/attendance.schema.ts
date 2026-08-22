@@ -12,6 +12,11 @@ export const monthQuerySchema = z.object({
 
 export const trendQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(60).default(7) });
 
+export const overallSummaryQuerySchema = z.object({
+  startDate: dateStr.optional(),
+  endDate: dateStr.optional(),
+});
+
 export const adminAttendanceQuerySchema = z.object({
   date: dateStr.optional(),
   classId: z.string().optional(),
