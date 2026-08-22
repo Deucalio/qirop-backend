@@ -157,6 +157,7 @@ model User {
   salarySlipsGenerated SalarySlip[]   @relation("SalarySlipGeneratedBy")
   notifications           Notification[]      @relation("NotificationTargetUser")
   markedStudentAttendance StudentAttendance[] @relation("StudentAttendanceMarkedBy")
+  markedTeacherAttendance TeacherAttendance[] @relation("TeacherAttendanceMarkedBy")
   markedTeacherPeriodAttendance TeacherPeriodAttendance[] @relation("TeacherPeriodAttendanceMarkedBy")
 
   createdAt DateTime @default(now())
@@ -583,12 +584,19 @@ model TeacherAttendance {
   status      AttendanceStatus
   checkInTime DateTime?
 
+  // Who marked it. Optional, unlike the student equivalent: rows written before
+  // this column existed genuinely have no recorded author, and inventing one
+  // would be worse than showing none.
+  markedById String?
+  markedBy   User?            @relation("TeacherAttendanceMarkedBy", fields: [markedById], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([teacherId, date])
   @@index([date])
   @@index([teacherId])
+  @@index([markedById])
 }
 
 // ============================================================================

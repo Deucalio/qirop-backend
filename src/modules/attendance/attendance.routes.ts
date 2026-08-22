@@ -44,6 +44,7 @@ export const attendanceRouter = Router();
 attendanceRouter.use(requireAuth, canView);
 attendanceRouter.get('/summary', asyncHandler(c.summary));
 attendanceRouter.get('/overall-summary', asyncHandler(c.overallSummary));
+attendanceRouter.get('/overall-staff-summary', asyncHandler(c.overallStaffSummary));
 attendanceRouter.get('/trend', asyncHandler(c.trend));
 attendanceRouter.get('/', asyncHandler(c.byDate));
 

@@ -84,8 +84,14 @@ export async function setTeacherAttendance(
 
   const record = await prisma.teacherAttendance.upsert({
     where: { teacherId_date: { teacherId, date } },
-    update: { status, checkInTime: checkInTime ? new Date(checkInTime) : null },
-    create: { teacherId, date, status, checkInTime: checkInTime ? new Date(checkInTime) : null },
+    update: { status, checkInTime: checkInTime ? new Date(checkInTime) : null, markedById: actorId ?? null },
+    create: {
+      teacherId,
+      date,
+      status,
+      checkInTime: checkInTime ? new Date(checkInTime) : null,
+      markedById: actorId ?? null,
+    },
   });
 
   await logAudit(null, {
@@ -422,8 +428,8 @@ export async function markTeachersBatch(
         ? prisma.teacherAttendance.deleteMany({ where: { teacherId: r.teacherId, date: d } })
         : prisma.teacherAttendance.upsert({
             where: key,
-            update: { status: r.status },
-            create: { teacherId: r.teacherId, date: d, status: r.status },
+            update: { status: r.status, markedById: actorId ?? null },
+            create: { teacherId: r.teacherId, date: d, status: r.status, markedById: actorId ?? null },
           });
     }),
   );
@@ -713,6 +719,104 @@ export async function getOverallClassAttendance(startDateStr?: string, endDateSt
   }
 
   return Array.from(classesMap.values()).sort((a: any, b: any) => a.classOrder - b.classOrder);
+}
+
+export async function getOverallStaffAttendance(startDateStr?: string, endDateStr?: string) {
+  const now = pktDay();
+  let startDate = now;
+  let endDate = now;
+
+  if (startDateStr) startDate = parsePktDay(startDateStr);
+  if (endDateStr) endDate = parsePktDay(endDateStr);
+
+  const marks = await prisma.teacherAttendance.findMany({
+    where: {
+      date: {
+        gte: startDate,
+        lte: endDate,
+      }
+    },
+    select: {
+      id: true,
+      teacherId: true,
+      status: true,
+      date: true,
+      updatedAt: true,
+      markedBy: { select: { fullName: true } },
+    },
+    orderBy: {
+      date: 'desc'
+    }
+  });
+
+  const teachers = await prisma.teacherProfile.findMany({
+    where: { status: UserStatus.ACTIVE },
+    include: { user: { select: { fullName: true, avatarUrl: true } } }
+  });
+
+  const teacherStats = new Map();
+  for (const m of marks) {
+    if (!teacherStats.has(m.teacherId)) {
+      teacherStats.set(m.teacherId, {
+        present: 0,
+        absent: 0,
+        late: 0,
+        leave: 0,
+        totalMarked: 0,
+        lastMarkedAt: m.updatedAt,
+        records: [],
+      });
+    }
+    const stat = teacherStats.get(m.teacherId);
+    stat.totalMarked++;
+    if (m.status === 'PRESENT') stat.present++;
+    else if (m.status === 'ABSENT') stat.absent++;
+    else if (m.status === 'LATE') stat.late++;
+    else if (m.status === 'LEAVE') stat.leave++;
+
+    /*
+     * Who marked it now comes off the record itself.
+     *
+     * This was reconstructed by scanning the audit log for actions named
+     * 'ATTENDANCE_TEACHER_UPDATE' and friends — names nothing ever wrote (the
+     * real rows are action 'UPDATE', module 'ATTENDANCE') — and then matching
+     * `details.teacherId` on a column that is a String, not JSON. Both halves
+     * could only ever miss, so the scan found nothing and every row fell
+     * through to the literal 'Admin'.
+     *
+     * Null means the row predates the column: say so rather than name someone.
+     */
+    const markedBy = m.markedBy?.fullName ?? null;
+
+    stat.records.push({
+      id: m.id,
+      date: m.date,
+      status: m.status,
+      markedBy,
+      markedAt: m.updatedAt,
+    });
+  }
+
+  const result = [];
+  
+  for (const t of teachers) {
+    const stat = teacherStats.get(t.id);
+    if (stat) {
+      result.push({
+        teacherId: t.id,
+        teacherName: t.user.fullName,
+        // The stored value is a storage key, not a URL. Every other endpoint
+        // runs it through publicUrl; this one did not, which is why staff photos
+        // fell back to initials here and nowhere else.
+        avatarUrl: publicUrl(t.user.avatarUrl),
+        employeeId: t.employeeId,
+        staffRole: t.staffRole,
+        ...stat
+      });
+    }
+  }
+
+  return result.sort((a: any, b: any) => a.teacherName.localeCompare(b.teacherName));
 }
 
 export async function getTrend(days: number) {

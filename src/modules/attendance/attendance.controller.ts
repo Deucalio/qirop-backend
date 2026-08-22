@@ -64,6 +64,10 @@ export async function overallSummary(req: Request, res: Response): Promise<void>
   const { startDate, endDate } = require('./attendance.schema').overallSummaryQuerySchema.parse(req.query);
   res.json(await svc.getOverallClassAttendance(startDate, endDate));
 }
+export async function overallStaffSummary(req: Request, res: Response): Promise<void> {
+  const { startDate, endDate } = require('./attendance.schema').overallSummaryQuerySchema.parse(req.query);
+  res.json(await svc.getOverallStaffAttendance(startDate, endDate));
+}
 export async function trend(req: Request, res: Response): Promise<void> {
   const { days } = trendQuerySchema.parse(req.query);
   res.json(await svc.getTrend(days));
