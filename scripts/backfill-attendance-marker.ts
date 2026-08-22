@@ -54,7 +54,7 @@ async function main() {
 
   const logs = await prisma.auditLog.findMany({
     where: { module: 'ATTENDANCE', targetType: { in: ['Teacher', 'TeacherAttendance'] } },
-    select: { actorId: true, actorName: true, targetType: true, targetId: true, details: true, changes: true },
+    select: { actorId: true, actorName: true, targetType: true, targetId: true, details: true, changes: true, timestamp: true },
     // Oldest first: a later correction to the same day should win.
     orderBy: { timestamp: 'asc' },
   });
@@ -66,8 +66,8 @@ async function main() {
     : [];
   const userByName = new Map(users.map((u) => [u.fullName, u.id]));
 
-  /** (teacherId|yyyy-mm-dd) -> the user who last set it. */
-  const marker = new Map<string, string>();
+  /** (teacherId|yyyy-mm-dd) -> who last set it, and when they did. */
+  const marker = new Map<string, { actor: string; at: Date }>();
   let unresolvedActor = 0;
   let unresolvedTeacher = 0;
 
@@ -89,31 +89,33 @@ async function main() {
           unresolvedTeacher++;
           continue;
         }
-        marker.set(`${ids[0]}|${meta.date}`, actor);
+        marker.set(`${ids[0]}|${meta.date}`, { actor, at: l.timestamp });
       }
     } else {
       const day = dateFromDetails(l.details);
       if (!day || !l.targetId) continue;
-      marker.set(`${l.targetId}|${day}`, actor);
+      marker.set(`${l.targetId}|${day}`, { actor, at: l.timestamp });
     }
   }
 
+  // Anything still missing EITHER field. markedAt was added after markedById,
+  // so a row can already carry a marker and still have no time.
   const blanks = await prisma.teacherAttendance.findMany({
-    where: { markedById: null },
+    where: { OR: [{ markedById: null }, { markedAt: null }] },
     select: { id: true, teacherId: true, date: true },
   });
 
-  const planned: { id: string; markedById: string }[] = [];
+  const planned: { id: string; markedById: string; at: Date }[] = [];
   for (const row of blanks) {
     const day = row.date.toISOString().slice(0, 10);
     const who = marker.get(`${row.teacherId}|${day}`);
-    if (who) planned.push({ id: row.id, markedById: who });
+    if (who) planned.push({ id: row.id, markedById: who.actor, at: who.at });
   }
 
   const distinctActors = new Set(planned.map((p) => p.markedById));
   console.log(`audit rows read            : ${logs.length}`);
   console.log(`(teacher, day) pairs found : ${marker.size}`);
-  console.log(`attendance rows unmarked   : ${blanks.length}`);
+  console.log(`rows missing marker or time: ${blanks.length}`);
   console.log(`  -> recoverable           : ${planned.length}`);
   console.log(`  -> still unknown         : ${blanks.length - planned.length}`);
   console.log(`distinct markers           : ${distinctActors.size}`);
@@ -129,21 +131,29 @@ async function main() {
     return;
   }
 
-  // Grouped by actor so this is a handful of updateMany calls, not one per row.
-  const byActor = new Map<string, string[]>();
-  for (const p of planned) byActor.set(p.markedById, [...(byActor.get(p.markedById) ?? []), p.id]);
-
+  /*
+   * Every row carries its own audit timestamp, so these cannot collapse into a
+   * few updateMany calls the way one shared value could. They are chunked into
+   * transactions instead; a few hundred rows is a handful of round-trips.
+   *
+   * `updatedAt` moves as a side effect of each write, which is precisely why
+   * the displayed time no longer reads from it.
+   */
+  const CHUNK = 50;
   let written = 0;
-  for (const [actorId, ids] of byActor) {
-    const res = await prisma.teacherAttendance.updateMany({
-      // markedById stays in the filter: never overwrite a stamp the app wrote
-      // while this script was running.
-      where: { id: { in: ids }, markedById: null },
-      data: { markedById: actorId },
-    });
-    written += res.count;
+  for (let i = 0; i < planned.length; i += CHUNK) {
+    const slice = planned.slice(i, i + CHUNK);
+    await prisma.$transaction(
+      slice.map((p) =>
+        prisma.teacherAttendance.update({
+          where: { id: p.id },
+          data: { markedById: p.markedById, markedAt: p.at },
+        }),
+      ),
+    );
+    written += slice.length;
   }
-  console.log(`\nstamped ${written} row(s).`);
+  console.log(`\nstamped ${written} row(s) with a marker and a true marking time.`);
 }
 
 main()

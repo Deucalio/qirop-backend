@@ -589,6 +589,11 @@ model TeacherAttendance {
   // would be worse than showing none.
   markedById String?
   markedBy   User?            @relation("TeacherAttendanceMarkedBy", fields: [markedById], references: [id], onDelete: SetNull)
+  // When it was marked, recorded deliberately. `updatedAt` cannot serve here:
+  // it is ORM housekeeping that any backfill or unrelated column change bumps,
+  // and a backfill did exactly that — rewriting the marker rewrote every row's
+  // "marked at" to the moment the script ran.
+  markedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -84,13 +84,19 @@ export async function setTeacherAttendance(
 
   const record = await prisma.teacherAttendance.upsert({
     where: { teacherId_date: { teacherId, date } },
-    update: { status, checkInTime: checkInTime ? new Date(checkInTime) : null, markedById: actorId ?? null },
+    update: {
+      status,
+      checkInTime: checkInTime ? new Date(checkInTime) : null,
+      markedById: actorId ?? null,
+      markedAt: new Date(),
+    },
     create: {
       teacherId,
       date,
       status,
       checkInTime: checkInTime ? new Date(checkInTime) : null,
       markedById: actorId ?? null,
+      markedAt: new Date(),
     },
   });
 
@@ -428,8 +434,8 @@ export async function markTeachersBatch(
         ? prisma.teacherAttendance.deleteMany({ where: { teacherId: r.teacherId, date: d } })
         : prisma.teacherAttendance.upsert({
             where: key,
-            update: { status: r.status, markedById: actorId ?? null },
-            create: { teacherId: r.teacherId, date: d, status: r.status, markedById: actorId ?? null },
+            update: { status: r.status, markedById: actorId ?? null, markedAt: new Date() },
+            create: { teacherId: r.teacherId, date: d, status: r.status, markedById: actorId ?? null, markedAt: new Date() },
           });
     }),
   );
@@ -741,7 +747,8 @@ export async function getOverallStaffAttendance(startDateStr?: string, endDateSt
       teacherId: true,
       status: true,
       date: true,
-      updatedAt: true,
+      createdAt: true,
+      markedAt: true,
       markedBy: { select: { fullName: true } },
     },
     orderBy: {
@@ -763,7 +770,9 @@ export async function getOverallStaffAttendance(startDateStr?: string, endDateSt
         late: 0,
         leave: 0,
         totalMarked: 0,
-        lastMarkedAt: m.updatedAt,
+        // createdAt is the honest fallback for rows written before markedAt
+        // existed: it is when the row first appeared, and nothing rewrites it.
+        lastMarkedAt: m.markedAt ?? m.createdAt,
         records: [],
       });
     }
@@ -793,7 +802,7 @@ export async function getOverallStaffAttendance(startDateStr?: string, endDateSt
       date: m.date,
       status: m.status,
       markedBy,
-      markedAt: m.updatedAt,
+      markedAt: m.markedAt ?? m.createdAt,
     });
   }
 
