@@ -256,7 +256,6 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
   const due = parsePktDay(dueDate);
   // Normalise the admin's ad-hoc extra charges once for the whole batch.
   const extraFees = (input.extraFees ?? []).filter((e) => money(e.amount).greaterThan(0));
-  const extrasTotal = sum(extraFees.map((e) => e.amount));
   const staffPct = input.staffChildDiscountPercent ?? 0;
   const skipTransport = input.skipTransport === true;
 
@@ -292,8 +291,6 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
 
       const structure = s.section.class.feeStructure;
       const monthly = money(structure?.monthlyFee ?? 0);
-      const isFirstChallan = (await tx.feeChallan.count({ where: { studentId: s.id } })) === 0;
-      const admission = isFirstChallan ? money(structure?.admissionFee ?? 0) : ZERO;
       // Transport: a rider's route fee lands on their challan (billed to the
       // teacher-parent's salary too, if this is a staff child). A route with no
       // student rate does not carry students, so it contributes nothing.
@@ -314,15 +311,26 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       if (monthly.greaterThan(0)) {
         items.push({ type: FeeItemType.TUITION, label: 'Monthly Tuition', amount: toMoneyString(monthly) });
       }
-      if (admission.greaterThan(0)) {
-        items.push({ type: FeeItemType.ADMISSION, label: 'Admission Fee', amount: toMoneyString(admission) });
-      }
       if (transport.greaterThan(0)) {
         items.push({ type: FeeItemType.TRANSPORT, label: route!.name || 'Transport', amount: toMoneyString(transport) });
       }
-      // Ad-hoc extra charges — each becomes its own labelled OTHER line item.
+      /*
+       * Ad-hoc extra charges, each its own labelled line item.
+       *
+       * Admission used to be added here automatically, to whoever happened to
+       * have no earlier challan. That guessed at a fact the office actually
+       * knows — a re-admission, a transfer or a student billed late all looked
+       * identical to a new joiner. It is now an ordinary extra charge the admin
+       * adds deliberately, aimed at the students it applies to.
+       */
       for (const e of extraFees) {
-        items.push({ type: FeeItemType.OTHER, label: e.label.trim(), amount: toMoneyString(money(e.amount)) });
+        const targeted = e.studentIds && e.studentIds.length > 0;
+        if (targeted && !e.studentIds!.includes(s.id)) continue;
+        items.push({
+          type: (e.type ?? 'OTHER') as FeeItemType,
+          label: e.label.trim(),
+          amount: toMoneyString(money(e.amount)),
+        });
       }
 
       // Nothing to bill (e.g. a class with no fee structure and no extras) → skip.
@@ -412,7 +420,15 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
         `${actorUser?.fullName ?? 'Admin'} generated ${created} fee challan(s) totalling ` +
         `Rs ${toMoneyString(total)} for ${MONTHS[month] ?? month} ${year} — scope: ${scope}, due ${dueDate}` +
         (skipped ? `. ${skipped} student(s) skipped (already had a challan for this month, or nothing to charge)` : '') +
-        (extraFees.length ? `. Extra charges applied to everyone: ${extraFees.map((e) => `${e.label} Rs ${e.amount}`).join(', ')}` : '') +
+        (extraFees.length
+          ? '. Extra charges: ' +
+            extraFees
+              .map((e) => {
+                const who = e.studentIds && e.studentIds.length > 0 ? `${e.studentIds.length} selected student(s)` : 'everyone';
+                return `${e.label} Rs ${e.amount} (${e.type ?? 'OTHER'}, ${who})`;
+              })
+              .join(', ')
+          : '') +
         (staffPct > 0 ? `. Staff-child discount: ${staffPct}%` : '') +
         (skipTransport
           ? `. Transport WAIVED for this run: ${transportWaived} rider(s), Rs ${toMoneyString(transportWaivedAmount)} not billed` +
@@ -436,7 +452,12 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
           sections: sectionNames,
           /** The choices made in the generate dialog, kept verbatim. */
           options: {
-            extraFees: extraFees.map((e) => ({ label: e.label, amount: String(e.amount) })),
+            extraFees: extraFees.map((e) => ({
+              label: e.label,
+              amount: String(e.amount),
+              type: e.type ?? 'OTHER',
+              appliesTo: e.studentIds && e.studentIds.length > 0 ? e.studentIds.length : 'everyone',
+            })),
             staffChildDiscountPercent: staffPct,
             skipTransport,
             selection: input.sectionId ? 'Single section' : input.classId ? 'Whole class' : input.studentIds ? 'Selected students' : 'Whole school',
@@ -941,6 +962,15 @@ export async function generatePreview(query: {
     estimatedTotal: string;
   };
   const byClass = new Map<string, Row & { _est: Money; _transport: Money }>();
+  /**
+   * Students with no challan ever, by id.
+   *
+   * Admission is no longer charged automatically, so the office decides who
+   * gets it — and to decide, it has to be able to see who is actually new.
+   * A count per class cannot answer that; the dialog needs to mark the
+   * individual rows in its picker.
+   */
+  const neverBilledStudentIds: string[] = [];
 
   for (const s of students) {
     const cid = s.section.classId;
@@ -971,6 +1001,7 @@ export async function generatePreview(query: {
       byClass.set(cid, row);
     }
     row.totalStudents++;
+    if (!everBilled.has(s.id)) neverBilledStudentIds.push(s.id);
     const alreadyBilled = billedThisMonth.has(s.id);
     if (alreadyBilled) row.alreadyBilled++;
 
@@ -986,12 +1017,16 @@ export async function generatePreview(query: {
 
     if (!alreadyBilled) {
       const isFirst = !everBilled.has(s.id);
-      // A student generates a challan only if something can be charged.
-      const willBill = monthly.greaterThan(0) || transport.greaterThan(0) || (isFirst && admission.greaterThan(0));
+      // A student generates a challan only if something can be charged. Admission
+      // is no longer part of that — it is an extra charge the admin adds, so it
+      // cannot be predicted here.
+      const willBill = monthly.greaterThan(0) || transport.greaterThan(0);
       if (willBill) {
         row.eligible++;
-        if (isFirst && admission.greaterThan(0)) row.firstTimers++;
-        row._est = row._est.plus(monthly).plus(transport).plus(isFirst ? admission : ZERO);
+        // Never billed before. Not a charge in itself any more, but the office
+        // uses it to decide who needs an admission fee adding.
+        if (isFirst) row.firstTimers++;
+        row._est = row._est.plus(monthly).plus(transport);
       } else if (routeFee.greaterThan(0)) {
         // The route fee was this student's only charge, so waiving it leaves
         // nothing to bill and they drop out of the run entirely.
@@ -1024,9 +1059,9 @@ export async function generatePreview(query: {
     const monthly = money(cls.feeStructure?.monthlyFee ?? 0);
     const route = s.transportAssignment?.route;
     const transport = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
-    const admission = money(cls.feeStructure?.admissionFee ?? 0);
-    const isFirst = !everBilled.has(s.id);
-    if (monthly.greaterThan(0) || transport.greaterThan(0) || (isFirst && admission.greaterThan(0))) {
+    // Matches the eligibility test above: admission is an extra charge now, so
+    // it cannot make a student billable on its own.
+    if (monthly.greaterThan(0) || transport.greaterThan(0)) {
       eligibleIds.add(s.id);
     }
   }
@@ -1070,6 +1105,7 @@ export async function generatePreview(query: {
     year,
     month,
     classes: rows,
+    neverBilledStudentIds,
     /**
      * Unallocated payment money held by students this run would bill. It will
      * be applied automatically, so some challans may be created already PAID.

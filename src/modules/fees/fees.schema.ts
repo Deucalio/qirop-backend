@@ -57,13 +57,24 @@ export const generateChallansSchema = z.object({
   classId: z.string().min(1).optional(),
   sectionId: z.string().min(1).optional(),
   studentIds: z.array(z.string().min(1)).max(2000).optional(),
-  // Bulk extra charges (exam, annual, stationery, …): each is charged once to
-  // every student in the batch as its own labelled line item.
+  /**
+   * Extra charges, each its own labelled line item.
+   *
+   * `studentIds` narrows a charge to particular students — an admission fee for
+   * the three who joined this month, rather than for the whole class. Absent or
+   * empty means everyone in the batch, which is what these used to do and still
+   * do by default.
+   *
+   * `type` decides which line the charge lands on in the revenue reports, so an
+   * admission fee is counted as admission rather than lumped into "other".
+   */
   extraFees: z
     .array(
       z.object({
         label: z.string().trim().min(1, 'Label is required').max(80),
         amount: moneyInput({ min: 0.01 }),
+        type: z.enum(['TUITION', 'TRANSPORT', 'ADMISSION', 'EXAM', 'OTHER']).optional(),
+        studentIds: z.array(z.string().min(1)).max(2000).optional(),
       }),
     )
     .max(15)
