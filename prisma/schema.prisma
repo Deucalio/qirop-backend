@@ -82,7 +82,18 @@ enum FeeItemType {
   TRANSPORT
   ADMISSION
   EXAM
+  // A certificate the office issued and charged for. Its own type rather than
+  // OTHER so the revenue reports can name it.
+  CERTIFICATE
   OTHER
+}
+
+/** The documents the office issues and can charge for. */
+enum CertificateKind {
+  STUDENT_ID
+  LEAVING
+  CHARACTER
+  ACHIEVEMENT
 }
 
 enum ExpenseCategory {
@@ -158,6 +169,8 @@ model User {
   notifications           Notification[]      @relation("NotificationTargetUser")
   markedStudentAttendance StudentAttendance[] @relation("StudentAttendanceMarkedBy")
   markedTeacherAttendance TeacherAttendance[] @relation("TeacherAttendanceMarkedBy")
+  certificateFeesSet      CertificateFee[]    @relation("CertificateFeeUpdatedBy")
+  certificatesIssued      CertificateIssue[]  @relation("CertificateIssuedBy")
   markedTeacherPeriodAttendance TeacherPeriodAttendance[] @relation("TeacherPeriodAttendanceMarkedBy")
 
   createdAt DateTime @default(now())
@@ -523,6 +536,7 @@ model Student {
   attendance StudentAttendance[]
   challans   FeeChallan[]
   payments   FeePayment[]
+  certificates CertificateIssue[]
   documents  StudentDocument[]
 
   // At most one transport route (see TransportAssignment).
@@ -671,6 +685,7 @@ model FeeChallan {
 
   items       FeeChallanItem[]
   allocations FeePaymentAllocation[]
+  certificates CertificateIssue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -748,6 +763,67 @@ model FeePaymentAllocation {
 
   @@unique([paymentId, challanId])
   @@index([paymentId])
+  @@index([challanId])
+}
+
+// ============================================================================
+// Certificates
+// ============================================================================
+
+/**
+ * What the school charges for each kind of document.
+ *
+ * One row per kind, set once and reused. A kind with no row, or a zero amount,
+ * is issued free — the office is not forced to price something it gives away.
+ */
+model CertificateFee {
+  id     String          @id @default(cuid())
+  kind   CertificateKind @unique
+  amount Decimal         @db.Decimal(10, 2)
+  active Boolean         @default(true)
+
+  updatedById String?
+  updatedBy   User?   @relation("CertificateFeeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * A document actually issued to a student, and what was charged for it.
+ *
+ * The money does NOT live here. It becomes a CERTIFICATE line on the student's
+ * challan, because that is the single path every report, the ledger and the
+ * defaulters list already read; a second, parallel store of income would drift
+ * from the first. This row records the issuing event and points at the line it
+ * created, so the two can never disagree about what was charged.
+ */
+model CertificateIssue {
+  id        String          @id @default(cuid())
+  studentId String
+  student   Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  kind      CertificateKind
+  /** What was charged. Zero is a real answer: the document was issued free. */
+  amount    Decimal         @db.Decimal(10, 2)
+  /** Printed on the document, so a paper copy can be traced back to this row. */
+  serial    String          @unique
+
+  // The challan line this created, when a fee was charged. Null for a free
+  // issue, and null again if the challan is later deleted — the issuing event
+  // survives either way.
+  challanId String?
+  challan   FeeChallan?     @relation(fields: [challanId], references: [id], onDelete: SetNull)
+
+  issuedById String
+  issuedBy   User    @relation("CertificateIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
+  issuedAt   DateTime @default(now())
+  note       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([studentId])
+  @@index([kind])
+  @@index([issuedAt])
   @@index([challanId])
 }
 

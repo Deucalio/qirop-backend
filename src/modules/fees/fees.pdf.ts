@@ -34,6 +34,7 @@ const ITEM_LABEL: Record<string, string> = {
   TUITION: 'Tuition (Monthly)',
   TRANSPORT: 'Transport',
   ADMISSION: 'Admission (One-time)',
+  CERTIFICATE: 'Certificate',
   EXAM: 'Examination',
   OTHER: 'Other',
 };

@@ -633,6 +633,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
   let tuitionTotal = ZERO;
   let transportTotal = ZERO;
   let admissionTotal = ZERO;
+  let certificateTotal = ZERO;
   let lateFeeTotal = ZERO;
   let cashTotal = ZERO;
   let bankTotal = ZERO;
@@ -660,6 +661,11 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         if (item.type === 'TUITION') tuitionTotal = tuitionTotal.plus(itemShare);
         else if (item.type === 'TRANSPORT') transportTotal = transportTotal.plus(itemShare);
         else if (item.type === 'ADMISSION') admissionTotal = admissionTotal.plus(itemShare);
+        else if (item.type === 'CERTIFICATE') certificateTotal = certificateTotal.plus(itemShare);
+        // Exam and ad-hoc charges. The variable is named lateFee for the
+        // report's existing column, but a late fee is a challan column rather
+        // than a line item, so nothing that is actually a late fee ever
+        // reaches here.
         else lateFeeTotal = lateFeeTotal.plus(itemShare);
       }
     }
@@ -690,6 +696,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       tuitionTotal: toMoneyString(tuitionTotal),
       transportTotal: toMoneyString(transportTotal),
       admissionTotal: toMoneyString(admissionTotal),
+      certificateTotal: toMoneyString(certificateTotal),
       lateFeeTotal: toMoneyString(lateFeeTotal),
       unallocatedTotal: toMoneyString(unallocatedTotal),
       cashTotal: toMoneyString(cashTotal),

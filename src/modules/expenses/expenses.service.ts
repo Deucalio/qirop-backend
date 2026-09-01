@@ -354,7 +354,7 @@ export async function financeSummary(year: number) {
     income: ZERO,
     expenses: ZERO,
     salaries: ZERO,
-    feesBreakdown: { tuition: ZERO, transport: ZERO, admission: ZERO, lateFee: ZERO },
+    feesBreakdown: { tuition: ZERO, transport: ZERO, admission: ZERO, certificate: ZERO, other: ZERO },
     expenseCategories: new Map<ExpenseCategory, { amount: Prisma.Decimal; count: number }>(),
     salaryBreakdown: { basicSalary: ZERO, staffFeeDeduction: ZERO, netPaid: ZERO, staffPaidCount: 0, staffPendingCount: 0 },
   }));
@@ -373,7 +373,16 @@ export async function financeSummary(year: number) {
         if (item.type === 'TUITION') rows[mIdx].feesBreakdown.tuition = rows[mIdx].feesBreakdown.tuition.plus(itemShare);
         else if (item.type === 'TRANSPORT') rows[mIdx].feesBreakdown.transport = rows[mIdx].feesBreakdown.transport.plus(itemShare);
         else if (item.type === 'ADMISSION') rows[mIdx].feesBreakdown.admission = rows[mIdx].feesBreakdown.admission.plus(itemShare);
-        else rows[mIdx].feesBreakdown.lateFee = rows[mIdx].feesBreakdown.lateFee.plus(itemShare);
+        else if (item.type === 'CERTIFICATE') rows[mIdx].feesBreakdown.certificate = rows[mIdx].feesBreakdown.certificate.plus(itemShare);
+        /*
+         * Everything else — exam fees, ad-hoc charges — as "other".
+         *
+         * This bucket used to be labelled `lateFee`, which it never contained:
+         * a late fee is a column on the challan, not a line item, so the
+         * breakdown reported exam and ad-hoc income under a heading no money
+         * had ever gone into.
+         */
+        else rows[mIdx].feesBreakdown.other = rows[mIdx].feesBreakdown.other.plus(itemShare);
       }
     }
   }
@@ -413,7 +422,8 @@ export async function financeSummary(year: number) {
       tuition: toMoneyString(r.feesBreakdown.tuition),
       transport: toMoneyString(r.feesBreakdown.transport),
       admission: toMoneyString(r.feesBreakdown.admission),
-      lateFee: toMoneyString(r.feesBreakdown.lateFee),
+      certificate: toMoneyString(r.feesBreakdown.certificate),
+      other: toMoneyString(r.feesBreakdown.other),
     },
     expenseCategories: [...r.expenseCategories.entries()].map(([cat, val]) => ({
       category: cat,

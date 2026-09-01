@@ -47,6 +47,7 @@ import {
 } from './modules/fees/fees.routes';
 import { transportRouter } from './modules/transport/transport.routes';
 import { salariesRouter } from './modules/salaries/salaries.routes';
+import { certificatesRouter } from './modules/certificates/certificates.routes';
 import { expensesRouter, financeRouter } from './modules/expenses/expenses.routes';
 import auditRouter from './modules/audit/audit.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
@@ -160,6 +161,7 @@ export function createApp(): Express {
   app.use('/api/fees', feesRouter);
   app.use('/api/transport', transportRouter);
   app.use('/api/salaries', salariesRouter);
+  app.use('/api/certificates', certificatesRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/finance', financeRouter);
   app.use('/api/audit', auditRouter);
