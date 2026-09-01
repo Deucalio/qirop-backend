@@ -82,12 +82,13 @@ export const generateChallansSchema = z.object({
   // Extra discount % applied to students whose parent is a teacher (staff perk).
   staffChildDiscountPercent: z.coerce.number().min(0).max(100).optional(),
   /**
-   * Leave the transport line off every challan in this run (vacation months,
-   * when no bus ran). The fee is WAIVED, not deferred — nothing carries it into
-   * a later month, so a skipped month is simply never charged. Defaults to
-   * false: transport is billed unless the admin deliberately turns it off.
+   * Leave transport riders out of this run entirely — no challan at all for
+   * anyone on an active route, not merely a challan without the route fee.
+   *
+   * This is for a run that deliberately covers only the non-transport students,
+   * with the riders billed separately. Defaults to false.
    */
-  skipTransport: z.boolean().optional(),
+  excludeTransportRiders: z.boolean().optional(),
 });
 
 // ---- Challan edits ----
