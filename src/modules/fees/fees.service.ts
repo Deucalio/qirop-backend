@@ -1614,6 +1614,8 @@ export async function listPayments(query: {
   studentStatus?: 'all' | 'ACTIVE' | 'INACTIVE';
   year?: string | number;
   month?: string | number;
+  challanYear?: string | number;
+  challanMonth?: string | number;
 }) {
   const q = (query.search ?? '').trim();
   const tokens = q.split(/\s+/).filter(Boolean);
@@ -1631,6 +1633,9 @@ export async function listPayments(query: {
     dateFilter = { gte: start, lte: end };
   }
 
+  const isChallanMonthSpecific = query.challanMonth && query.challanMonth !== 'all' && query.challanMonth !== 'advance';
+  const isChallanYearSpecific = query.challanYear && query.challanYear !== 'all';
+
   const payments = await prisma.feePayment.findMany({
     where: {
       ...(query.studentId ? { studentId: query.studentId } : {}),
@@ -1639,6 +1644,18 @@ export async function listPayments(query: {
         : {}),
       ...(query.method && query.method !== 'all' ? { method: query.method as PaymentMethod } : {}),
       ...(dateFilter ? { paymentDate: dateFilter } : {}),
+      ...(isChallanMonthSpecific || isChallanYearSpecific
+        ? {
+            allocations: {
+              some: {
+                challan: {
+                  ...(isChallanMonthSpecific ? { month: Number(query.challanMonth) } : {}),
+                  ...(isChallanYearSpecific ? { year: Number(query.challanYear) } : {}),
+                },
+              },
+            },
+          }
+        : {}),
       ...(tokens.length
         ? {
             OR: [
@@ -1733,13 +1750,18 @@ export async function listPayments(query: {
         })
       : shaped;
 
-  const filtered =
-    query.state === 'unallocated' ? monthFiltered.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
-    : query.state === 'allocated' ? monthFiltered.filter((p) => !p.isReversed && Number(p.unallocated) === 0)
-    : query.state === 'reversed' ? monthFiltered.filter((p) => p.isReversed)
-    : monthFiltered;
+  const challanFiltered =
+    query.challanMonth === 'advance'
+      ? monthFiltered.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
+      : monthFiltered;
 
-  const live = monthFiltered.filter((p) => !p.isReversed);
+  const filtered =
+    query.state === 'unallocated' ? challanFiltered.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
+    : query.state === 'allocated' ? challanFiltered.filter((p) => !p.isReversed && Number(p.unallocated) === 0)
+    : query.state === 'reversed' ? challanFiltered.filter((p) => p.isReversed)
+    : challanFiltered;
+
+  const live = challanFiltered.filter((p) => !p.isReversed);
   return {
     payments: filtered,
     summary: {

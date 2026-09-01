@@ -166,6 +166,8 @@ export const listPaymentsQuerySchema = z.object({
   studentStatus: z.enum(['all', 'ACTIVE', 'INACTIVE']).optional(),
   year: z.union([z.coerce.number().int(), z.literal('all')]).optional(),
   month: z.union([z.coerce.number().int(), z.literal('all')]).optional(),
+  challanYear: z.union([z.coerce.number().int(), z.literal('all')]).optional(),
+  challanMonth: z.union([z.coerce.number().int(), z.literal('all'), z.literal('advance')]).optional(),
 });
 
 export type GenerateChallansInput = z.infer<typeof generateChallansSchema>;
