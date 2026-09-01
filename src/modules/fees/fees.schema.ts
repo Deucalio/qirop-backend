@@ -160,9 +160,16 @@ export const listPaymentsQuerySchema = z.object({
   studentId: z.string().optional(),
   from: pktDate.optional(),
   to: pktDate.optional(),
+  method: z.string().optional(),
+  search: z.string().optional(),
+  state: z.enum(['all', 'unallocated', 'allocated', 'reversed']).optional(),
+  studentStatus: z.enum(['all', 'ACTIVE', 'INACTIVE']).optional(),
+  year: z.union([z.coerce.number().int(), z.literal('all')]).optional(),
+  month: z.union([z.coerce.number().int(), z.literal('all')]).optional(),
 });
 
 export type GenerateChallansInput = z.infer<typeof generateChallansSchema>;
 export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
 export type PatchChallanInput = z.infer<typeof patchChallanSchema>;
 export type ListChallansQuery = z.infer<typeof listChallansQuerySchema>;
+export type ListPaymentsQuery = z.infer<typeof listPaymentsQuerySchema>;

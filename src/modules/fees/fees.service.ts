@@ -1,7 +1,7 @@
 import { ChallanStatus, FeeItemType, PaymentMethod, Prisma, UserStatus, SalaryStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
-import { pktDay, pktDayString, parsePktDay, isFuturePktDay, pktMonthRange } from '../../utils/pktDate';
+import { pktDay, pktDayString, parsePktDay, isFuturePktDay, pktMonthRange, periodWindow } from '../../utils/pktDate';
 import { money, sum, round2, toMoneyString, ZERO, type Money } from '../../utils/money';
 import type { Actor } from '../timetable/timetable.service';
 // Pure ledger arithmetic lives in its own IO-free module so it can be unit-tested.
@@ -1612,9 +1612,25 @@ export async function listPayments(query: {
    * was collected, or spotting money still sitting against someone who is gone.
    */
   studentStatus?: 'all' | 'ACTIVE' | 'INACTIVE';
+  year?: string | number;
+  month?: string | number;
 }) {
   const q = (query.search ?? '').trim();
   const tokens = q.split(/\s+/).filter(Boolean);
+
+  let dateFilter: { gte?: Date; lte?: Date } | undefined = undefined;
+  if (query.from || query.to) {
+    dateFilter = {
+      ...(query.from ? { gte: parsePktDay(query.from) } : {}),
+      ...(query.to ? { lte: parsePktDay(query.to) } : {}),
+    };
+  } else if (query.year && query.year !== 'all') {
+    const yearNum = Number(query.year);
+    const monthNum = query.month && query.month !== 'all' ? Number(query.month) : null;
+    const { start, end } = periodWindow(yearNum, monthNum);
+    dateFilter = { gte: start, lte: end };
+  }
+
   const payments = await prisma.feePayment.findMany({
     where: {
       ...(query.studentId ? { studentId: query.studentId } : {}),
@@ -1622,9 +1638,7 @@ export async function listPayments(query: {
         ? { student: { status: query.studentStatus as UserStatus } }
         : {}),
       ...(query.method && query.method !== 'all' ? { method: query.method as PaymentMethod } : {}),
-      ...(query.from || query.to
-        ? { paymentDate: { ...(query.from ? { gte: parsePktDay(query.from) } : {}), ...(query.to ? { lte: parsePktDay(query.to) } : {}) } }
-        : {}),
+      ...(dateFilter ? { paymentDate: dateFilter } : {}),
       ...(tokens.length
         ? {
             OR: [
@@ -1711,13 +1725,21 @@ export async function listPayments(query: {
     };
   });
 
-  const filtered =
-    query.state === 'unallocated' ? shaped.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
-    : query.state === 'allocated' ? shaped.filter((p) => !p.isReversed && Number(p.unallocated) === 0)
-    : query.state === 'reversed' ? shaped.filter((p) => p.isReversed)
-    : shaped;
+  const monthFiltered =
+    query.month && query.month !== 'all' && (!query.year || query.year === 'all')
+      ? shaped.filter((p) => {
+          const m = new Date(p.paymentDate).getUTCMonth() + 1;
+          return m === Number(query.month);
+        })
+      : shaped;
 
-  const live = shaped.filter((p) => !p.isReversed);
+  const filtered =
+    query.state === 'unallocated' ? monthFiltered.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
+    : query.state === 'allocated' ? monthFiltered.filter((p) => !p.isReversed && Number(p.unallocated) === 0)
+    : query.state === 'reversed' ? monthFiltered.filter((p) => p.isReversed)
+    : monthFiltered;
+
+  const live = monthFiltered.filter((p) => !p.isReversed);
   return {
     payments: filtered,
     summary: {
