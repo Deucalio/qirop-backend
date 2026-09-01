@@ -104,6 +104,22 @@ export const patchChallanSchema = z
       })
       .optional(),
     removeItemId: z.string().min(1).optional(),
+    /**
+     * Correct the amount (and optionally the label) of lines already on the
+     * challan. Tuition could previously only be discounted, never corrected —
+     * so a class fee entered wrong, or a mid-year change, had to be worked
+     * around with a discount that then misreported what the school charged.
+     */
+    updateItems: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          amount: moneyInput({ min: 0 }),
+          label: z.string().trim().min(1).max(80).optional(),
+        }),
+      )
+      .max(20)
+      .optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 

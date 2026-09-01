@@ -1300,6 +1300,14 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
     if (input.removeItemId) {
       await tx.feeChallanItem.deleteMany({ where: { id: input.removeItemId, challanId: id } });
     }
+    for (const u of input.updateItems ?? []) {
+      // Scoped to this challan: an id from another student's challan must not
+      // be editable by passing it here.
+      await tx.feeChallanItem.updateMany({
+        where: { id: u.id, challanId: id },
+        data: { amount: u.amount, ...(u.label ? { label: u.label } : {}) },
+      });
+    }
 
     const items = await tx.feeChallanItem.findMany({ where: { challanId: id } });
     /*
@@ -1353,6 +1361,13 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
       ...(input.removeItemId
         ? [`removed "${c.items.find((i) => i.id === input.removeItemId)?.label ?? 'an item'}"`]
         : []),
+      // Named with their before/after so the history says what the charge was
+      // changed FROM, not merely that something was edited.
+      ...(input.updateItems ?? []).map((u) => {
+        const was = c.items.find((i) => i.id === u.id);
+        const label = u.label ?? was?.label ?? 'an item';
+        return `changed "${label}" Rs ${was ? toMoneyString(was.amount) : '?'} → Rs ${toMoneyString(money(u.amount))}`;
+      }),
     ];
     await audit(tx, actor.userId, 'CHALLAN_EDITED', 'FeeChallan', id, {
       targetLabel: `${studentName} (Challan #${c.challanNo})`,
@@ -1373,10 +1388,10 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
         // alone. `before` is the full set as it stood; `after` is what it became.
         items: {
           before: c.items.map((i) => `${i.label} = ${toMoneyString(i.amount)}`),
-          after: [
-            ...c.items.filter((i) => i.id !== input.removeItemId).map((i) => `${i.label} = ${toMoneyString(i.amount)}`),
-            ...(input.addItem ? [`${input.addItem.label} = ${toMoneyString(money(input.addItem.amount))}`] : []),
-          ],
+          // Read back from the challan rather than reconstructed: `items` is
+          // the set as it now stands, so this cannot drift from reality the way
+          // a hand-rebuilt list does once edits are in play.
+          after: items.map((i) => `${i.label} = ${toMoneyString(i.amount)}`),
         },
         ...(input.dueDate ? { dueDate: { before: pktDayString(c.dueDate), after: input.dueDate } } : {}),
       },
