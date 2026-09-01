@@ -38,16 +38,36 @@ searchRouter.get(
       userHasPermission(actor.userId, actor.role, PermissionModule.FEES, 'view'),
     ]);
 
+    const tokens = q.split(/\s+/).filter(Boolean);
+
     const [students, teachers, parents, classes, challans] = await Promise.all([
       !mayStudents ? [] : prisma.student.findMany({
         where: {
           OR: [
             { firstName: { contains: q, mode: 'insensitive' } },
             { lastName: { contains: q, mode: 'insensitive' } },
+            {
+              AND: tokens.map((token) => ({
+                OR: [
+                  { firstName: { contains: token, mode: 'insensitive' } },
+                  { lastName: { contains: token, mode: 'insensitive' } },
+                ],
+              })),
+            },
             { rollNo: { contains: q, mode: 'insensitive' } },
             { admissionNo: { contains: q, mode: 'insensitive' } },
             { bFormNo: { contains: q, mode: 'insensitive' } },
             { bFormNo: { contains: qCnic, mode: 'insensitive' } },
+            { parent: { user: { fullName: { contains: q, mode: 'insensitive' } } } },
+            {
+              parent: {
+                user: {
+                  AND: tokens.map((token) => ({
+                    fullName: { contains: token, mode: 'insensitive' },
+                  })),
+                },
+              },
+            },
             { parent: { user: { cnic: { contains: q, mode: 'insensitive' } } } },
             { parent: { user: { cnic: { contains: qCnic, mode: 'insensitive' } } } },
           ],
@@ -109,6 +129,19 @@ searchRouter.get(
             { challanNo: { contains: q, mode: 'insensitive' } },
             { student: { firstName: { contains: q, mode: 'insensitive' } } },
             { student: { lastName: { contains: q, mode: 'insensitive' } } },
+            {
+              student: {
+                AND: tokens.map((token) => ({
+                  OR: [
+                    { firstName: { contains: token, mode: 'insensitive' } },
+                    { lastName: { contains: token, mode: 'insensitive' } },
+                  ],
+                })),
+              },
+            },
+            { student: { admissionNo: { contains: q, mode: 'insensitive' } } },
+            { student: { rollNo: { contains: q, mode: 'insensitive' } } },
+            { student: { parent: { user: { fullName: { contains: q, mode: 'insensitive' } } } } },
           ],
         },
         take: 10,

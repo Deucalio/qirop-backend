@@ -222,21 +222,43 @@ async function assertRollNoFree(sectionId: string, rollNo: string, exceptId?: st
   }
 }
 export async function listStudents(query: ListStudentsQuery, actor?: Actor) {
-  const qCnic = query.search ? formatPartialCnic(query.search) : '';
+  const rawSearch = (query.search ?? '').trim();
+  const tokens = rawSearch.split(/\s+/).filter(Boolean);
+  const qCnic = rawSearch ? formatPartialCnic(rawSearch) : '';
   const students = await prisma.student.findMany({
     where: {
       status: query.status,
       sectionId: query.sectionId,
       ...(query.classId ? { section: { classId: query.classId } } : {}),
-      ...(query.search
+      ...(tokens.length
         ? {
             OR: [
-              { firstName: { contains: query.search, mode: 'insensitive' } },
-              { lastName: { contains: query.search, mode: 'insensitive' } },
-              { admissionNo: { contains: query.search, mode: 'insensitive' } },
-              { bFormNo: { contains: query.search, mode: 'insensitive' } },
+              { firstName: { contains: rawSearch, mode: 'insensitive' } },
+              { lastName: { contains: rawSearch, mode: 'insensitive' } },
+              {
+                AND: tokens.map((token) => ({
+                  OR: [
+                    { firstName: { contains: token, mode: 'insensitive' } },
+                    { lastName: { contains: token, mode: 'insensitive' } },
+                  ],
+                })),
+              },
+              { admissionNo: { contains: rawSearch, mode: 'insensitive' } },
+              { rollNo: { contains: rawSearch, mode: 'insensitive' } },
+              { bFormNo: { contains: rawSearch, mode: 'insensitive' } },
               { bFormNo: { contains: qCnic, mode: 'insensitive' } },
-              { parent: { user: { cnic: { contains: query.search, mode: 'insensitive' } } } },
+              { parent: { user: { fullName: { contains: rawSearch, mode: 'insensitive' } } } },
+              {
+                parent: {
+                  user: {
+                    AND: tokens.map((token) => ({
+                      fullName: { contains: token, mode: 'insensitive' },
+                    })),
+                  },
+                },
+              },
+              { teacherParent: { user: { fullName: { contains: rawSearch, mode: 'insensitive' } } } },
+              { parent: { user: { cnic: { contains: rawSearch, mode: 'insensitive' } } } },
               { parent: { user: { cnic: { contains: qCnic, mode: 'insensitive' } } } },
             ],
           }

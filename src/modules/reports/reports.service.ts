@@ -29,6 +29,8 @@ export interface RosterQuery {
 export async function getStudentRosterReport(query: RosterQuery) {
   // Someone admitted in November cannot appear on an August roster.
   const admittedBy = query.year ? periodWindow(query.year, query.month).end : null;
+  const rawSearch = (query.search ?? '').trim();
+  const tokens = rawSearch.split(/\s+/).filter(Boolean);
 
   const where: Prisma.StudentWhereInput = {
     ...(admittedBy ? { admissionDate: { lte: admittedBy } } : {}),
@@ -36,13 +38,31 @@ export async function getStudentRosterReport(query: RosterQuery) {
     ...(query.sectionId && query.sectionId !== 'all' ? { sectionId: query.sectionId } : {}),
     ...(query.gender && query.gender !== 'all' ? { gender: query.gender as Gender } : {}),
     ...(query.status && query.status !== 'all' ? { status: query.status as UserStatus } : {}),
-    ...(query.search
+    ...(tokens.length
       ? {
           OR: [
-            { firstName: { contains: query.search, mode: 'insensitive' } },
-            { lastName: { contains: query.search, mode: 'insensitive' } },
-            { admissionNo: { contains: query.search, mode: 'insensitive' } },
-            { parent: { user: { fullName: { contains: query.search, mode: 'insensitive' } } } },
+            { firstName: { contains: rawSearch, mode: 'insensitive' } },
+            { lastName: { contains: rawSearch, mode: 'insensitive' } },
+            {
+              AND: tokens.map((token) => ({
+                OR: [
+                  { firstName: { contains: token, mode: 'insensitive' } },
+                  { lastName: { contains: token, mode: 'insensitive' } },
+                ],
+              })),
+            },
+            { admissionNo: { contains: rawSearch, mode: 'insensitive' } },
+            { rollNo: { contains: rawSearch, mode: 'insensitive' } },
+            { parent: { user: { fullName: { contains: rawSearch, mode: 'insensitive' } } } },
+            {
+              parent: {
+                user: {
+                  AND: tokens.map((token) => ({
+                    fullName: { contains: token, mode: 'insensitive' },
+                  })),
+                },
+              },
+            },
           ],
         }
       : {}),
@@ -120,16 +140,38 @@ export interface DefaultersQuery {
 }
 
 export async function getFeeDefaultersReport(query: DefaultersQuery) {
+  const rawSearch = (query.search ?? '').trim();
+  const tokens = rawSearch.split(/\s+/).filter(Boolean);
+
   const whereStudent: Prisma.StudentWhereInput = {
     ...(query.studentStatus && query.studentStatus !== 'all' ? { status: query.studentStatus } : {}),
     ...(query.classId && query.classId !== 'all' ? { section: { classId: query.classId } } : {}),
     ...(query.sectionId && query.sectionId !== 'all' ? { sectionId: query.sectionId } : {}),
-    ...(query.search
+    ...(tokens.length
       ? {
           OR: [
-            { firstName: { contains: query.search, mode: 'insensitive' } },
-            { lastName: { contains: query.search, mode: 'insensitive' } },
-            { admissionNo: { contains: query.search, mode: 'insensitive' } },
+            { firstName: { contains: rawSearch, mode: 'insensitive' } },
+            { lastName: { contains: rawSearch, mode: 'insensitive' } },
+            {
+              AND: tokens.map((token) => ({
+                OR: [
+                  { firstName: { contains: token, mode: 'insensitive' } },
+                  { lastName: { contains: token, mode: 'insensitive' } },
+                ],
+              })),
+            },
+            { admissionNo: { contains: rawSearch, mode: 'insensitive' } },
+            { rollNo: { contains: rawSearch, mode: 'insensitive' } },
+            { parent: { user: { fullName: { contains: rawSearch, mode: 'insensitive' } } } },
+            {
+              parent: {
+                user: {
+                  AND: tokens.map((token) => ({
+                    fullName: { contains: token, mode: 'insensitive' },
+                  })),
+                },
+              },
+            },
           ],
         }
       : {}),

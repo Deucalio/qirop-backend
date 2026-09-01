@@ -809,6 +809,66 @@ export async function listChallans(query: ListChallansQuery) {
   // Query params arrive as strings — coerce the numeric filters.
   const year = query.year != null ? Number(query.year) : undefined;
   const month = query.month != null ? Number(query.month) : undefined;
+  const rawSearch = (query.search ?? '').trim();
+  const tokens = rawSearch.split(/\s+/).filter(Boolean);
+
+  const searchWhere: Prisma.FeeChallanWhereInput | undefined = tokens.length
+    ? {
+        OR: [
+          { challanNo: { contains: rawSearch, mode: 'insensitive' } },
+          { student: { admissionNo: { contains: rawSearch, mode: 'insensitive' } } },
+          { student: { rollNo: { contains: rawSearch, mode: 'insensitive' } } },
+          { student: { bFormNo: { contains: rawSearch, mode: 'insensitive' } } },
+          { student: { firstName: { contains: rawSearch, mode: 'insensitive' } } },
+          { student: { lastName: { contains: rawSearch, mode: 'insensitive' } } },
+          {
+            student: {
+              AND: tokens.map((token) => ({
+                OR: [
+                  { firstName: { contains: token, mode: 'insensitive' } },
+                  { lastName: { contains: token, mode: 'insensitive' } },
+                ],
+              })),
+            },
+          },
+          { student: { parent: { user: { fullName: { contains: rawSearch, mode: 'insensitive' } } } } },
+          {
+            student: {
+              parent: {
+                user: {
+                  AND: tokens.map((token) => ({
+                    fullName: { contains: token, mode: 'insensitive' },
+                  })),
+                },
+              },
+            },
+          },
+          { student: { teacherParent: { user: { fullName: { contains: rawSearch, mode: 'insensitive' } } } } },
+          {
+            student: {
+              teacherParent: {
+                user: {
+                  AND: tokens.map((token) => ({
+                    fullName: { contains: token, mode: 'insensitive' },
+                  })),
+                },
+              },
+            },
+          },
+          { student: { parent: { motherName: { contains: rawSearch, mode: 'insensitive' } } } },
+          {
+            student: {
+              parent: {
+                AND: tokens.map((token) => ({
+                  motherName: { contains: token, mode: 'insensitive' },
+                })),
+              },
+            },
+          },
+        ],
+      }
+    : undefined;
+
   const challans = await prisma.feeChallan.findMany({
     where: {
       ...(year ? { year } : {}),
@@ -816,18 +876,7 @@ export async function listChallans(query: ListChallansQuery) {
       ...(query.status ? { status: query.status } : {}),
       ...(query.sectionId ? { student: { sectionId: query.sectionId } } : {}),
       ...(query.classId ? { student: { section: { classId: query.classId } } } : {}),
-      ...(query.search
-        ? {
-            student: {
-              OR: [
-                { firstName: { contains: query.search, mode: 'insensitive' } },
-                { lastName: { contains: query.search, mode: 'insensitive' } },
-                { admissionNo: { contains: query.search, mode: 'insensitive' } },
-              ],
-            },
-            challanNo: undefined,
-          }
-        : {}),
+      ...(searchWhere ?? {}),
     },
     include: {
       items: true,
@@ -1565,6 +1614,7 @@ export async function listPayments(query: {
   studentStatus?: 'all' | 'ACTIVE' | 'INACTIVE';
 }) {
   const q = (query.search ?? '').trim();
+  const tokens = q.split(/\s+/).filter(Boolean);
   const payments = await prisma.feePayment.findMany({
     where: {
       ...(query.studentId ? { studentId: query.studentId } : {}),
@@ -1575,12 +1625,35 @@ export async function listPayments(query: {
       ...(query.from || query.to
         ? { paymentDate: { ...(query.from ? { gte: parsePktDay(query.from) } : {}), ...(query.to ? { lte: parsePktDay(query.to) } : {}) } }
         : {}),
-      ...(q
+      ...(tokens.length
         ? {
             OR: [
               { student: { firstName: { contains: q, mode: 'insensitive' } } },
               { student: { lastName: { contains: q, mode: 'insensitive' } } },
+              {
+                student: {
+                  AND: tokens.map((token) => ({
+                    OR: [
+                      { firstName: { contains: token, mode: 'insensitive' } },
+                      { lastName: { contains: token, mode: 'insensitive' } },
+                    ],
+                  })),
+                },
+              },
               { student: { admissionNo: { contains: q, mode: 'insensitive' } } },
+              { student: { rollNo: { contains: q, mode: 'insensitive' } } },
+              { student: { parent: { user: { fullName: { contains: q, mode: 'insensitive' } } } } },
+              {
+                student: {
+                  parent: {
+                    user: {
+                      AND: tokens.map((token) => ({
+                        fullName: { contains: token, mode: 'insensitive' },
+                      })),
+                    },
+                  },
+                },
+              },
               { note: { contains: q, mode: 'insensitive' } },
             ],
           }
