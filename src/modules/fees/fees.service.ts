@@ -1745,6 +1745,7 @@ export async function listPayments(query: {
       applied: toMoneyString(applied),
       unallocated: toMoneyString(unallocated),
       paymentDate: pktDayString(p.paymentDate),
+      createdAt: p.createdAt.toISOString(),
       method: p.method,
       note: p.note,
       receivedBy: p.receivedBy.fullName,
