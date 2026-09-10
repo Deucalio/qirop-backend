@@ -26,20 +26,40 @@ export const updateHomeworkSchema = z
     { message: 'Nothing to update' },
   );
 
-export const teacherHomeworkQuerySchema = z.object({
-  sectionId: z.string().optional(),
-  subjectId: z.string().optional(),
+/**
+ * "all" is what the filter bar sends for an unset dropdown. Letting that string
+ * reach Prisma would match an id of literally "all" and quietly return nothing,
+ * so it is folded to undefined here rather than guarded at every call site.
+ */
+const idFilter = z
+  .string()
+  .optional()
+  .transform((v) => (v && v !== 'all' ? v : undefined));
+
+/** Filters shared by the admin and teacher lists. */
+const listQueryBase = {
+  search: z.string().trim().max(120).optional(),
+  classId: idFilter,
+  sectionId: idFilter,
+  subjectId: idFilter,
+  /** Against today in PKT: due today counts as upcoming, not overdue. */
+  status: z.enum(['all', 'upcoming', 'overdue']).default('all'),
+  attachment: z.enum(['all', 'with', 'without']).default('all'),
   from: dateStr,
   to: dateStr,
-});
+  sort: z.enum(['dueDate_desc', 'dueDate_asc', 'createdAt_desc', 'createdAt_asc']).default('dueDate_desc'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(12),
+};
+
+export const teacherHomeworkQuerySchema = z.object(listQueryBase);
 
 export const adminHomeworkQuerySchema = z.object({
-  classId: z.string().optional(),
-  sectionId: z.string().optional(),
-  subjectId: z.string().optional(),
-  from: dateStr,
-  to: dateStr,
+  ...listQueryBase,
+  teacherId: idFilter,
 });
+
+export type HomeworkListQuery = z.infer<typeof adminHomeworkQuerySchema>;
 
 export const childHomeworkQuerySchema = z.object({ from: dateStr, to: dateStr });
 

@@ -3,9 +3,9 @@ import type { Response } from 'express';
 import { prisma } from '../../config/prisma';
 import { userHasPermission } from '../../utils/permissions';
 import * as storage from '../../services/storage';
-import { parsePktDay } from '../../utils/pktDate';
+import { parsePktDay, pktDay } from '../../utils/pktDate';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
-import type { CreateHomeworkInput, UpdateHomeworkInput } from './homework.schema';
+import type { CreateHomeworkInput, UpdateHomeworkInput, HomeworkListQuery } from './homework.schema';
 import { logAudit } from '../audit/audit.service';
 
 const HOMEWORK = PermissionModule.HOMEWORK;
@@ -13,14 +13,6 @@ const HOMEWORK = PermissionModule.HOMEWORK;
 export interface Actor {
   userId: string;
   role: Role;
-}
-
-interface Filters {
-  classId?: string;
-  sectionId?: string;
-  subjectId?: string;
-  from?: string;
-  to?: string;
 }
 
 const hwInclude = {
@@ -257,34 +249,130 @@ export async function downloadAttachment(actor: Actor, id: string, res: Response
   await storage.proxyDownload(hw.attachmentUrl, res);
 }
 
-export async function listMyTeacherHomework(userId: string, filters: Filters) {
-  const myId = await teacherProfileId(userId);
-  if (!myId) throw NotFound('Teacher profile not found');
-  const rows = await prisma.homework.findMany({
-    where: {
-      teacherId: myId,
-      sectionId: filters.sectionId,
-      subjectId: filters.subjectId,
-      dueDate: dueDateRange(filters.from, filters.to),
-    },
-    include: hwInclude,
-    orderBy: { dueDate: 'desc' },
-  });
-  return rows.map(shape);
+// --- listing ------------------------------------------------------------------
+
+/**
+ * The due-date window a set of filters asks for.
+ *
+ * `from`/`to` and the upcoming/overdue switch both narrow the same column, so
+ * they are merged here rather than fought over: an explicit `from` earlier than
+ * today loses to "upcoming", and `lt today` sits alongside a `to` bound without
+ * contradicting it.
+ */
+function dueWindow(
+  from?: string,
+  to?: string,
+  status: 'all' | 'upcoming' | 'overdue' = 'all',
+): Prisma.DateTimeFilter | undefined {
+  const range: Prisma.DateTimeFilter = {};
+  if (from) range.gte = parsePktDay(from);
+  if (to) range.lte = parsePktDay(to);
+
+  if (status === 'upcoming') {
+    const today = pktDay();
+    const asked = range.gte as Date | undefined;
+    range.gte = asked && asked > today ? asked : today;
+  } else if (status === 'overdue') {
+    range.lt = pktDay();
+  }
+
+  return Object.keys(range).length > 0 ? range : undefined;
 }
 
-export async function listAllHomework(filters: Filters) {
-  const rows = await prisma.homework.findMany({
-    where: {
-      sectionId: filters.sectionId,
-      subjectId: filters.subjectId,
-      ...(filters.classId ? { section: { classId: filters.classId } } : {}),
-      dueDate: dueDateRange(filters.from, filters.to),
-    },
-    include: hwInclude,
-    orderBy: { dueDate: 'desc' },
-  });
-  return rows.map(shape);
+/**
+ * Free-text search across the things someone would actually type.
+ *
+ * Every word must match somewhere, so "aleena urdu" finds Aleena's Urdu
+ * homework instead of everything by Aleena plus everything in Urdu.
+ */
+function searchClause(search?: string): Prisma.HomeworkWhereInput[] {
+  const tokens = (search ?? '').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+  const like = (t: string) => ({ contains: t, mode: 'insensitive' as const });
+  return tokens.map((t) => ({
+    OR: [
+      { title: like(t) },
+      { description: like(t) },
+      { subject: { name: like(t) } },
+      { teacher: { user: { fullName: like(t) } } },
+      { section: { class: { name: like(t) } } },
+      { section: { name: like(t) } },
+    ],
+  }));
+}
+
+type ListFilters = Partial<HomeworkListQuery>;
+
+/** Everything except the status switch — the base the status counts are taken over. */
+function baseWhere(f: ListFilters, scope: Prisma.HomeworkWhereInput): Prisma.HomeworkWhereInput {
+  const and = searchClause(f.search);
+  return {
+    ...scope,
+    ...(f.sectionId ? { sectionId: f.sectionId } : {}),
+    ...(f.subjectId ? { subjectId: f.subjectId } : {}),
+    ...(f.teacherId ? { teacherId: f.teacherId } : {}),
+    ...(f.classId ? { section: { classId: f.classId } } : {}),
+    ...(f.attachment === 'with' ? { NOT: { attachmentUrl: null } } : {}),
+    ...(f.attachment === 'without' ? { attachmentUrl: null } : {}),
+    ...(and.length > 0 ? { AND: and } : {}),
+  };
+}
+
+const ORDER_BY: Record<string, Prisma.HomeworkOrderByWithRelationInput> = {
+  dueDate_desc: { dueDate: 'desc' },
+  dueDate_asc: { dueDate: 'asc' },
+  createdAt_desc: { createdAt: 'desc' },
+  createdAt_asc: { createdAt: 'asc' },
+};
+
+/**
+ * One page of homework, plus the counts the filter bar needs.
+ *
+ * The upcoming/overdue tallies are taken over everything the OTHER filters
+ * match, not over the page — a count that changed when you turned its own
+ * filter on would tell you nothing about what turning it off would show.
+ */
+async function listPage(f: ListFilters, scope: Prisma.HomeworkWhereInput) {
+  const page = f.page ?? 1;
+  const limit = f.limit ?? 12;
+  const base = baseWhere(f, scope);
+  const withStatus: Prisma.HomeworkWhereInput = {
+    ...base,
+    ...(dueWindow(f.from, f.to, f.status ?? 'all') ? { dueDate: dueWindow(f.from, f.to, f.status ?? 'all') } : {}),
+  };
+  const windowOnly = dueWindow(f.from, f.to);
+
+  const [total, rows, scoped, overdue, withAttachment] = await Promise.all([
+    prisma.homework.count({ where: withStatus }),
+    prisma.homework.findMany({
+      where: withStatus,
+      include: hwInclude,
+      orderBy: ORDER_BY[f.sort ?? 'dueDate_desc'] ?? ORDER_BY.dueDate_desc,
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.homework.count({ where: { ...base, ...(windowOnly ? { dueDate: windowOnly } : {}) } }),
+    prisma.homework.count({ where: { ...base, dueDate: dueWindow(f.from, f.to, 'overdue') } }),
+    prisma.homework.count({
+      where: { ...base, ...(windowOnly ? { dueDate: windowOnly } : {}), NOT: { attachmentUrl: null } },
+    }),
+  ]);
+
+  return {
+    items: rows.map(shape),
+    pagination: { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    stats: { total: scoped, upcoming: scoped - overdue, overdue, withAttachment },
+  };
+}
+
+export async function listMyTeacherHomework(userId: string, filters: ListFilters) {
+  const myId = await teacherProfileId(userId);
+  if (!myId) throw NotFound('Teacher profile not found');
+  return listPage(filters, { teacherId: myId });
+}
+
+export async function listAllHomework(filters: ListFilters) {
+  return listPage(filters, {});
 }
 
 export async function listChildHomework(userId: string, studentId: string, from?: string, to?: string) {
