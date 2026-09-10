@@ -65,6 +65,8 @@ export interface AccountContext {
   challanCount: number;
   /** e.g. "Jul 2026 – Sep 2026", for the Fee Month line. */
   rangeLabel: string;
+  /** What follows "PAID FEE VOUCHER — ": the months, or FULL ACCOUNT. */
+  titleSuffix: string;
 }
 
 export interface ReceiptContext {
@@ -149,7 +151,7 @@ function voucherBlock(
 
   const title: Content = {
     text: account
-      ? 'PAID FEE VOUCHER — FULL ACCOUNT'
+      ? `PAID FEE VOUCHER — ${account.titleSuffix}`
       : isPaid
         ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}`
         : `UNPAID FEE VOUCHER — ${monthName.toUpperCase()}`,
@@ -610,16 +612,34 @@ export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
 }
 
 /**
- * A payment printed as paid fee vouchers — the same sheet the challan prints.
+ * The months a set of challans covers, written the way the school says them.
+ * "July 2026 & August 2026" up to two; beyond that a range, since a title has
+ * to stay one line.
+ */
+function monthsLabel(labels: string[]): string {
+  const seen = [...new Set(labels)];
+  if (seen.length === 0) return 'ACCOUNT';
+  if (seen.length === 1) return seen[0];
+
+  // Months of one year read as "July & August 2026", not "July 2026 & August
+  // 2026" — the repeated year pushes the title onto a second line.
+  const years = new Set(seen.map((m) => m.split(' ')[1]));
+  const names = seen.map((m) => m.split(' ')[0]);
+  if (years.size === 1) {
+    const year = [...years][0];
+    return seen.length === 2 ? `${names[0]} & ${names[1]} ${year}` : `${names[0]} to ${names[names.length - 1]} ${year}`;
+  }
+  return seen.length === 2 ? `${seen[0]} & ${seen[1]}` : `${seen[0]} to ${seen[seen.length - 1]}`;
+}
+
+/**
+ * One receipt, one sheet.
  *
- * One page per challan the receipt settled, because the voucher's whole shape
- * is built around a single month's bill. A receipt spanning July and August is
- * two pages, each headed with its own month, rather than one sheet whose title
- * could only be half true.
- *
- * The figures are the challan's, as on any voucher, except that the amount THIS
- * receipt brought in is separated from what came before it. Printing only the
- * running total is what made a Rs 1,500 receipt read as a Rs 4,500 one.
+ * A payment can settle several months at once — Rs 2,800 clearing July and
+ * August together. That was printing a voucher per month, so a single handover
+ * came out as two documents each showing half the money. The challans it
+ * touched are added up into one voucher instead, with the months it settled
+ * named on it.
  */
 export async function renderPaymentVoucherPdf(
   paymentId: string,
@@ -628,6 +648,7 @@ export async function renderPaymentVoucherPdf(
     where: { id: paymentId },
     select: {
       id: true,
+      studentId: true,
       paymentDate: true,
       allocations: {
         select: { challanId: true, amountApplied: true, createdAt: true },
@@ -636,44 +657,7 @@ export async function renderPaymentVoucherPdf(
     },
   });
   if (!payment) throw NotFound('Payment not found');
-
-  const receiptNo = payment.id.slice(-6).toUpperCase();
-  const date = pktDayString(payment.paymentDate);
-  const school = await loadSchool();
-
-  const blocks: Content[] = [];
-  for (const [i, alloc] of payment.allocations.entries()) {
-    const challan = await getChallan(alloc.challanId);
-
-    /*
-     * What earlier receipts had already put against this challan. Taken from
-     * the allocations rather than by subtraction, so a later payment does not
-     * make an older receipt reprint with a different history.
-     */
-    const earlier = await prisma.feePaymentAllocation.findMany({
-      where: {
-        challanId: alloc.challanId,
-        payment: { isReversed: false },
-        createdAt: { lt: alloc.createdAt },
-      },
-      select: { amountApplied: true },
-    });
-    const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
-
-    blocks.push(
-      voucherBlock(challan, school, Boolean(school.logoDataUri), 1, {
-        receiptNo,
-        date,
-        amountApplied: toMoneyString(money(alloc.amountApplied)),
-        paidEarlier: toMoneyString(paidEarlier),
-      }) as Content,
-    );
-    if (i > 0) {
-      (blocks[i] as unknown as Record<string, unknown>).pageBreak = 'before';
-    }
-  }
-
-  if (blocks.length === 0) {
+  if (payment.allocations.length === 0) {
     throw new AppError(
       'This receipt has not been applied to any bill yet, so there is no voucher to print. ' +
         'It is held as advance credit.',
@@ -682,16 +666,75 @@ export async function renderPaymentVoucherPdf(
     );
   }
 
+  const school = await loadSchool();
+  const block = await receiptVoucherBlock(payment, school);
+
   const buffer = await render({
     pageSize: { width: B6_WIDTH_PT, height: B6_HEIGHT_PT },
     pageOrientation: 'portrait',
     pageMargins: [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN],
-    content: blocks,
+    content: [block],
     ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
     defaultStyle: { font: 'Roboto', fontSize: 6 },
   });
 
-  return { buffer, receiptNo, pages: blocks.length };
+  return { buffer, receiptNo: payment.id.slice(-6).toUpperCase(), pages: 1 };
+}
+
+type ReceiptPaymentRow = {
+  id: string;
+  studentId: string;
+  paymentDate: Date;
+  allocations: { challanId: string; amountApplied: unknown; createdAt: Date }[];
+};
+
+/** One receipt's voucher block: the challans it settled, added together. */
+async function receiptVoucherBlock(
+  payment: ReceiptPaymentRow,
+  school: Awaited<ReturnType<typeof loadSchool>>,
+): Promise<Content> {
+  const challanIds = new Set(payment.allocations.map((a) => a.challanId));
+  const account = await buildStudentAccount(payment.studentId, challanIds);
+
+  const amountApplied = payment.allocations.reduce((acc, a) => acc.plus(money(a.amountApplied as string)), ZERO);
+
+  /*
+   * What earlier receipts had already put against these same challans. Read
+   * from the allocations dated before this one rather than by subtraction, so
+   * a later payment cannot rewrite an older receipt's history.
+   */
+  const earliest = payment.allocations.reduce(
+    (min, a) => (a.createdAt < min ? a.createdAt : min),
+    payment.allocations[0].createdAt,
+  );
+  const earlier = await prisma.feePaymentAllocation.findMany({
+    where: {
+      challanId: { in: [...challanIds] },
+      payment: { isReversed: false },
+      createdAt: { lt: earliest },
+    },
+    select: { amountApplied: true },
+  });
+  const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
+
+  const label = monthsLabel(account._monthLabels);
+  return voucherBlock(
+    account,
+    school,
+    Boolean(school.logoDataUri),
+    1,
+    {
+      receiptNo: payment.id.slice(-6).toUpperCase(),
+      date: pktDayString(payment.paymentDate),
+      amountApplied: toMoneyString(amountApplied),
+      paidEarlier: toMoneyString(paidEarlier),
+    },
+    {
+      challanCount: account._months,
+      rangeLabel: label,
+      titleSuffix: label.toUpperCase(),
+    },
+  ) as Content;
 }
 
 /**
@@ -708,6 +751,7 @@ export async function paymentVoucherBlocks(
     where: { id: { in: ids } },
     select: {
       id: true,
+      studentId: true,
       paymentDate: true,
       allocations: {
         select: { challanId: true, amountApplied: true, createdAt: true },
@@ -719,75 +763,24 @@ export async function paymentVoucherBlocks(
 
   const blocks: Content[] = [];
   for (const payment of payments) {
-    const receiptNo = payment.id.slice(-6).toUpperCase();
-    const date = pktDayString(payment.paymentDate);
-    for (const alloc of payment.allocations) {
-      const challan = await getChallan(alloc.challanId);
-      const earlier = await prisma.feePaymentAllocation.findMany({
-        where: {
-          challanId: alloc.challanId,
-          payment: { isReversed: false },
-          createdAt: { lt: alloc.createdAt },
-        },
-        select: { amountApplied: true },
-      });
-      const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
-      blocks.push(
-        voucherBlock(challan, school, Boolean(school.logoDataUri), 1, {
-          receiptNo,
-          date,
-          amountApplied: toMoneyString(money(alloc.amountApplied)),
-          paidEarlier: toMoneyString(paidEarlier),
-        }) as Content,
-      );
-    }
+    // A receipt is one sheet however many months it settled.
+    if (payment.allocations.length === 0) continue;
+    blocks.push(await receiptVoucherBlock(payment, school));
   }
   return blocks;
 }
 
 /** Several payments as vouchers, one challan to a page. */
 export async function renderPaymentVouchersBatchPdf(ids: string[]): Promise<Buffer> {
-  const payments = await prisma.feePayment.findMany({
-    where: { id: { in: ids } },
-    select: {
-      id: true,
-      paymentDate: true,
-      allocations: {
-        select: { challanId: true, amountApplied: true, createdAt: true },
-        orderBy: { createdAt: 'asc' },
-      },
-    },
-    orderBy: { paymentDate: 'desc' },
-  });
-  if (payments.length === 0) throw NotFound('No matching payments found');
-
   const school = await loadSchool();
-  const blocks: Content[] = [];
-
-  for (const payment of payments) {
-    const receiptNo = payment.id.slice(-6).toUpperCase();
-    const date = pktDayString(payment.paymentDate);
-    for (const alloc of payment.allocations) {
-      const challan = await getChallan(alloc.challanId);
-      const earlier = await prisma.feePaymentAllocation.findMany({
-        where: {
-          challanId: alloc.challanId,
-          payment: { isReversed: false },
-          createdAt: { lt: alloc.createdAt },
-        },
-        select: { amountApplied: true },
-      });
-      const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
-      const block = voucherBlock(challan, school, Boolean(school.logoDataUri), 1, {
-        receiptNo,
-        date,
-        amountApplied: toMoneyString(money(alloc.amountApplied)),
-        paidEarlier: toMoneyString(paidEarlier),
-      }) as unknown as Record<string, unknown>;
-      if (blocks.length > 0) block.pageBreak = 'before';
-      blocks.push(block as unknown as Content);
-    }
-  }
+  /*
+   * Built by the shared helper rather than a second loop of its own. This
+   * function kept its own copy and so kept printing a page per challan after
+   * the single-receipt path had been changed to one page per receipt.
+   */
+  const blocks = (await paymentVoucherBlocks(ids, school)).map((b, i) =>
+    i === 0 ? b : ({ ...(b as unknown as Record<string, unknown>), pageBreak: 'before' } as unknown as Content),
+  );
 
   // An unapplied receipt has no bill to print against; the caller is told
   // rather than handed an empty document.
@@ -818,7 +811,11 @@ export async function renderPaymentVouchersBatchPdf(ids: string[]): Promise<Buff
  * voucher "arrears" means the OTHER months' balances, and here those months are
  * already itemised, so counting them again would double the older ones.
  */
-async function buildStudentAccount(studentId: string): Promise<ChallanData & { _months: number }> {
+async function buildStudentAccount(
+  studentId: string,
+  /** Restrict to these challans; omitted means the student's whole account. */
+  only?: Set<string>,
+): Promise<ChallanData & { _months: number; _monthLabels: string[] }> {
   const student = await prisma.student.findUnique({
     where: { id: studentId },
     include: {
@@ -829,7 +826,7 @@ async function buildStudentAccount(studentId: string): Promise<ChallanData & { _
   if (!student) throw NotFound('Student not found');
 
   const challans = await prisma.feeChallan.findMany({
-    where: { studentId },
+    where: { studentId, ...(only ? { id: { in: [...only] } } : {}) },
     include: {
       items: true,
       allocations: { include: { payment: { select: { isReversed: true, paymentDate: true } } } },
@@ -886,8 +883,15 @@ async function buildStudentAccount(studentId: string): Promise<ChallanData & { _
 
   return {
     id: student.id,
-    // Not a real challan number: this sheet is the account, not one bill.
-    challanNo: `ACCOUNT-${student.admissionNo}`,
+    /*
+     * A scoped sheet still refers to real bills, so it names them. Only the
+     * whole-account sheet has no single voucher number to give.
+     */
+    challanNo: !only
+      ? `ACCOUNT-${student.admissionNo}`
+      : challans.length === 1
+        ? challans[0].challanNo
+        : `${challans[0].challanNo} +${challans.length - 1}`,
     studentId: student.id,
     year: last.year,
     month: last.month,
@@ -926,7 +930,8 @@ async function buildStudentAccount(studentId: string): Promise<ChallanData & { _
     hasLaterDues: false,
     studentTotalDue: toMoneyString(round2(Prisma.Decimal.max(0, balance.minus(advance)))),
     _months: challans.length,
-  } as ChallanData & { _months: number };
+    _monthLabels: challans.map((c) => `${MONTHS[c.month] ?? ''} ${c.year}`),
+  } as ChallanData & { _months: number; _monthLabels: string[] };
 }
 
 /** Unallocated, non-reversed payment money sitting on the student's account. */
@@ -956,13 +961,11 @@ export async function renderStudentAccountVouchersPdf(studentIds: string[]): Pro
   const blocks: Content[] = [];
   for (const studentId of studentIds) {
     const account = await buildStudentAccount(studentId);
-    const range =
-      account.items.length > 0
-        ? `${account.items[0].label.split(' — ')[0]} to ${account.items[account.items.length - 1].label.split(' — ')[0]}`
-        : '—';
+    const range = monthsLabel(account._monthLabels);
     const block = voucherBlock(account, school, Boolean(school.logoDataUri), 1, undefined, {
       challanCount: account._months,
       rangeLabel: range,
+      titleSuffix: 'FULL ACCOUNT',
     }) as unknown as Record<string, unknown>;
     if (blocks.length > 0) block.pageBreak = 'before';
     blocks.push(block as unknown as Content);
