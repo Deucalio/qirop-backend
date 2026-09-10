@@ -50,6 +50,7 @@ feesRouter.get('/payments', view, asyncHandler(c.listPayments));
 // Before '/payments/:id' so the literal segment is not swallowed by the param.
 feesRouter.get('/payments/:id/receipt-pdf', view, asyncHandler(c.paymentReceiptPdf));
 feesRouter.post('/payments/receipts-pdf', view, asyncHandler(c.paymentReceiptsPdfBatch));
+feesRouter.post('/payments/statement-pdf', view, asyncHandler(c.studentReceiptsPdf));
 feesRouter.post('/payments/:id/reverse', manage, validateBody(reversePaymentSchema), asyncHandler(c.reversePayment));
 // Hard delete — `manage` only, and audited with the reason. Reversal remains the
 // right tool for a genuine receipt entered in error; this is for rows that

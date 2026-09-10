@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import * as svc from './fees.service';
 import { renderChallanPdf, renderChallansBatchPdf } from './fees.pdf';
-import { renderPaymentReceiptPdf, renderPaymentReceiptsBatchPdf } from './fees.receipt.pdf';
+import { renderPaymentReceiptPdf, renderPaymentReceiptsBatchPdf, renderStudentReceiptsPdf } from './fees.receipt.pdf';
 import { Unauthorized, AppError } from '../../utils/apiResponse';
 
 const actor = (req: Request) => {
@@ -109,6 +109,18 @@ export async function paymentReceiptsPdfBatch(req: Request, res: Response) {
   const buffer = await renderPaymentReceiptsBatchPdf(ids as string[]);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="fee-receipts-${ids.length}.pdf"`);
+  res.send(buffer);
+}
+/** A student's receipts with a covering statement, for the payments row's Print. */
+export async function studentReceiptsPdf(req: Request, res: Response) {
+  const ids: unknown = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ message: 'Select at least one payment' });
+    return;
+  }
+  const buffer = await renderStudentReceiptsPdf(ids as string[]);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="payment-statement.pdf"');
   res.send(buffer);
 }
 export async function challansPdfBatch(req: Request, res: Response) {
