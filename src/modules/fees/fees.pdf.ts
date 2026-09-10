@@ -717,7 +717,18 @@ async function receiptVoucherBlock(
   });
   const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
 
-  const label = monthsLabel(account._monthLabels);
+  /*
+   * The title names the challan being settled, which is the newest one the
+   * receipt touched. Older months come with it as arrears lines inside that
+   * bill — the school hands over money against the current challan, and it
+   * sweeps up what was outstanding. Titling it with every month it cleared
+   * ("July & August 2026") described the effect rather than the document.
+   *
+   * The Months line below still lists them all, because which months got
+   * settled is exactly what the payer wants to read.
+   */
+  const settled = account._monthLabels;
+  const current = settled[settled.length - 1] ?? 'ACCOUNT';
   return voucherBlock(
     account,
     school,
@@ -731,8 +742,8 @@ async function receiptVoucherBlock(
     },
     {
       challanCount: account._months,
-      rangeLabel: label,
-      titleSuffix: label.toUpperCase(),
+      rangeLabel: monthsLabel(settled),
+      titleSuffix: current.toUpperCase(),
     },
   ) as Content;
 }
