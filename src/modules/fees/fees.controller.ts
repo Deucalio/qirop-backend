@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import * as svc from './fees.service';
-import { renderChallanPdf, renderChallansBatchPdf, renderPaymentVoucherPdf, renderPaymentVouchersBatchPdf } from './fees.pdf';
+import { renderChallanPdf, renderChallansBatchPdf, renderPaymentVoucherPdf, renderPaymentVouchersBatchPdf, renderStudentAccountVouchersPdf } from './fees.pdf';
 import { renderStudentReceiptsPdf } from './fees.receipt.pdf';
 import { Unauthorized, AppError } from '../../utils/apiResponse';
 
@@ -121,6 +121,19 @@ export async function studentReceiptsPdf(req: Request, res: Response) {
   const buffer = await renderStudentReceiptsPdf(ids as string[]);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="payment-statement.pdf"');
+  res.send(buffer);
+}
+/** One consolidated paid voucher per student — their whole fee account. */
+export async function studentAccountVouchersPdf(req: Request, res: Response) {
+  const ids: unknown = req.body?.studentIds;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ message: 'Select at least one student' });
+    return;
+  }
+  const buffer = await renderStudentAccountVouchersPdf(ids as string[]);
+  const disposition = ids.length === 1 ? 'inline' : 'attachment';
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `${disposition}; filename="fee-account.pdf"`);
   res.send(buffer);
 }
 export async function challansPdfBatch(req: Request, res: Response) {

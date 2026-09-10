@@ -13,7 +13,8 @@ import { getChallan } from './fees.service';
 import { fetchFileBuffer } from '../../services/storage';
 import { pktDayString } from '../../utils/pktDate';
 import { NotFound, AppError } from '../../utils/apiResponse';
-import { money, toMoneyString, ZERO } from '../../utils/money';
+import { Prisma } from '@prisma/client';
+import { money, toMoneyString, round2, ZERO } from '../../utils/money';
 
 /**
  * Server-side challan PDF rendering.
@@ -53,6 +54,19 @@ type ChallanData = Awaited<ReturnType<typeof getChallan>>;
  * position: same sheet, same sections, but the amount this receipt brought in
  * is called out and dated to when it was handed over.
  */
+/**
+ * Renders the voucher as ONE sheet covering a student's whole fee account
+ * rather than a single month: every challan they have, added up.
+ *
+ * The items already carry their own month, so the per-item month prefix a
+ * single-month voucher adds would read "September 2026 — July 2026 — Tuition".
+ */
+export interface AccountContext {
+  challanCount: number;
+  /** e.g. "Jul 2026 – Sep 2026", for the Fee Month line. */
+  rangeLabel: string;
+}
+
 export interface ReceiptContext {
   receiptNo: string;
   /** YYYY-MM-DD. */
@@ -84,10 +98,11 @@ function voucherBlock(
   hasLogo: boolean,
   scale = 1,
   receipt?: ReceiptContext,
+  account?: AccountContext,
 ): Content {
   const paidSoFar = Number(c.paidAmount) > 0 ? Number(c.paidAmount) : (Number(c.cashPaid) + Number(c.staffCovered));
   // A receipt is by definition a paid voucher, even before the ledger agrees.
-  const isPaid = paidSoFar > 0 || receipt !== undefined;
+  const isPaid = paidSoFar > 0 || receipt !== undefined || account !== undefined;
   /** Size in points, scaled for the variant. The identity for an unpaid voucher. */
   const s = (n: number) => Math.round(n * (isPaid ? RECEIPT_TYPE_SCALE * scale : 1) * 100) / 100;
 
@@ -100,7 +115,10 @@ function voucherBlock(
 
   const lines: { label: string; amount: string }[] = [
     ...c.items.map((it) => ({
-      label: `${MONTHS[c.month] ?? ''} ${c.year} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
+      // An account sheet's items already name their own month.
+      label: account
+        ? it.label || ITEM_LABEL[it.type] || it.type
+        : `${MONTHS[c.month] ?? ''} ${c.year} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
       amount: String(it.amount),
     })),
     ...c.previousDues.map((d) => ({
@@ -130,7 +148,11 @@ function voucherBlock(
   const monthName = `${MONTHS[c.month] ?? ''} ${c.year}`.trim();
 
   const title: Content = {
-    text: isPaid ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}` : `UNPAID FEE VOUCHER — ${monthName.toUpperCase()}`,
+    text: account
+      ? 'PAID FEE VOUCHER — FULL ACCOUNT'
+      : isPaid
+        ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}`
+        : `UNPAID FEE VOUCHER — ${monthName.toUpperCase()}`,
     fontSize: s(11),
     bold: true,
     alignment: 'center',
@@ -191,7 +213,10 @@ function voucherBlock(
       {
         columns: [
           kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
-          { ...kv('Fee Month', monthName), alignment: 'right' },
+          {
+            ...kv(account ? 'Months' : 'Fee Month', account ? account.rangeLabel : monthName),
+            alignment: 'right',
+          },
         ],
       },
     ],
@@ -244,8 +269,10 @@ function voucherBlock(
    */
   const grossPayable = Number(c.amount) + Number(c.previousBalance);
   const receiptBody: Cell[][] = [
-    sumRow('Fee', c.baseAmount),
-    sumRow('Arrears', c.previousBalance),
+    sumRow(account ? `Fee (${account.challanCount} challans)` : 'Fee', c.baseAmount),
+    // An account sheet itemises every month, so there is no separate arrears
+    // figure to add — counting one would double the older months.
+    ...(account ? [] : [sumRow('Arrears', c.previousBalance)]),
     sumRow('Late Fee', String(lateFee)),
     sumRow('Less Discount', c.discount),
     sumRow('TOTAL FEES PAYABLE', String(grossPayable), true),
@@ -770,6 +797,175 @@ export async function renderPaymentVouchersBatchPdf(ids: string[]): Promise<Buff
       409,
       'RECEIPTS_UNALLOCATED',
     );
+  }
+
+  return render({
+    pageSize: { width: B6_WIDTH_PT, height: B6_HEIGHT_PT },
+    pageOrientation: 'portrait',
+    pageMargins: [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN],
+    content: blocks,
+    ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
+    defaultStyle: { font: 'Roboto', fontSize: 6 },
+  });
+}
+
+/**
+ * A student's whole fee account, shaped as one challan so the ordinary voucher
+ * layout can print it.
+ *
+ * Every month the student has been billed becomes a line, and the totals are
+ * the sums across them. Arrears are deliberately zero: on a single-month
+ * voucher "arrears" means the OTHER months' balances, and here those months are
+ * already itemised, so counting them again would double the older ones.
+ */
+async function buildStudentAccount(studentId: string): Promise<ChallanData & { _months: number }> {
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    include: {
+      section: { include: { class: true } },
+      parent: { include: { user: { select: { fullName: true, phone: true } } } },
+    },
+  });
+  if (!student) throw NotFound('Student not found');
+
+  const challans = await prisma.feeChallan.findMany({
+    where: { studentId },
+    include: {
+      items: true,
+      allocations: { include: { payment: { select: { isReversed: true, paymentDate: true } } } },
+    },
+    orderBy: [{ year: 'asc' }, { month: 'asc' }],
+  });
+  if (challans.length === 0) {
+    throw new AppError('This student has no challans to print.', 409, 'NO_CHALLANS');
+  }
+
+  let baseAmount = ZERO;
+  let discount = ZERO;
+  let lateFee = ZERO;
+  let amount = ZERO;
+  let cashPaid = ZERO;
+  let staffCovered = ZERO;
+  let balance = ZERO;
+  const items: ChallanData['items'] = [];
+  let lastPaid: Date | null = null;
+
+  for (const c of challans) {
+    baseAmount = baseAmount.plus(money(c.baseAmount));
+    discount = discount.plus(money(c.discount));
+    lateFee = lateFee.plus(money(c.lateFee));
+    amount = amount.plus(money(c.amount));
+    staffCovered = staffCovered.plus(money(c.staffCovered));
+
+    const cash = c.allocations
+      .filter((a) => !a.payment.isReversed)
+      .reduce((acc, a) => acc.plus(money(a.amountApplied)), ZERO);
+    cashPaid = cashPaid.plus(cash);
+    // Floored per challan: an overpaid month must not cancel an unpaid one.
+    balance = balance.plus(Prisma.Decimal.max(0, money(c.amount).minus(cash).minus(money(c.staffCovered))));
+
+    for (const a of c.allocations) {
+      if (a.payment.isReversed) continue;
+      if (!lastPaid || a.payment.paymentDate > lastPaid) lastPaid = a.payment.paymentDate;
+    }
+
+    const label = `${MONTHS[c.month] ?? ''} ${c.year}`;
+    for (const it of c.items) {
+      items.push({
+        id: it.id,
+        type: it.type,
+        label: `${label} — ${it.label || ITEM_LABEL[it.type] || it.type}`,
+        amount: toMoneyString(money(it.amount)),
+      });
+    }
+  }
+
+  const first = challans[0];
+  const last = challans[challans.length - 1];
+  const advance = await studentAdvanceCredit(studentId);
+
+  return {
+    id: student.id,
+    // Not a real challan number: this sheet is the account, not one bill.
+    challanNo: `ACCOUNT-${student.admissionNo}`,
+    studentId: student.id,
+    year: last.year,
+    month: last.month,
+    issueDate: pktDayString(first.issueDate),
+    dueDate: pktDayString(last.dueDate),
+    baseAmount: toMoneyString(baseAmount),
+    discount: toMoneyString(discount),
+    lateFee: toMoneyString(lateFee),
+    amount: toMoneyString(amount),
+    paidAmount: toMoneyString(round2(cashPaid.plus(staffCovered))),
+    cashPaid: toMoneyString(cashPaid),
+    staffCovered: toMoneyString(staffCovered),
+    balance: toMoneyString(round2(balance)),
+    lastPaymentDate: lastPaid ? pktDayString(lastPaid) : null,
+    status: last.status,
+    isOverdue: false,
+    billedToTeacherId: last.billedToTeacherId,
+    createdAt: undefined,
+    items,
+    student: {
+      id: student.id,
+      name: `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''}`,
+      admissionNo: student.admissionNo,
+      status: student.status,
+      rollNo: student.rollNo,
+      className: student.section.class.name,
+      sectionName: student.section.name,
+      parentName: student.parent.user.fullName,
+      parentPhone: student.parent.user.phone,
+    },
+    // Every month is itemised above, so there is nothing left to carry.
+    previousDues: [],
+    previousBalance: '0.00',
+    advanceCredit: toMoneyString(advance),
+    totalPayable: toMoneyString(round2(Prisma.Decimal.max(0, balance.minus(advance)))),
+    hasLaterDues: false,
+    studentTotalDue: toMoneyString(round2(Prisma.Decimal.max(0, balance.minus(advance)))),
+    _months: challans.length,
+  } as ChallanData & { _months: number };
+}
+
+/** Unallocated, non-reversed payment money sitting on the student's account. */
+async function studentAdvanceCredit(studentId: string) {
+  const payments = await prisma.feePayment.findMany({
+    where: { studentId, isReversed: false },
+    include: { allocations: true },
+  });
+  const paid = payments.reduce((acc, p) => acc.plus(money(p.amount)), ZERO);
+  const allocated = payments.reduce(
+    (acc, p) => acc.plus(p.allocations.reduce((a, x) => a.plus(money(x.amountApplied)), ZERO)),
+    ZERO,
+  );
+  return round2(Prisma.Decimal.max(0, paid.minus(allocated)));
+}
+
+/**
+ * One consolidated paid voucher per student: their whole account on a sheet.
+ *
+ * Selecting a student row asks "show me this family's position", which N
+ * separate month vouchers cannot answer — the reader would have to add them up.
+ */
+export async function renderStudentAccountVouchersPdf(studentIds: string[]): Promise<Buffer> {
+  if (studentIds.length === 0) throw NotFound('No students selected');
+  const school = await loadSchool();
+
+  const blocks: Content[] = [];
+  for (const studentId of studentIds) {
+    const account = await buildStudentAccount(studentId);
+    const range =
+      account.items.length > 0
+        ? `${account.items[0].label.split(' — ')[0]} to ${account.items[account.items.length - 1].label.split(' — ')[0]}`
+        : '—';
+    const block = voucherBlock(account, school, Boolean(school.logoDataUri), 1, undefined, {
+      challanCount: account._months,
+      rangeLabel: range,
+    }) as unknown as Record<string, unknown>;
+    if (blocks.length > 0) block.pageBreak = 'before';
+    blocks.push(block as unknown as Content);
   }
 
   return render({
