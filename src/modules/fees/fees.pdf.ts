@@ -220,7 +220,7 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean, scal
     sumRow('Fee', c.baseAmount),
     sumRow('Arrears', c.previousBalance),
     sumRow('Late Fee', String(lateFee)),
-    sumRow('Discount (−)', c.discount),
+    sumRow('Less Discount', c.discount),
     sumRow('TOTAL FEES PAYABLE', String(grossPayable), true),
     sumRow('Fee Paid', c.cashPaid),
     ...(Number(c.staffCovered) > 0 ? [sumRow('Covered from Salary', c.staffCovered)] : []),

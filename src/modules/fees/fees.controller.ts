@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import * as svc from './fees.service';
 import { renderChallanPdf, renderChallansBatchPdf } from './fees.pdf';
+import { renderPaymentReceiptPdf, renderPaymentReceiptsBatchPdf } from './fees.receipt.pdf';
 import { Unauthorized, AppError } from '../../utils/apiResponse';
 
 const actor = (req: Request) => {
@@ -89,6 +90,25 @@ export async function challanPdf(req: Request, res: Response) {
   const disposition = req.query.download === '1' ? 'attachment' : 'inline';
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `${disposition}; filename="challan-${challanNo}.pdf"`);
+  res.send(buffer);
+}
+/** The receipt for one payment — proof of what was handed over, not the bill. */
+export async function paymentReceiptPdf(req: Request, res: Response) {
+  const { buffer, receiptNo } = await renderPaymentReceiptPdf(req.params.id);
+  const disposition = req.query.download === '1' ? 'attachment' : 'inline';
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `${disposition}; filename="receipt-${receiptNo}.pdf"`);
+  res.send(buffer);
+}
+export async function paymentReceiptsPdfBatch(req: Request, res: Response) {
+  const ids: unknown = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ message: 'Select at least one payment' });
+    return;
+  }
+  const buffer = await renderPaymentReceiptsBatchPdf(ids as string[]);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="fee-receipts-${ids.length}.pdf"`);
   res.send(buffer);
 }
 export async function challansPdfBatch(req: Request, res: Response) {
