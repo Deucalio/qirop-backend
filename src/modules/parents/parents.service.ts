@@ -36,7 +36,18 @@ export async function listParents(query: ListParentsQuery) {
     },
     include: {
       user: { include: { teacherProfile: { select: { id: true, staffRole: true } } } },
-      students: { select: { id: true } },
+      students: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          admissionNo: true,
+          status: true,
+          caste: true,
+          section: { select: { name: true, isDefault: true, class: { select: { name: true } } } },
+        },
+        orderBy: { firstName: 'asc' },
+      },
       _count: { select: { students: true } },
     },
     orderBy: { user: { fullName: 'asc' } },
@@ -78,6 +89,26 @@ export async function listParents(query: ListParentsQuery) {
       motherPhone: p.motherPhone,
       motherOccupation: p.motherOccupation,
       childrenCount: p._count.students,
+      /**
+       * Who is actually in the family, so a guardian can be told apart from a
+       * namesake by the children attached to them rather than by CNIC alone.
+       */
+      children: p.students.map((s) => ({
+        id: s.id,
+        name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
+        admissionNo: s.admissionNo,
+        className: s.section.class.name,
+        sectionName: s.section.name,
+        isDefault: s.section.isDefault,
+        status: s.status,
+      })),
+      /*
+       * Caste is recorded on the student, not the guardian — a family shares
+       * one in practice, so the distinct values across their children are what
+       * a guardian's caste means here. More than one is a real signal, not a
+       * bug, so all of them are returned rather than the first.
+       */
+      castes: [...new Set(p.students.map((s) => s.caste).filter((c): c is string => !!c && c.trim() !== ''))],
       collectiveDues: {
         outstanding: toMoneyString(totalDues),
         unpaidCount,
