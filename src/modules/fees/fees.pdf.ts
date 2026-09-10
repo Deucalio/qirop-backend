@@ -12,6 +12,8 @@ import { prisma } from '../../config/prisma';
 import { getChallan } from './fees.service';
 import { fetchFileBuffer } from '../../services/storage';
 import { pktDayString } from '../../utils/pktDate';
+import { NotFound, AppError } from '../../utils/apiResponse';
+import { money, toMoneyString, ZERO } from '../../utils/money';
 
 /**
  * Server-side challan PDF rendering.
@@ -45,6 +47,21 @@ const MONTHS = [
 ];
 
 type ChallanData = Awaited<ReturnType<typeof getChallan>>;
+
+/**
+ * Renders the voucher as a receipt for ONE payment rather than as the account's
+ * position: same sheet, same sections, but the amount this receipt brought in
+ * is called out and dated to when it was handed over.
+ */
+export interface ReceiptContext {
+  receiptNo: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  /** What this receipt applied to this challan. */
+  amountApplied: string;
+  /** What earlier, non-reversed receipts had already put against it. */
+  paidEarlier: string;
+}
 type SchoolInfo = { name: string; address: string | null; phone: string | null; email: string | null };
 
 /**
@@ -61,9 +78,16 @@ type SchoolInfo = { name: string; address: string | null; phone: string | null; 
  * shrink to stay on one sheet rather than grow its page. At the default, an
  * unpaid voucher's measurements are exactly what they have always been.
  */
-function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean, scale = 1): Content {
+function voucherBlock(
+  c: ChallanData,
+  school: SchoolInfo,
+  hasLogo: boolean,
+  scale = 1,
+  receipt?: ReceiptContext,
+): Content {
   const paidSoFar = Number(c.paidAmount) > 0 ? Number(c.paidAmount) : (Number(c.cashPaid) + Number(c.staffCovered));
-  const isPaid = paidSoFar > 0;
+  // A receipt is by definition a paid voucher, even before the ledger agrees.
+  const isPaid = paidSoFar > 0 || receipt !== undefined;
   /** Size in points, scaled for the variant. The identity for an unpaid voucher. */
   const s = (n: number) => Math.round(n * (isPaid ? RECEIPT_TYPE_SCALE * scale : 1) * 100) / 100;
 
@@ -121,7 +145,10 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean, scal
 
   /** When the money actually arrived — the line a receipt is asked for most. */
   const paymentDate: Content = {
-    text: [{ text: 'Date of Payment: ', bold: true }, c.lastPaymentDate ? dmy(c.lastPaymentDate) : '-'],
+    text: [
+      { text: 'Date of Payment: ', bold: true },
+      receipt ? dmy(receipt.date) : c.lastPaymentDate ? dmy(c.lastPaymentDate) : '-',
+    ],
     fontSize: s(8.5),
     bold: true,
     margin: [s(8), s(3), s(8), s(3)],
@@ -222,7 +249,19 @@ function voucherBlock(c: ChallanData, school: SchoolInfo, hasLogo: boolean, scal
     sumRow('Late Fee', String(lateFee)),
     sumRow('Less Discount', c.discount),
     sumRow('TOTAL FEES PAYABLE', String(grossPayable), true),
-    sumRow('Fee Paid', c.cashPaid),
+    /*
+     * When this sheet is one receipt rather than the account's position, the
+     * amount THIS receipt brought in is separated from what came before it.
+     * Printing only the running "Fee Paid" is what made a Rs 1,500 receipt read
+     * as a Rs 4,500 one.
+     */
+    ...(receipt
+      ? [
+          sumRow('Paid Earlier', receipt.paidEarlier),
+          sumRow(`THIS RECEIPT (#${receipt.receiptNo})`, receipt.amountApplied, true),
+          sumRow('Fee Paid to Date', c.cashPaid),
+        ]
+      : [sumRow('Fee Paid', c.cashPaid)]),
     ...(Number(c.staffCovered) > 0 ? [sumRow('Covered from Salary', c.staffCovered)] : []),
     ...(Number(c.advanceCredit) > 0 ? [sumRow('Advance on File', c.advanceCredit)] : []),
     sumRow('BALANCE DUE', c.totalPayable, true),
@@ -541,4 +580,204 @@ export async function renderChallansBatchPdf(ids: string[]): Promise<Buffer> {
   const school = await loadSchool();
   const challans = await Promise.all(ids.map((id) => getChallan(id)));
   return renderVouchers(challans, school);
+}
+
+/**
+ * A payment printed as paid fee vouchers — the same sheet the challan prints.
+ *
+ * One page per challan the receipt settled, because the voucher's whole shape
+ * is built around a single month's bill. A receipt spanning July and August is
+ * two pages, each headed with its own month, rather than one sheet whose title
+ * could only be half true.
+ *
+ * The figures are the challan's, as on any voucher, except that the amount THIS
+ * receipt brought in is separated from what came before it. Printing only the
+ * running total is what made a Rs 1,500 receipt read as a Rs 4,500 one.
+ */
+export async function renderPaymentVoucherPdf(
+  paymentId: string,
+): Promise<{ buffer: Buffer; receiptNo: string; pages: number }> {
+  const payment = await prisma.feePayment.findUnique({
+    where: { id: paymentId },
+    select: {
+      id: true,
+      paymentDate: true,
+      allocations: {
+        select: { challanId: true, amountApplied: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  });
+  if (!payment) throw NotFound('Payment not found');
+
+  const receiptNo = payment.id.slice(-6).toUpperCase();
+  const date = pktDayString(payment.paymentDate);
+  const school = await loadSchool();
+
+  const blocks: Content[] = [];
+  for (const [i, alloc] of payment.allocations.entries()) {
+    const challan = await getChallan(alloc.challanId);
+
+    /*
+     * What earlier receipts had already put against this challan. Taken from
+     * the allocations rather than by subtraction, so a later payment does not
+     * make an older receipt reprint with a different history.
+     */
+    const earlier = await prisma.feePaymentAllocation.findMany({
+      where: {
+        challanId: alloc.challanId,
+        payment: { isReversed: false },
+        createdAt: { lt: alloc.createdAt },
+      },
+      select: { amountApplied: true },
+    });
+    const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
+
+    blocks.push(
+      voucherBlock(challan, school, Boolean(school.logoDataUri), 1, {
+        receiptNo,
+        date,
+        amountApplied: toMoneyString(money(alloc.amountApplied)),
+        paidEarlier: toMoneyString(paidEarlier),
+      }) as Content,
+    );
+    if (i > 0) {
+      (blocks[i] as unknown as Record<string, unknown>).pageBreak = 'before';
+    }
+  }
+
+  if (blocks.length === 0) {
+    throw new AppError(
+      'This receipt has not been applied to any bill yet, so there is no voucher to print. ' +
+        'It is held as advance credit.',
+      409,
+      'RECEIPT_UNALLOCATED',
+    );
+  }
+
+  const buffer = await render({
+    pageSize: { width: B6_WIDTH_PT, height: B6_HEIGHT_PT },
+    pageOrientation: 'portrait',
+    pageMargins: [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN],
+    content: blocks,
+    ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
+    defaultStyle: { font: 'Roboto', fontSize: 6 },
+  });
+
+  return { buffer, receiptNo, pages: blocks.length };
+}
+
+/**
+ * The voucher blocks for a set of payments, one per challan settled.
+ *
+ * Exported so the statement document can print the same pages: two ways of
+ * drawing a receipt is exactly what this change set out to remove.
+ */
+export async function paymentVoucherBlocks(
+  ids: string[],
+  school: Awaited<ReturnType<typeof loadSchool>>,
+): Promise<Content[]> {
+  const payments = await prisma.feePayment.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      paymentDate: true,
+      allocations: {
+        select: { challanId: true, amountApplied: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+    orderBy: { paymentDate: 'desc' },
+  });
+
+  const blocks: Content[] = [];
+  for (const payment of payments) {
+    const receiptNo = payment.id.slice(-6).toUpperCase();
+    const date = pktDayString(payment.paymentDate);
+    for (const alloc of payment.allocations) {
+      const challan = await getChallan(alloc.challanId);
+      const earlier = await prisma.feePaymentAllocation.findMany({
+        where: {
+          challanId: alloc.challanId,
+          payment: { isReversed: false },
+          createdAt: { lt: alloc.createdAt },
+        },
+        select: { amountApplied: true },
+      });
+      const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
+      blocks.push(
+        voucherBlock(challan, school, Boolean(school.logoDataUri), 1, {
+          receiptNo,
+          date,
+          amountApplied: toMoneyString(money(alloc.amountApplied)),
+          paidEarlier: toMoneyString(paidEarlier),
+        }) as Content,
+      );
+    }
+  }
+  return blocks;
+}
+
+/** Several payments as vouchers, one challan to a page. */
+export async function renderPaymentVouchersBatchPdf(ids: string[]): Promise<Buffer> {
+  const payments = await prisma.feePayment.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      paymentDate: true,
+      allocations: {
+        select: { challanId: true, amountApplied: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+    orderBy: { paymentDate: 'desc' },
+  });
+  if (payments.length === 0) throw NotFound('No matching payments found');
+
+  const school = await loadSchool();
+  const blocks: Content[] = [];
+
+  for (const payment of payments) {
+    const receiptNo = payment.id.slice(-6).toUpperCase();
+    const date = pktDayString(payment.paymentDate);
+    for (const alloc of payment.allocations) {
+      const challan = await getChallan(alloc.challanId);
+      const earlier = await prisma.feePaymentAllocation.findMany({
+        where: {
+          challanId: alloc.challanId,
+          payment: { isReversed: false },
+          createdAt: { lt: alloc.createdAt },
+        },
+        select: { amountApplied: true },
+      });
+      const paidEarlier = earlier.reduce((acc, e) => acc.plus(money(e.amountApplied)), ZERO);
+      const block = voucherBlock(challan, school, Boolean(school.logoDataUri), 1, {
+        receiptNo,
+        date,
+        amountApplied: toMoneyString(money(alloc.amountApplied)),
+        paidEarlier: toMoneyString(paidEarlier),
+      }) as unknown as Record<string, unknown>;
+      if (blocks.length > 0) block.pageBreak = 'before';
+      blocks.push(block as unknown as Content);
+    }
+  }
+
+  // An unapplied receipt has no bill to print against; the caller is told
+  // rather than handed an empty document.
+  if (blocks.length === 0) {
+    throw new AppError(
+      'None of the selected receipts have been applied to a bill yet.',
+      409,
+      'RECEIPTS_UNALLOCATED',
+    );
+  }
+
+  return render({
+    pageSize: { width: B6_WIDTH_PT, height: B6_HEIGHT_PT },
+    pageOrientation: 'portrait',
+    pageMargins: [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN],
+    content: blocks,
+    ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
+    defaultStyle: { font: 'Roboto', fontSize: 6 },
+  });
 }

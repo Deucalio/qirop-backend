@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import * as svc from './fees.service';
-import { renderChallanPdf, renderChallansBatchPdf } from './fees.pdf';
-import { renderPaymentReceiptPdf, renderPaymentReceiptsBatchPdf, renderStudentReceiptsPdf } from './fees.receipt.pdf';
+import { renderChallanPdf, renderChallansBatchPdf, renderPaymentVoucherPdf, renderPaymentVouchersBatchPdf } from './fees.pdf';
+import { renderStudentReceiptsPdf } from './fees.receipt.pdf';
 import { Unauthorized, AppError } from '../../utils/apiResponse';
 
 const actor = (req: Request) => {
@@ -94,7 +94,7 @@ export async function challanPdf(req: Request, res: Response) {
 }
 /** The receipt for one payment — proof of what was handed over, not the bill. */
 export async function paymentReceiptPdf(req: Request, res: Response) {
-  const { buffer, receiptNo } = await renderPaymentReceiptPdf(req.params.id);
+  const { buffer, receiptNo } = await renderPaymentVoucherPdf(req.params.id);
   const disposition = req.query.download === '1' ? 'attachment' : 'inline';
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `${disposition}; filename="receipt-${receiptNo}.pdf"`);
@@ -106,7 +106,7 @@ export async function paymentReceiptsPdfBatch(req: Request, res: Response) {
     res.status(400).json({ message: 'Select at least one payment' });
     return;
   }
-  const buffer = await renderPaymentReceiptsBatchPdf(ids as string[]);
+  const buffer = await renderPaymentVouchersBatchPdf(ids as string[]);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="fee-receipts-${ids.length}.pdf"`);
   res.send(buffer);
