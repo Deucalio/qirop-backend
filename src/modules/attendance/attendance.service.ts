@@ -884,6 +884,9 @@ export async function getMyChildren(userId: string) {
     name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
     className: s.section.class.name,
     sectionName: s.section.name,
+    // So callers can print "Class 6" for a class that was never split into
+    // sections, rather than inventing a "Section A" the school never assigned.
+    isDefault: s.section.isDefault,
     photoUrl: publicUrl(s.photoUrl),
     status: s.status,
   }));

@@ -7,6 +7,7 @@ import { parsePktDay, pktDay } from '../../utils/pktDate';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import type { CreateHomeworkInput, UpdateHomeworkInput, HomeworkListQuery } from './homework.schema';
 import { logAudit } from '../audit/audit.service';
+import { subjectColorMap } from '../academics/subjectColors';
 
 const HOMEWORK = PermissionModule.HOMEWORK;
 
@@ -23,7 +24,13 @@ const hwInclude = {
 
 type HwWithRels = Prisma.HomeworkGetPayload<{ include: typeof hwInclude }>;
 
-function shape(hw: HwWithRels) {
+/**
+ * `colors` carries the resolved subject palette — an admin's pick, or the
+ * built-in slot for its alphabetical rank. Sending the raw `colorHex` instead
+ * would hand the client a null for every subject nobody has recoloured, and
+ * the rank it would need to fill that in lives here, not there.
+ */
+function shape(hw: HwWithRels, colors?: Map<string, string>) {
   return {
     id: hw.id,
     sectionId: hw.sectionId,
@@ -33,6 +40,7 @@ function shape(hw: HwWithRels) {
     className: hw.section.class.name,
     subjectId: hw.subjectId,
     subjectName: hw.subject.name,
+    subjectColor: colors?.get(hw.subjectId) ?? hw.subject.colorHex ?? null,
     teacherId: hw.teacherId,
     teacherName: hw.teacher.user.fullName,
     title: hw.title,
@@ -58,12 +66,15 @@ async function assignmentTeacherId(sectionId: string, subjectId: string): Promis
   return ta?.teacherId ?? null;
 }
 
-function dueDateRange(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
-  if (!from && !to) return undefined;
-  const range: Prisma.DateTimeFilter = {};
-  if (from) range.gte = parsePktDay(from);
-  if (to) range.lte = parsePktDay(to);
-  return range;
+/** Shape a set of rows against one palette lookup. */
+async function shapeAll(rows: HwWithRels[]) {
+  const colors = await subjectColorMap();
+  return rows.map((hw) => shape(hw, colors));
+}
+
+/** Shape a single row, palette included. */
+async function shapeOne(hw: HwWithRels) {
+  return shape(hw, await subjectColorMap());
 }
 
 async function loadHomework(id: string): Promise<HwWithRels> {
@@ -165,7 +176,7 @@ export async function createHomework(
     },
   });
 
-  return shape(loaded);
+  return shapeOne(loaded);
 }
 
 export async function updateHomework(
@@ -213,7 +224,7 @@ export async function updateHomework(
     details: `Updated homework "${updated.title}" for ${updatedSectionLabel}`,
   });
 
-  return shape(updated);
+  return shapeOne(updated);
 }
 
 export async function deleteHomework(actor: Actor, id: string) {
@@ -239,7 +250,7 @@ export async function deleteHomework(actor: Actor, id: string) {
 export async function getHomework(actor: Actor, id: string) {
   const hw = await loadHomework(id);
   await assertCanView(actor, hw);
-  return shape(hw);
+  return shapeOne(hw);
 }
 
 export async function downloadAttachment(actor: Actor, id: string, res: Response): Promise<void> {
@@ -359,7 +370,7 @@ async function listPage(f: ListFilters, scope: Prisma.HomeworkWhereInput) {
   ]);
 
   return {
-    items: rows.map(shape),
+    items: await shapeAll(rows),
     pagination: { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) },
     stats: { total: scoped, upcoming: scoped - overdue, overdue, withAttachment },
   };
@@ -375,7 +386,13 @@ export async function listAllHomework(filters: ListFilters) {
   return listPage(filters, {});
 }
 
-export async function listChildHomework(userId: string, studentId: string, from?: string, to?: string) {
+export async function listChildHomework(
+  userId: string,
+  studentId: string,
+  from?: string,
+  to?: string,
+  status: 'all' | 'upcoming' | 'overdue' = 'all',
+) {
   const student = await prisma.student.findUnique({
     where: { id: studentId },
     include: { parent: true },
@@ -383,10 +400,11 @@ export async function listChildHomework(userId: string, studentId: string, from?
   if (!student) throw NotFound('Student not found');
   if (student.parent.userId !== userId) throw Forbidden('This student is not your child');
 
+  const window = dueWindow(from, to, status);
   const rows = await prisma.homework.findMany({
-    where: { sectionId: student.sectionId, dueDate: dueDateRange(from, to) },
+    where: { sectionId: student.sectionId, ...(window ? { dueDate: window } : {}) },
     include: hwInclude,
     orderBy: { dueDate: 'desc' },
   });
-  return rows.map(shape);
+  return shapeAll(rows);
 }

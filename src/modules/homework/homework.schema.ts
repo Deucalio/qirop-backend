@@ -61,7 +61,11 @@ export const adminHomeworkQuerySchema = z.object({
 
 export type HomeworkListQuery = z.infer<typeof adminHomeworkQuerySchema>;
 
-export const childHomeworkQuerySchema = z.object({ from: dateStr, to: dateStr });
+export const childHomeworkQuerySchema = z.object({
+  from: dateStr,
+  to: dateStr,
+  status: z.enum(['all', 'upcoming', 'overdue']).default('all'),
+});
 
 export type CreateHomeworkInput = z.infer<typeof createHomeworkSchema>;
 export type UpdateHomeworkInput = z.infer<typeof updateHomeworkSchema>;

@@ -35,5 +35,5 @@ export async function listAll(req: Request, res: Response): Promise<void> {
 }
 export async function childHomework(req: Request, res: Response): Promise<void> {
   const q = childHomeworkQuerySchema.parse(req.query);
-  res.json(await svc.listChildHomework(actor(req).userId, req.params.studentId, q.from, q.to));
+  res.json(await svc.listChildHomework(actor(req).userId, req.params.studentId, q.from, q.to, q.status));
 }

@@ -15,6 +15,7 @@ import { nextEmployeeId } from '../../utils/employeeId';
 import type { Response } from 'express';
 import { TEACHING_STAFF_ROLES, isTeachingRole, STAFF_ROLE_LABELS } from '../../utils/staffRoles';
 import { assertRouteCarries } from '../transport/transport.service';
+import { subjectColorMap } from '../academics/subjectColors';
 
 export interface Actor {
   userId: string;
@@ -51,7 +52,12 @@ type TeacherWithRels = Prisma.TeacherProfileGetPayload<{ include: typeof teacher
 type TeachingRow = TeacherWithRels['teachingAssignments'][number];
 type SectionRow = TeacherWithRels['classTeacherSections'][number];
 
-function shapeTeaching(ta: TeachingRow) {
+/**
+ * `colors` is the resolved subject palette. Without it the raw `colorHex` is
+ * returned, which is null for every subject nobody has recoloured — nine of
+ * ten here — leaving pickers with nothing to tint.
+ */
+function shapeTeaching(ta: TeachingRow, colors?: Map<string, string>) {
   return {
     id: ta.id,
     section: {
@@ -61,7 +67,12 @@ function shapeTeaching(ta: TeachingRow) {
       classId: ta.section.classId,
       className: ta.section.class.name,
     },
-    subject: { id: ta.subject.id, name: ta.subject.name, colorHex: ta.subject.colorHex },
+    subject: {
+      id: ta.subject.id,
+      name: ta.subject.name,
+      colorHex: ta.subject.colorHex,
+      color: colors?.get(ta.subject.id) ?? ta.subject.colorHex ?? null,
+    },
   };
 }
 
@@ -74,7 +85,7 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
   const parentProfile = (profile.user as any).parentProfile;
   const rawChildren = parentProfile?.students ?? [];
   const studentIds = rawChildren.map((s: any) => s.id);
-  const feeMap = await getStudentFeeDetails(studentIds);
+  const [feeMap, subjectColors] = await Promise.all([getStudentFeeDetails(studentIds), subjectColorMap()]);
 
   const children = rawChildren.map((s: any) => ({
     id: s.id,
@@ -122,7 +133,7 @@ async function shapeTeacher(profile: TeacherWithRels, includeSalary: boolean) {
       obtainedMarks: q.obtainedMarks !== null ? Number(q.obtainedMarks) : null,
       totalMarks: q.totalMarks !== null ? Number(q.totalMarks) : null,
     })),
-    teachingAssignments: profile.teachingAssignments.map(shapeTeaching),
+    teachingAssignments: profile.teachingAssignments.map((ta) => shapeTeaching(ta, subjectColors)),
     classTeacherSections: profile.classTeacherSections.map(shapeClassTeacherSection),
     children,
     transport: profile.transportAssignment
@@ -337,8 +348,9 @@ export async function getMeTeacher(userId: string) {
 
 export async function getTeacherAssignments(id: string) {
   const profile = await loadTeacherOr404(id);
+  const subjectColors = await subjectColorMap();
   return {
-    teachingAssignments: profile.teachingAssignments.map(shapeTeaching),
+    teachingAssignments: profile.teachingAssignments.map((ta) => shapeTeaching(ta, subjectColors)),
     classTeacherSections: profile.classTeacherSections.map(shapeClassTeacherSection),
   };
 }
@@ -680,7 +692,7 @@ export async function setTeacherStatus(id: string, status: UserStatus, force: bo
         409,
         'TEACHER_HAS_ASSIGNMENTS',
         {
-          teachingAssignments: profile.teachingAssignments.map(shapeTeaching),
+          teachingAssignments: profile.teachingAssignments.map((ta) => shapeTeaching(ta)),
           classTeacherSections: profile.classTeacherSections.map(shapeClassTeacherSection),
         },
       );
