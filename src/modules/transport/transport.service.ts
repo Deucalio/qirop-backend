@@ -292,7 +292,17 @@ export async function deleteRoute(actor: Actor, id: string) {
   const r = await prisma.transportRoute.findUnique({ where: { id } });
   if (!r) throw NotFound('Route not found');
   await prisma.transportRoute.delete({ where: { id } });
-  await audit(actor.userId, 'TRANSPORT_ROUTE_DELETED', id, { name: r.name });
+  await audit(actor.userId, 'TRANSPORT_ROUTE_DELETED', id, {
+    name: r.name,
+    details:
+      `Deleted transport route "${r.name}" — students ${rateLabel(r.studentMonthlyFee)}, staff ${rateLabel(r.staffMonthlyFee)}` +
+      `${r.vehicleInfo ? `, vehicle ${r.vehicleInfo}` : ''}. Its past transport challans keep the route name.`,
+    changes: {
+      name: { before: r.name, after: null },
+      studentMonthlyFee: { before: rateLabel(r.studentMonthlyFee), after: null },
+      staffMonthlyFee: { before: rateLabel(r.staffMonthlyFee), after: null },
+    },
+  });
   return { id, deleted: true };
 }
 

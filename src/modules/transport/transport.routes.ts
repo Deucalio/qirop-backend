@@ -10,6 +10,7 @@ import {
   patchTransportChallanSchema,
   recordTransportPaymentSchema,
   reverseTransportPaymentSchema,
+  deleteTransportPaymentSchema,
   markTransportPaidSchema,
   printIdsSchema,
 } from './transport.schema';
@@ -54,6 +55,8 @@ transportRouter.post('/payments', edit, validateBody(recordTransportPaymentSchem
 transportRouter.get('/payments', view, asyncHandler(c.listPayments));
 transportRouter.get('/payments/:id/receipt-pdf', view, asyncHandler(c.paymentReceiptPdf));
 transportRouter.post('/payments/:id/reverse', manage, validateBody(reverseTransportPaymentSchema), asyncHandler(c.reversePayment));
+// Destroys the receipt (a reversal keeps it), so it needs manage and a reason.
+transportRouter.delete('/payments/:id', manage, validateBody(deleteTransportPaymentSchema), asyncHandler(c.deletePayment));
 
 // One rider's transport, for the student and staff profile modals.
 transportRouter.get('/riders/students/:id', view, asyncHandler(c.studentRiderTransport));

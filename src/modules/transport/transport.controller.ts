@@ -85,6 +85,9 @@ export async function listPayments(req: Request, res: Response) {
 export async function markChallansPaid(req: Request, res: Response) {
   res.json(await billing.markTransportChallansPaid(actor(req), req.body));
 }
+export async function deletePayment(req: Request, res: Response) {
+  res.json(await billing.deleteTransportPayment(actor(req), req.params.id, req.body.reason));
+}
 export async function reversePayment(req: Request, res: Response) {
   res.json(await billing.reverseTransportPayment(actor(req), req.params.id, req.body.reason));
 }

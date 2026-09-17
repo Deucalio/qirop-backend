@@ -447,6 +447,8 @@ export async function previewTransportChallans(q: TransportPreviewQuery) {
 export async function generateTransportChallans(actor: Actor, input: GenerateTransportChallansInput) {
   const due = parsePktDay(input.dueDate);
   const exclude = new Set(input.excludeRiders ?? []);
+  /** When set, nobody outside this list is billed. */
+  const only = input.onlyRiders ? new Set(input.onlyRiders) : null;
 
   const result = await prisma.$transaction(
     async (tx) => {
@@ -456,11 +458,24 @@ export async function generateTransportChallans(actor: Actor, input: GenerateTra
       const created: { challanNo: string; rider: string; route: string; amount: string }[] = [];
       let total = ZERO;
       let excluded = 0;
+      /** People picked by hand who could not be billed, and why — so the run says so. */
+      const pickedButSkipped: { rider: string; route: string; reason: string; existingChallanNo: string | null }[] = [];
       const status = pktDay().getTime() > due.getTime() ? ChallanStatus.OVERDUE : ChallanStatus.UNPAID;
 
       for (const route of plan.routes) {
         for (const row of route.riders) {
-          if (!row.willBill) continue;
+          if (only && !only.has(row.key)) continue;
+          if (!row.willBill) {
+            if (only) {
+              pickedButSkipped.push({
+                rider: `${row.name} (${row.code})`,
+                route: route.routeName,
+                reason: row.reason ?? 'UNKNOWN',
+                existingChallanNo: row.existingChallanNo,
+              });
+            }
+            continue;
+          }
           if (exclude.has(row.key)) {
             excluded++;
             continue;
@@ -487,13 +502,20 @@ export async function generateTransportChallans(actor: Actor, input: GenerateTra
           total = total.plus(amount);
         }
       }
-      return { plan, created, total, excluded };
+      return { plan, created, total, excluded, pickedButSkipped };
     },
     { timeout: 120_000, maxWait: 20_000 },
   );
 
   const period = periodLabel(input.year, input.month);
   const skippedTotal = Object.values(result.plan.totals.skipped).reduce((a, b) => a + b, 0);
+  const selection = only
+    ? `${only.size} selected rider(s)`
+    : input.kind === 'students'
+      ? 'All student riders'
+      : input.kind === 'staff'
+        ? 'All staff riders'
+        : 'All riders';
   await logAudit(null, {
     actorId: actor.userId,
     actorName: await actorName(actor.userId),
@@ -504,8 +526,14 @@ export async function generateTransportChallans(actor: Actor, input: GenerateTra
     targetId: `${input.year}-${input.month}`,
     targetLabel: `Transport Challans (${input.year}-${String(input.month).padStart(2, '0')})`,
     details:
-      `Generated ${result.created.length} transport challan(s) totalling Rs ${toMoneyString(result.total)} for ${period}, due ${input.dueDate}` +
-      (skippedTotal ? `. ${skippedTotal} rider(s) not billed (already billed, inactive, or no rate)` : '') +
+      `Generated ${result.created.length} transport challan(s) totalling Rs ${toMoneyString(result.total)} for ${period}, due ${input.dueDate} — ${selection}` +
+      (only
+        ? result.pickedButSkipped.length
+          ? `. ${result.pickedButSkipped.length} of the selected could not be billed: ${result.pickedButSkipped.map((p) => `${p.rider} (${p.reason.replace(/_/g, ' ').toLowerCase()})`).join(', ')}`
+          : ''
+        : skippedTotal
+          ? `. ${skippedTotal} rider(s) not billed (already billed, inactive, or no rate)`
+          : '') +
       (result.excluded ? `. ${result.excluded} rider(s) left out by hand` : ''),
     changes: {
       challansCreated: { before: 0, after: result.created.length },
@@ -514,8 +542,11 @@ export async function generateTransportChallans(actor: Actor, input: GenerateTra
         period,
         dueDate: input.dueDate,
         kind: input.kind,
+        selection,
         routes: result.plan.routes.map((r) => r.routeName),
-        skipped: result.plan.totals.skipped,
+        // For a run over chosen people, the route-wide skip counts describe
+        // riders nobody asked about; what matters is who was picked and missed.
+        ...(only ? { selectedNotBilled: result.pickedButSkipped } : { skipped: result.plan.totals.skipped }),
         excluded: result.excluded,
         challans: result.created,
       },
@@ -526,6 +557,7 @@ export async function generateTransportChallans(actor: Actor, input: GenerateTra
     created: result.created.length,
     excluded: result.excluded,
     skipped: result.plan.totals.skipped,
+    selectedNotBilled: result.pickedButSkipped,
     totalAmount: toMoneyString(result.total),
   };
 }
@@ -840,7 +872,7 @@ export async function reverseTransportPayment(actor: Actor, paymentId: string, r
     actorId: actor.userId,
     actorName: await actorName(actor.userId),
     actorRole: actor.role,
-    action: 'REVERSAL',
+    action: 'REVERSE',
     module: 'FEES',
     targetType: 'TransportPayment',
     targetId: paymentId,
@@ -851,6 +883,71 @@ export async function reverseTransportPayment(actor: Actor, paymentId: string, r
     changes: { isReversed: { before: false, after: true }, reason: { before: null, after: reason } },
   });
   return detail;
+}
+
+/**
+ * Permanently remove a transport payment.
+ *
+ * A reversal is the right tool for a real receipt entered in error — it keeps
+ * the row. Deleting is for a receipt that should never have existed (a
+ * duplicate, a test entry, a reversed receipt being cleared so its challan can
+ * be deleted). The row is gone afterwards, so the audit entry carries
+ * everything about it: amount, method, date, who took it, and the challan's
+ * balance before and after.
+ */
+export async function deleteTransportPayment(actor: Actor, paymentId: string, reason: string) {
+  const p = await prisma.transportPayment.findUnique({
+    where: { id: paymentId },
+    include: { receivedBy: { select: { fullName: true } }, reversedBy: { select: { fullName: true } } },
+  });
+  if (!p) throw NotFound('Payment not found');
+
+  const before = await getTransportChallan(p.challanId);
+  await serializable(async (tx) => {
+    await tx.transportPayment.delete({ where: { id: paymentId } });
+    await recompute(tx, p.challanId);
+  });
+  const after = await getTransportChallan(p.challanId);
+
+  const receiptNo = receiptNoOf(p.id);
+  const method = p.method.replace(/_/g, ' ').toLowerCase();
+  await logAudit(null, {
+    actorId: actor.userId,
+    actorName: await actorName(actor.userId),
+    actorRole: actor.role,
+    action: 'DELETE',
+    module: 'FEES',
+    targetType: 'TransportPayment',
+    targetId: paymentId,
+    targetLabel: `${riderLabel(after.rider)} (Transport #${after.challanNo}) — Rs ${toMoneyString(p.amount)}`,
+    details:
+      `Permanently deleted transport receipt #${receiptNo} of ${formatPKR(p.amount)} (${method}, dated ${pktDayString(p.paymentDate)}` +
+      `${p.isReversed ? ', already reversed' : ''}) on challan ${after.challanNo} for ${periodLabel(after.year, after.month)}. ` +
+      `Reason: ${reason}. Balance ${formatPKR(before.balance)} → ${formatPKR(after.balance)}`,
+    changes: {
+      receiptNo: { before: receiptNo, after: null },
+      amount: { before: toMoneyString(p.amount), after: null },
+      method: { before: p.method, after: null },
+      paymentDate: { before: pktDayString(p.paymentDate), after: null },
+      challanBalance: { before: before.balance, after: after.balance },
+      challanStatus: { before: before.status, after: after.status },
+      _meta: {
+        reason,
+        challanNo: after.challanNo,
+        rider: riderLabel(after.rider),
+        route: after.routeName,
+        period: periodLabel(after.year, after.month),
+        receivedBy: p.receivedBy.fullName,
+        note: p.note,
+        wasReversed: p.isReversed,
+        reversalReason: p.reversalReason,
+        reversedBy: p.reversedBy?.fullName ?? null,
+        salarySlipId: p.salarySlipId,
+      },
+    },
+  });
+
+  return { deleted: true, challan: after };
 }
 
 export async function listTransportPayments(q: ListTransportPaymentsQuery) {

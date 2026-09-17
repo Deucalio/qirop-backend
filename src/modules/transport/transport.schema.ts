@@ -97,6 +97,12 @@ export const generateTransportChallansSchema = z.object({
   kind: riderKind,
   /** Riders unticked in the preview, as "student:<id>" / "staff:<id>". */
   excludeRiders: z.array(z.string().regex(/^(student|staff):.+$/)).max(2000).optional(),
+  /**
+   * Bill ONLY these riders (same key format). Used to raise a challan for one
+   * or a few people — a late joiner, or someone whose challan was deleted to
+   * be made again — without touching anyone else on the route.
+   */
+  onlyRiders: z.array(z.string().regex(/^(student|staff):.+$/)).min(1, 'Choose at least one person').max(2000).optional(),
 });
 
 export const listTransportChallansQuerySchema = z.object({
@@ -138,6 +144,14 @@ export const markTransportPaidSchema = z.object({
   paymentDate: pktDate,
   method: z.enum(['CASH', 'BANK_TRANSFER', 'CHEQUE', 'OTHER']).default('CASH'),
   note: z.string().trim().max(300).nullable().optional(),
+});
+
+/**
+ * Deleting destroys the receipt entirely, unlike a reversal which keeps it, so
+ * the reason is mandatory and goes into the audit entry.
+ */
+export const deleteTransportPaymentSchema = z.object({
+  reason: z.string().trim().min(3, 'A reason is required').max(300),
 });
 
 export const reverseTransportPaymentSchema = z.object({
