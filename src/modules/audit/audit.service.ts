@@ -1,7 +1,8 @@
 import type { Request } from 'express';
 import { prisma } from '../../config/prisma';
 import { pktDayBounds } from '../../utils/pktDate';
-import type { Role } from '@prisma/client';
+import type { Prisma, Role } from '@prisma/client';
+import { actionWhere, moduleWhere } from './audit.categories';
 
 export interface AuditLogParams {
   action: string;      // CREATE, UPDATE, DELETE, ATTENDANCE, PAYMENT, DISCOUNT, REVERSAL, RESET, LOGIN
@@ -84,13 +85,13 @@ export async function listAuditLogs(params: {
 
   const where: any = {};
 
-  if (params.module && params.module !== 'all') {
-    where.module = params.module;
-  }
-
-  if (params.action && params.action !== 'all') {
-    where.action = params.action;
-  }
+  // Grouped, not raw-string, filters (see audit.categories.ts). Collected under
+  // AND because the module and action clauses can carry their own OR, and the
+  // free-text search below sets the top-level OR.
+  const groups: Prisma.AuditLogWhereInput[] = [];
+  if (params.module && params.module !== 'all') groups.push(moduleWhere(params.module));
+  if (params.action && params.action !== 'all') groups.push(actionWhere(params.action));
+  if (groups.length) where.AND = groups;
 
   if (params.actorRole && params.actorRole !== 'all') {
     where.actorRole = params.actorRole as Role;

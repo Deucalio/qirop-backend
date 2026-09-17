@@ -30,7 +30,7 @@ async function audit(userId: string, action: string, entityId: string, metadata:
         actorName: u?.fullName ?? 'Admin',
         actorRole: u?.role ?? 'ADMIN',
         action,
-        module: 'FEES',
+        module: 'TRANSPORT',
         targetType: 'TransportRoute',
         targetId: entityId,
         targetLabel: (metadata.name as string) || `Transport Route #${entityId.slice(0, 8)}`,

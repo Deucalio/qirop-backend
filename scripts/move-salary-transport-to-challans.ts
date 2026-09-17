@@ -188,7 +188,7 @@ async function main() {
       actorName: 'System migration',
       actorRole: 'SUPERADMIN',
       action: 'CREATE',
-      module: 'FEES',
+      module: 'TRANSPORT',
       targetType: 'TransportChallan',
       targetLabel: 'Salary transport deductions moved to transport challans',
       details:
