@@ -1,4 +1,4 @@
-import { Prisma, Role, PayerType, type ExpenseCategory } from '@prisma/client';
+import { Prisma, Role, PayerType, TransportPaymentMethod, type ExpenseCategory } from '@prisma/client';
 import type { Response } from 'express';
 import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
@@ -326,7 +326,7 @@ export async function financeSummary(year: number) {
   const start = new Date(Date.UTC(year, 0, 1));
   const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
 
-  const [payments, expenses, salaries] = await Promise.all([
+  const [payments, transportPayments, expenses, salaries] = await Promise.all([
     prisma.feePayment.findMany({
       where: { isReversed: false, paymentDate: { gte: start, lte: end } },
       include: {
@@ -338,6 +338,20 @@ export async function financeSummary(year: number) {
           },
         },
       },
+    }),
+    /*
+     * Transport fares are billed on their own challans, so their money never
+     * passes through a fee payment and has to be counted here in its own right.
+     * A SALARY_DEDUCTION record is left out: that fare was never cash in hand,
+     * and the salaries below are already counted net of it.
+     */
+    prisma.transportPayment.findMany({
+      where: {
+        isReversed: false,
+        method: { not: TransportPaymentMethod.SALARY_DEDUCTION },
+        paymentDate: { gte: start, lte: end },
+      },
+      select: { amount: true, paymentDate: true },
     }),
     prisma.expense.findMany({
       where: { date: { gte: start, lte: end } },
@@ -385,6 +399,12 @@ export async function financeSummary(year: number) {
         else rows[mIdx].feesBreakdown.other = rows[mIdx].feesBreakdown.other.plus(itemShare);
       }
     }
+  }
+
+  for (const t of transportPayments) {
+    const mIdx = t.paymentDate.getUTCMonth();
+    rows[mIdx].income = rows[mIdx].income.plus(t.amount);
+    rows[mIdx].feesBreakdown.transport = rows[mIdx].feesBreakdown.transport.plus(t.amount);
   }
 
   for (const e of expenses) {

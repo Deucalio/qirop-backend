@@ -40,7 +40,7 @@ export const createTeacherSchema = z.object({
   salary: z.coerce.number().nonnegative('Salary must be zero or more'),
   fatherName: z.string().min(1, 'Father / mother name is required').max(150),
   parentCnic: z.string().regex(cnicRegex, 'Parent CNIC must be in the format XXXXX-XXXXXXX-X').optional().or(z.literal('')),
-  // Transport route this teacher commutes on (deducted from their salary).
+  // Transport route this staff member rides (billed on transport challans, not salary).
   transportRouteId: z.string().min(1).nullable().optional(),
 });
 

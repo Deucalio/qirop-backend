@@ -45,7 +45,7 @@ import {
   meChildFeesRouter,
   meTeacherChildrenRouter,
 } from './modules/fees/fees.routes';
-import { transportRouter } from './modules/transport/transport.routes';
+import { transportRouter, meChildTransportRouter, meStaffTransportRouter } from './modules/transport/transport.routes';
 import { salariesRouter } from './modules/salaries/salaries.routes';
 import { certificatesRouter } from './modules/certificates/certificates.routes';
 import { expensesRouter, financeRouter } from './modules/expenses/expenses.routes';
@@ -176,10 +176,12 @@ export function createApp(): Express {
   app.use('/api/me/teacher/homework', meTeacherHomeworkRouter);
   app.use('/api/me/teacher/timetable', meTeacherTimetableRouter);
   app.use('/api/me/teacher/children', meTeacherChildrenRouter); // staff-parent fee view (D4)
+  app.use('/api/me/teacher/transport', meStaffTransportRouter); // a staff rider's own transport challans
   app.use('/api/me/children', meChildrenRouter);
   app.use('/api/me/children', meChildHomeworkRouter);
   app.use('/api/me/children', meChildTimetableRouter);
   app.use('/api/me/children', meChildFeesRouter);
+  app.use('/api/me/children', meChildTransportRouter);
   app.use('/api/me', meRouter);
 
   // Protected test route to verify RBAC.

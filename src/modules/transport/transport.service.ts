@@ -231,7 +231,7 @@ export async function updateRoute(actor: Actor, id: string, input: UpdateRouteIn
   if (input.staffMonthlyFee === null && riders.staff > 0) {
     throw new AppError(
       `"${existing.name}" still carries ${riders.staff} staff member${riders.staff === 1 ? '' : 's'}. ` +
-        `Move them off the route before clearing its staff rate, or nothing would be deducted from their salary.`,
+        `Move them off the route before clearing its staff rate, or they would be billed nothing for transport.`,
       409,
       'ROUTE_HAS_STAFF_RIDERS',
     );
@@ -318,7 +318,7 @@ export async function assign(actor: Actor, input: AssignInput) {
       name: route.name,
       details:
         `${sName} (${s.admissionNo}) was put on transport route "${route.name}". ` +
-        `${rateLabel(route.studentMonthlyFee)} per month will be added to their challan from the next generation.`,
+        `${rateLabel(route.studentMonthlyFee)} per month will be billed on their monthly transport challan from the next run.`,
       changes: {
         rider: { before: null, after: `${sName} (${s.admissionNo})` },
         studentRate: { before: null, after: rateLabel(route.studentMonthlyFee) },
@@ -339,7 +339,7 @@ export async function assign(actor: Actor, input: AssignInput) {
       name: route.name,
       details:
         `${tName} (${t.employeeId}) was put on transport route "${route.name}". ` +
-        `${rateLabel(route.staffMonthlyFee)} per month will be deducted from their salary when payroll runs.`,
+        `${rateLabel(route.staffMonthlyFee)} per month will be billed on their monthly transport challan from the next run (not deducted from salary).`,
       changes: {
         rider: { before: null, after: `${tName} (${t.employeeId})` },
         staffRate: { before: null, after: rateLabel(route.staffMonthlyFee) },
@@ -372,7 +372,7 @@ export async function unassign(actor: Actor, input: UnassignInput) {
     name: existing.route.name,
     details:
       `${rider} was taken off transport route "${existing.route.name}". ` +
-      `${rateLabel(rate)} per month will no longer be charged.`,
+      `${rateLabel(rate)} per month will no longer be billed on new transport challans.`,
     changes: { rider: { before: rider, after: null }, rate: { before: rateLabel(rate), after: null } },
   });
   return { removed: true };

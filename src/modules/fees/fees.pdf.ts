@@ -50,6 +50,48 @@ const MONTHS = [
 type ChallanData = Awaited<ReturnType<typeof getChallan>>;
 
 /**
+ * The words on a voucher that depend on what it bills.
+ *
+ * Transport challans print on this same layout — one design for every bill the
+ * office hands over — but a staff rider has an employee ID rather than a
+ * student ID, and a signature line of their own rather than a guardian's.
+ */
+export interface VoucherLabels {
+  /** "FEE" → "PAID FEE VOUCHER". */
+  noun: string;
+  idLabel: string;
+  personLabel: string;
+  /** What the placement line is: a class, or a staff member's role. */
+  placementLabel: string;
+  totalLabel: string;
+  signatureLabel: string;
+}
+
+const FEE_VOUCHER_LABELS: VoucherLabels = {
+  noun: 'FEE',
+  idLabel: 'Student ID',
+  personLabel: 'Student',
+  placementLabel: 'Class',
+  totalLabel: 'TOTAL FEES PAYABLE',
+  signatureLabel: 'Parent / Guardian Signature',
+};
+
+/**
+ * Everything the voucher layout reads. A fee challan satisfies it as it comes;
+ * other bills shape themselves into it rather than growing a second layout.
+ */
+export type VoucherData = Pick<
+  ChallanData,
+  | 'challanNo' | 'year' | 'month' | 'issueDate' | 'dueDate' | 'baseAmount' | 'discount' | 'lateFee' | 'amount'
+  | 'paidAmount' | 'cashPaid' | 'staffCovered' | 'lastPaymentDate' | 'items' | 'previousDues' | 'previousBalance'
+  | 'advanceCredit' | 'totalPayable'
+> & {
+  student: Pick<ChallanData['student'], 'name' | 'admissionNo' | 'className' | 'sectionName' | 'parentName'>;
+  /** Wording overrides; a fee challan leaves this out. */
+  labels?: Partial<VoucherLabels>;
+};
+
+/**
  * Renders the voucher as a receipt for ONE payment rather than as the account's
  * position: same sheet, same sections, but the amount this receipt brought in
  * is called out and dated to when it was handed over.
@@ -94,14 +136,15 @@ type SchoolInfo = { name: string; address: string | null; phone: string | null; 
  * shrink to stay on one sheet rather than grow its page. At the default, an
  * unpaid voucher's measurements are exactly what they have always been.
  */
-function voucherBlock(
-  c: ChallanData,
+export function voucherBlock(
+  c: VoucherData,
   school: SchoolInfo,
   hasLogo: boolean,
   scale = 1,
   receipt?: ReceiptContext,
   account?: AccountContext,
 ): Content {
+  const L: VoucherLabels = { ...FEE_VOUCHER_LABELS, ...c.labels };
   const paidSoFar = Number(c.paidAmount) > 0 ? Number(c.paidAmount) : (Number(c.cashPaid) + Number(c.staffCovered));
   // A receipt is by definition a paid voucher, even before the ledger agrees.
   const isPaid = paidSoFar > 0 || receipt !== undefined || account !== undefined;
@@ -149,13 +192,21 @@ function voucherBlock(
 
   const monthName = `${MONTHS[c.month] ?? ''} ${c.year}`.trim();
 
+  const titleText = account
+    ? `PAID ${L.noun} VOUCHER — ${account.titleSuffix}`
+    : isPaid
+      ? `PAID ${L.noun} VOUCHER — ${monthName.toUpperCase()}`
+      : `UNPAID ${L.noun} VOUCHER — ${monthName.toUpperCase()}`;
+  /*
+   * The title must stay on one line: a wrapped title pushes a B6 receipt's
+   * signature block onto a second sheet. "UNPAID FEE VOUCHER — SEPTEMBER 2026"
+   * is 35 characters and fits at full size, so fee vouchers are untouched; a
+   * longer title ("… TRANSPORT VOUCHER …") shrinks in proportion instead.
+   */
+  const TITLE_FIT_CHARS = 35;
   const title: Content = {
-    text: account
-      ? `PAID FEE VOUCHER — ${account.titleSuffix}`
-      : isPaid
-        ? `PAID FEE VOUCHER — ${monthName.toUpperCase()}`
-        : `UNPAID FEE VOUCHER — ${monthName.toUpperCase()}`,
-    fontSize: s(11),
+    text: titleText,
+    fontSize: s(11 * Math.min(1, TITLE_FIT_CHARS / titleText.length)),
     bold: true,
     alignment: 'center',
     margin: [0, s(4.5), 0, s(4.5)],
@@ -206,15 +257,15 @@ function voucherBlock(
     stack: [
       {
         columns: [
-          kv('Student ID', c.student.admissionNo),
+          kv(L.idLabel, c.student.admissionNo),
           { ...kv('Voucher', c.challanNo.replace(/^CH-/, '')), alignment: 'right' },
         ],
       },
-      kv('Student', c.student.name),
+      kv(L.personLabel, c.student.name),
       kv('Father', c.student.parentName ?? ''),
       {
         columns: [
-          kv('Class', `${c.student.className} ${c.student.sectionName}`.trim()),
+          kv(L.placementLabel, `${c.student.className} ${c.student.sectionName}`.trim()),
           {
             ...kv(account ? 'Months' : 'Fee Month', account ? account.rangeLabel : monthName),
             alignment: 'right',
@@ -277,7 +328,7 @@ function voucherBlock(
     ...(account ? [] : [sumRow('Arrears', c.previousBalance)]),
     sumRow('Late Fee', String(lateFee)),
     sumRow('Less Discount', c.discount),
-    sumRow('TOTAL FEES PAYABLE', String(grossPayable), true),
+    sumRow(L.totalLabel, String(grossPayable), true),
     /*
      * When this sheet is one receipt rather than the account's position, the
      * amount THIS receipt brought in is separated from what came before it.
@@ -348,7 +399,7 @@ function voucherBlock(
             stack: [
               { text: ' ', fontSize: s(8), margin: [0, 0, 0, s(18)] },
               { text: '_____________________', fontSize: s(8), alignment: 'right' },
-              { text: 'Parent / Guardian Signature', fontSize: s(6), alignment: 'right', margin: [0, s(1.5), 0, 0] },
+              { text: L.signatureLabel, fontSize: s(6), alignment: 'right', margin: [0, s(1.5), 0, 0] },
             ],
           },
         ],
@@ -356,7 +407,7 @@ function voucherBlock(
         margin: [s(8), s(6), s(8), s(6)],
       }
     : {
-        text: 'Parent / Guardian Signature: ______________________',
+        text: `${L.signatureLabel}: ______________________`,
         fontSize: s(8),
         margin: [s(8), s(10), s(8), s(10)],
       };
@@ -398,7 +449,7 @@ export function perPageFor(
 
 /** Lay vouchers out in a grid, 4 per A4 sheet (2x2) or 1 per page for receipts. */
 function voucherGrid(
-  challans: ChallanData[],
+  challans: VoucherData[],
   school: SchoolInfo,
   hasLogo: boolean,
   perPage: number = 4,
@@ -440,7 +491,7 @@ function voucherGrid(
   return pages;
 }
 
-async function loadSchool(): Promise<SchoolInfo & { logoDataUri: string | null }> {
+export async function loadSchool(): Promise<SchoolInfo & { logoDataUri: string | null }> {
   const s = await prisma.school.findFirst();
   const logo = await fetchFileBuffer(s?.logoUrl);
   return {
@@ -485,7 +536,7 @@ function stampPageMetadata(pdf: PdfKitDoc): void {
   }
 }
 
-function render(doc: TDocumentDefinitions): Promise<Buffer> {
+export function render(doc: TDocumentDefinitions): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const pdf = printer.createPdfKitDocument(doc);
     stampPageMetadata(pdf);
@@ -498,7 +549,7 @@ function render(doc: TDocumentDefinitions): Promise<Buffer> {
 }
 
 /** True when every challan in the batch has money against it. */
-function allPaid(challans: ChallanData[]): boolean {
+function allPaid(challans: VoucherData[]): boolean {
   return (
     challans.length > 0 &&
     challans.every((c) => Number(c.paidAmount) > 0 || Number(c.cashPaid) + Number(c.staffCovered) > 0)
@@ -529,7 +580,7 @@ export const B6_HEIGHT_PT = 176 * MM_TO_PT;
 const RECEIPT_TYPE_SCALE = 1.32;
 
 /** Trim on a B6 sheet: enough to clear a printer's unprintable edge, no more. */
-const RECEIPT_MARGIN = 10;
+export const RECEIPT_MARGIN = 10;
 
 function pageCount(pdf: Buffer): number {
   const counts = [...pdf.toString('latin1').matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
@@ -548,7 +599,7 @@ function pageCount(pdf: Buffer): number {
  * one render.
  */
 async function fittedScale(
-  challans: ChallanData[],
+  challans: VoucherData[],
   school: SchoolInfo & { logoDataUri: string | null },
 ): Promise<number> {
   const wanted = challans.length;
@@ -563,7 +614,7 @@ async function fittedScale(
 }
 
 function voucherDoc(
-  challans: ChallanData[],
+  challans: VoucherData[],
   school: SchoolInfo & { logoDataUri: string | null },
   scale = 1,
 ): TDocumentDefinitions {
@@ -591,7 +642,7 @@ function voucherDoc(
  * module and is worth asserting on the actual bytes.
  */
 export async function renderVouchers(
-  challans: ChallanData[],
+  challans: VoucherData[],
   school: SchoolInfo & { logoDataUri: string | null },
 ): Promise<Buffer> {
   const scale = allPaid(challans) ? await fittedScale(challans, school) : 1;

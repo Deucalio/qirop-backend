@@ -73,7 +73,8 @@ export const generateChallansSchema = z.object({
       z.object({
         label: z.string().trim().min(1, 'Label is required').max(80),
         amount: moneyInput({ min: 0.01 }),
-        type: z.enum(['TUITION', 'TRANSPORT', 'ADMISSION', 'EXAM', 'OTHER']).optional(),
+        // No TRANSPORT: bus fares are billed on transport challans, never here.
+        type: z.enum(['TUITION', 'ADMISSION', 'EXAM', 'OTHER']).optional(),
         studentIds: z.array(z.string().min(1)).max(2000).optional(),
       }),
     )
@@ -81,14 +82,6 @@ export const generateChallansSchema = z.object({
     .optional(),
   // Extra discount % applied to students whose parent is a teacher (staff perk).
   staffChildDiscountPercent: z.coerce.number().min(0).max(100).optional(),
-  /**
-   * Leave transport riders out of this run entirely — no challan at all for
-   * anyone on an active route, not merely a challan without the route fee.
-   *
-   * This is for a run that deliberately covers only the non-transport students,
-   * with the riders billed separately. Defaults to false.
-   */
-  excludeTransportRiders: z.boolean().optional(),
 });
 
 // ---- Challan edits ----
@@ -99,7 +92,7 @@ export const patchChallanSchema = z
     dueDate: pktDate.optional(),
     addItem: z
       .object({
-        type: z.enum(['TUITION', 'TRANSPORT', 'ADMISSION', 'EXAM', 'OTHER']),
+        type: z.enum(['TUITION', 'ADMISSION', 'EXAM', 'OTHER']),
         label: z.string().trim().min(1).max(80),
         amount: moneyInput({ min: 0 }),
       })

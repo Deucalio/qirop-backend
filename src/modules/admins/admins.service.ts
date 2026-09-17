@@ -419,6 +419,7 @@ export async function detachStaffProfile(actor: Actor, id: string) {
           classTeacherSections: true,
           salarySlips: true,
           staffChildren: true,
+          transportChallans: true,
         },
       },
       transportAssignment: true,
@@ -433,6 +434,8 @@ export async function detachStaffProfile(actor: Actor, id: string) {
   if (c.salarySlips > 0) blockers.push(`${c.salarySlips} salary slip(s) already generated`);
   if (c.staffChildren > 0) blockers.push(`${c.staffChildren} child(ren) whose fees bill to this salary`);
   if (profile.transportAssignment) blockers.push('an assigned commute route');
+  // Deleting the profile would cascade away their transport bills and receipts.
+  if (c.transportChallans > 0) blockers.push(`${c.transportChallans} transport challan(s) already generated`);
 
   if (blockers.length > 0) {
     throw new AppError(
@@ -561,6 +564,8 @@ export async function deleteAdmin(actor: Actor, id: string) {
     await tx.user.updateMany({ where: { createdById: target.id }, data: { createdById: actor.userId } });
     await tx.feePayment.updateMany({ where: { receivedById: target.id }, data: { receivedById: actor.userId } });
     await tx.feePayment.updateMany({ where: { reversedById: target.id }, data: { reversedById: actor.userId } });
+    await tx.transportPayment.updateMany({ where: { receivedById: target.id }, data: { receivedById: actor.userId } });
+    await tx.transportPayment.updateMany({ where: { reversedById: target.id }, data: { reversedById: actor.userId } });
     await tx.expense.updateMany({ where: { recordedById: target.id }, data: { recordedById: actor.userId } });
     await tx.salarySlip.updateMany({ where: { generatedById: target.id }, data: { generatedById: actor.userId } });
     await tx.studentAttendance.updateMany({ where: { markedById: target.id }, data: { markedById: actor.userId } });

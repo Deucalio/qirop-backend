@@ -247,7 +247,6 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
     },
     include: {
       section: { include: { class: { include: { feeStructure: true } } } },
-      transportAssignment: { include: { route: true } },
       // For the audit record: who was billed, and who to contact about it.
       parent: { include: { user: { select: { fullName: true, phone: true } } } },
     },
@@ -257,17 +256,11 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
   // Normalise the admin's ad-hoc extra charges once for the whole batch.
   const extraFees = (input.extraFees ?? []).filter((e) => money(e.amount).greaterThan(0));
   const staffPct = input.staffChildDiscountPercent ?? 0;
-  const excludeRiders = input.excludeTransportRiders === true;
 
   const result = await prisma.$transaction(async (tx) => {
     let created = 0;
     let skipped = 0;
     let staffBilled = 0;
-    let transportBilled = 0;
-    /** Riders whose route fee this run deliberately left off, and what it came to. */
-    /** Riders left out of this run entirely, and what they would have been billed. */
-    let ridersExcluded = 0;
-    let ridersExcludedAmount = ZERO;
     let total = ZERO;
     /**
      * Exactly who was billed, captured as the run goes. A generation is a bulk
@@ -290,36 +283,19 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
 
       const structure = s.section.class.feeStructure;
       const monthly = money(structure?.monthlyFee ?? 0);
-      // Transport: a rider's route fee lands on their challan (billed to the
-      // teacher-parent's salary too, if this is a staff child). A route with no
-      // student rate does not carry students, so it contributes nothing.
-      const route = s.transportAssignment?.route;
-      const routeFee = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
       /*
-       * Riders can be held back from the run altogether. They keep their route
-       * and their fees — this run simply is not theirs, and a later one bills
-       * them. Nothing is waived, so nothing has to be carried forward.
+       * Transport is not billed here. A rider's fare goes on a transport challan
+       * of its own (Transport page), so a fee payment can never settle a bus
+       * fare and a staff child's fare never reaches a salary. Riders get an
+       * ordinary fee challan like everyone else.
        */
-      if (excludeRiders && routeFee.greaterThan(0)) {
-        ridersExcluded++;
-        // What the run would have billed them, so the audit records the size of
-        // what was held back rather than only the head count.
-        const admissionNow = ZERO;
-        ridersExcludedAmount = ridersExcludedAmount.plus(monthly).plus(routeFee).plus(admissionNow);
-        skipped++;
-        continue;
-      }
-      const transport = routeFee;
 
       // Tuition only when a fee structure is actually set (monthly > 0). Classes
       // with no structure produce no tuition — and no challan at all unless some
-      // other charge (transport/exam/other) applies.
+      // other charge (exam/other) applies.
       const items: { type: FeeItemType; label: string; amount: string }[] = [];
       if (monthly.greaterThan(0)) {
         items.push({ type: FeeItemType.TUITION, label: 'Monthly Tuition', amount: toMoneyString(monthly) });
-      }
-      if (transport.greaterThan(0)) {
-        items.push({ type: FeeItemType.TRANSPORT, label: route!.name || 'Transport', amount: toMoneyString(transport) });
       }
       /*
        * Ad-hoc extra charges, each its own labelled line item.
@@ -374,7 +350,6 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
         },
       });
       if (s.teacherParentId) staffBilled++;
-      if (transport.greaterThan(0)) transportBilled++;
       created++;
       total = total.plus(amount);
       billed.push({
@@ -432,11 +407,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
               })
               .join(', ')
           : '') +
-        (staffPct > 0 ? `. Staff-child discount: ${staffPct}%` : '') +
-        (excludeRiders
-          ? `. Transport riders HELD BACK from this run: ${ridersExcluded} student(s) got no challan, ` +
-            `Rs ${toMoneyString(ridersExcludedAmount)} not billed here. Nothing is waived — a later run bills them`
-          : ''),
+        (staffPct > 0 ? `. Staff-child discount: ${staffPct}%` : ''),
       changes: {
         challansCreated: { before: 0, after: created },
         totalAmount: { before: '0.00', after: toMoneyString(total) },
@@ -447,9 +418,6 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
           studentCount: created,
           skipped,
           staffBilled,
-          transportBilled,
-          ridersExcluded,
-          ridersExcludedAmount: toMoneyString(ridersExcludedAmount),
           classes: classNames,
           sections: sectionNames,
           /** The choices made in the generate dialog, kept verbatim. */
@@ -461,7 +429,6 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
               appliesTo: e.studentIds && e.studentIds.length > 0 ? e.studentIds.length : 'everyone',
             })),
             staffChildDiscountPercent: staffPct,
-            excludeTransportRiders: excludeRiders,
             selection: input.sectionId ? 'Single section' : input.classId ? 'Whole class' : input.studentIds ? 'Selected students' : 'Whole school',
           },
           /** Every challan this run produced, so the list survives the challans themselves. */
@@ -474,9 +441,6 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       created,
       skipped,
       staffBilled,
-      transportBilled,
-      ridersExcluded,
-      ridersExcludedAmount: toMoneyString(ridersExcludedAmount),
       totalAmount: toMoneyString(total),
     };
     // Generous timeout: bulk generation makes many round-trips to a remote DB.
@@ -953,8 +917,9 @@ export async function listChallans(query: ListChallansQuery) {
 /**
  * Preview what a `generateChallans` run would do — per class: how many students,
  * how many already billed this month, how many will get a new challan, whether
- * the class even has a fee structure, plus staff-child and transport-rider
- * counts and a rough billed estimate. Powers the Generate Challans modal.
+ * the class even has a fee structure, plus staff-child counts and a rough
+ * billed estimate. Powers the Generate Challans modal. Transport is billed on
+ * its own challans and plays no part here.
  */
 export async function generatePreview(query: {
   year: number;
@@ -962,11 +927,8 @@ export async function generatePreview(query: {
   classId?: string;
   sectionId?: string;
   studentId?: string;
-  /** Mirror the dialog's toggle so the estimate matches what will happen. */
-  excludeTransportRiders?: boolean;
 }) {
   const { year, month } = query;
-  const excludeRiders = query.excludeTransportRiders === true;
   const scope = {
     status: UserStatus.ACTIVE,
     ...(query.sectionId ? { sectionId: query.sectionId } : {}),
@@ -981,7 +943,6 @@ export async function generatePreview(query: {
       teacherParentId: true,
       feeDiscount: true,
       section: { select: { classId: true, class: { select: { name: true, order: true, feeStructure: true } } } },
-      transportAssignment: { select: { route: { select: { active: true, studentMonthlyFee: true } } } },
     },
   });
 
@@ -1004,14 +965,9 @@ export async function generatePreview(query: {
     eligible: number;
     firstTimers: number;
     staffChildren: number;
-    transportRiders: number;
-    /** What those riders' routes come to this month. */
-    transportTotal: string;
-    /** The whole amount those riders would be billed — not just their route fee. */
-    ridersBillable: string;
     estimatedTotal: string;
   };
-  const byClass = new Map<string, Row & { _est: Money; _transport: Money; _ridersBillable: Money }>();
+  const byClass = new Map<string, Row & { _est: Money }>();
   /**
    * Students with no challan ever, by id.
    *
@@ -1041,13 +997,8 @@ export async function generatePreview(query: {
         eligible: 0,
         firstTimers: 0,
         staffChildren: 0,
-        transportRiders: 0,
-        transportTotal: '0.00',
-        ridersBillable: '0.00',
         estimatedTotal: '0.00',
         _est: ZERO,
-        _transport: ZERO,
-        _ridersBillable: ZERO,
       };
       byClass.set(cid, row);
     }
@@ -1055,14 +1006,6 @@ export async function generatePreview(query: {
     if (!everBilled.has(s.id)) neverBilledStudentIds.push(s.id);
     const alreadyBilled = billedThisMonth.has(s.id);
     if (alreadyBilled) row.alreadyBilled++;
-
-    const route = s.transportAssignment?.route;
-    const routeFee = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
-    const isRider = routeFee.greaterThan(0);
-    if (isRider) {
-      row.transportRiders++;
-      row._transport = row._transport.plus(routeFee);
-    }
     if (s.teacherParentId) row.staffChildren++;
 
     if (!alreadyBilled) {
@@ -1070,29 +1013,20 @@ export async function generatePreview(query: {
       // A student generates a challan only if something can be charged. Admission
       // is no longer part of that — it is an extra charge the admin adds, so it
       // cannot be predicted here.
-      const willBill = monthly.greaterThan(0) || routeFee.greaterThan(0);
-      // The whole bill a rider would receive, which is what holding them back
-      // actually costs the run — not merely their route fee.
-      if (isRider && willBill) row._ridersBillable = row._ridersBillable.plus(monthly).plus(routeFee);
-
-      // Riders held back get no challan at all, so they are not eligible and
-      // contribute nothing to the estimate.
-      if (willBill && !(excludeRiders && isRider)) {
+      if (monthly.greaterThan(0)) {
         row.eligible++;
         // Never billed before. Not a charge in itself any more, but the office
         // uses it to decide who needs an admission fee adding.
         if (isFirst) row.firstTimers++;
-        row._est = row._est.plus(monthly).plus(routeFee);
+        row._est = row._est.plus(monthly);
       }
     }
   }
 
   const rows = [...byClass.values()]
     .sort((a, b) => a.order - b.order)
-    .map(({ _est, _transport, _ridersBillable, ...r }) => ({
+    .map(({ _est, ...r }) => ({
       ...r,
-      transportTotal: toMoneyString(_transport),
-      ridersBillable: toMoneyString(_ridersBillable),
       estimatedTotal: toMoneyString(_est),
     }));
 
@@ -1110,11 +1044,9 @@ export async function generatePreview(query: {
     if (billedThisMonth.has(s.id)) continue;
     const cls = s.section.class;
     const monthly = money(cls.feeStructure?.monthlyFee ?? 0);
-    const route = s.transportAssignment?.route;
-    const transport = route?.active ? money(route.studentMonthlyFee ?? 0) : ZERO;
     // Matches the eligibility test above: admission is an extra charge now, so
     // it cannot make a student billable on its own.
-    if (monthly.greaterThan(0) || transport.greaterThan(0)) {
+    if (monthly.greaterThan(0)) {
       eligibleIds.add(s.id);
     }
   }
@@ -1174,10 +1106,6 @@ export async function generatePreview(query: {
       alreadyBilled: rows.reduce((n, r) => n + r.alreadyBilled, 0),
       willGenerate: rows.reduce((n, r) => n + r.eligible, 0),
       staffChildren: rows.reduce((n, r) => n + r.staffChildren, 0),
-      transportRiders: rows.reduce((n, r) => n + r.transportRiders, 0),
-      transportTotal: toMoneyString(sum(rows.map((r) => r.transportTotal))),
-      /** What holding the riders back keeps out of this run, in full. */
-      ridersBillable: toMoneyString(sum(rows.map((r) => r.ridersBillable))),
       classesWithoutStructure: rows.filter((r) => !r.hasStructure).length,
       estimatedTotal: toMoneyString(sum(rows.map((r) => r.estimatedTotal))),
     },

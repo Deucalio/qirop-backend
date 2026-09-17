@@ -172,6 +172,9 @@ model User {
   certificateFeesSet      CertificateFee[]    @relation("CertificateFeeUpdatedBy")
   certificatesIssued      CertificateIssue[]  @relation("CertificateIssuedBy")
   markedTeacherPeriodAttendance TeacherPeriodAttendance[] @relation("TeacherPeriodAttendanceMarkedBy")
+  transportChallansGenerated    TransportChallan[]        @relation("TransportChallanGeneratedBy")
+  transportPaymentsReceived     TransportPayment[]        @relation("TransportPaymentReceivedBy")
+  transportPaymentsReversed     TransportPayment[]        @relation("TransportPaymentReversedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -275,8 +278,10 @@ model TeacherProfile {
   staffChildren       Student[]    @relation("StaffChildren")
   teacherBilledChallans FeeChallan[] @relation("TeacherBilledChallans")
 
-  // At most one transport route (own commute → salary deduction).
+  // At most one transport route. Billed on transport challans of its own, not
+  // deducted from salary (older slips may still carry a transport deduction).
   transportAssignment TransportAssignment?
+  transportChallans   TransportChallan[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -541,6 +546,7 @@ model Student {
 
   // At most one transport route (see TransportAssignment).
   transportAssignment TransportAssignment?
+  transportChallans   TransportChallan[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -851,6 +857,10 @@ model SalarySlip {
   generatedById String
   generatedBy   User           @relation("SalarySlipGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
 
+  // Transport fares this slip settled by deduction, from before transport was
+  // billed on its own.
+  transportPayments TransportPayment[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1008,6 +1018,7 @@ model TransportRoute {
   active      Boolean @default(true)
 
   assignments TransportAssignment[]
+  challans    TransportChallan[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1033,6 +1044,111 @@ model TransportAssignment {
   updatedAt DateTime @updatedAt
 
   @@index([routeId])
+}
+
+/// How a transport fare was settled. SALARY_DEDUCTION exists only for fares
+/// taken out of pay before transport was billed on its own — it is not cash
+/// received, so finance reports leave it out of income (the salary figures
+/// already count that pay as not paid out).
+enum TransportPaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  SALARY_DEDUCTION
+  OTHER
+}
+
+/**
+ * One rider's transport bill for one month.
+ *
+ * Deliberately separate from FeeChallan. Fee payments spread across a
+ * student's fee challans oldest-first and keep any surplus as credit; if
+ * transport shared that ledger, tuition money could quietly settle a bus fare.
+ * A transport payment always settles exactly this challan, and staff riders —
+ * who have no fee challans at all — are billed the same way as students.
+ */
+model TransportChallan {
+  id        String @id @default(cuid())
+  challanNo String @unique // TR-2026-000123
+
+  // Exactly one rider: a student or a staff member.
+  studentId String?
+  student   Student?        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  teacherId String?
+  teacher   TeacherProfile? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  // The route at billing time. The name is a snapshot so the bill still says
+  // which van it was for after a rename, a reassignment or a deleted route.
+  routeId   String?
+  route     TransportRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  routeName String
+
+  year  Int
+  month Int // 1..12
+
+  baseAmount Decimal       @db.Decimal(10, 2) // the route rate, snapshotted
+  discount   Decimal       @default(0) @db.Decimal(10, 2)
+  lateFee    Decimal       @default(0) @db.Decimal(10, 2)
+  amount     Decimal       @db.Decimal(10, 2) // payable = base − discount + late fee
+  issueDate  DateTime      @default(now())
+  dueDate    DateTime
+  status     ChallanStatus @default(UNPAID)
+  note       String?
+
+  generatedById String?
+  generatedBy   User?   @relation("TransportChallanGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  payments TransportPayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One bill per rider per month. Postgres treats NULLs as distinct, so each
+  // constraint only binds the kind of rider it names.
+  @@unique([studentId, year, month])
+  @@unique([teacherId, year, month])
+  @@index([year, month])
+  @@index([status])
+  @@index([routeId])
+}
+
+/// Money received against one transport challan. Corrections are reversals;
+/// the row is kept.
+model TransportPayment {
+  id           String                 @id @default(cuid())
+  challanId    String
+  challan      TransportChallan       @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  amount       Decimal                @db.Decimal(10, 2)
+  paymentDate  DateTime
+  method       TransportPaymentMethod
+  receivedById String
+  receivedBy   User                   @relation("TransportPaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+  note         String?
+
+  // Set when method is SALARY_DEDUCTION: the slip the fare came out of.
+  salarySlipId String?
+  salarySlip   SalarySlip? @relation(fields: [salarySlipId], references: [id], onDelete: SetNull)
+
+  isReversed     Boolean   @default(false)
+  reversedAt     DateTime?
+  reversedById   String?
+  reversedBy     User?     @relation("TransportPaymentReversedBy", fields: [reversedById], references: [id], onDelete: SetNull)
+  reversalReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([challanId])
+  @@index([paymentDate])
+  @@index([receivedById])
+}
+
+// Sequential transport challan numbers, per calendar year (TR-2026-000001).
+model TransportChallanCounter {
+  year       Int @id
+  lastNumber Int @default(0)
+
+  updatedAt DateTime @updatedAt
 }
 
 model SavedReport {

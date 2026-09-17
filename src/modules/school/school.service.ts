@@ -132,6 +132,9 @@ export async function updateSettings(settings: Record<string, unknown>, actorId?
 
 export async function resetAllSchoolData(actor: { userId: string; role: Role | string }) {
   // 1. Transactional financial & fee data
+  await prisma.transportPayment.deleteMany();
+  await prisma.transportChallan.deleteMany();
+  await prisma.transportChallanCounter.deleteMany();
   await prisma.feePaymentAllocation.deleteMany();
   await prisma.feePayment.deleteMany();
   await prisma.feeChallanItem.deleteMany();
@@ -280,6 +283,10 @@ export async function purgeBatchData(actor: { userId: string; role: Role | strin
   }
 
   if (categories.includes('transport')) {
+    // Bills and receipts go with the routes; a transport challan with no route
+    // and no way to reach it from the Transport page is just clutter.
+    await prisma.transportPayment.deleteMany();
+    await prisma.transportChallan.deleteMany();
     await prisma.transportAssignment.deleteMany();
     const tr = await prisma.transportRoute.deleteMany();
     deletedSummary['transport'] = tr.count;
@@ -780,6 +787,7 @@ export async function purgeTeachersBatch(actor: { userId: string; role: Role | s
   await prisma.studentAttendance.updateMany({ where: { markedById: { in: uIds } }, data: { markedById: actor.userId } });
   await prisma.teacherPeriodAttendance.updateMany({ where: { markedById: { in: uIds } }, data: { markedById: actor.userId } });
   await prisma.feePayment.updateMany({ where: { receivedById: { in: uIds } }, data: { receivedById: actor.userId } });
+  await prisma.transportPayment.updateMany({ where: { receivedById: { in: uIds } }, data: { receivedById: actor.userId } });
   await prisma.salarySlip.updateMany({ where: { generatedById: { in: uIds } }, data: { generatedById: actor.userId } });
   await prisma.expense.updateMany({ where: { recordedById: { in: uIds } }, data: { recordedById: actor.userId } });
 

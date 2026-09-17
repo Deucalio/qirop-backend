@@ -4,7 +4,7 @@ import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
 import { outstandingAcross } from '../fees/fees.ledger';
 import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll';
 import { AppError } from '../../utils/apiResponse';
-import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus } from '@prisma/client';
+import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus, TransportPaymentMethod } from '@prisma/client';
 import { publicUrl } from '../../services/storage';
 import { logAudit } from '../audit/audit.service';
 
@@ -685,14 +685,65 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     };
   });
 
-  const totalCollected = sum(payments.map((p) => p.amount));
+  /*
+   * Transport fares collected in the same window. They are billed on transport
+   * challans of their own, so no fee payment carries them any more. Salary
+   * deductions are left out: that fare was never cash received.
+   */
+  const methodFilter = query.method && query.method !== 'all' ? query.method : null;
+  const transportPayments =
+    methodFilter === null || ['CASH', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'].includes(methodFilter)
+      ? await prisma.transportPayment.findMany({
+          where: {
+            paymentDate: { gte: fromDate, lte: toDate },
+            isReversed: false,
+            method: methodFilter ? (methodFilter as TransportPaymentMethod) : { not: 'SALARY_DEDUCTION' },
+          },
+          include: {
+            receivedBy: { select: { fullName: true } },
+            challan: {
+              select: {
+                challanNo: true,
+                routeName: true,
+                year: true,
+                month: true,
+                student: { select: { firstName: true, lastName: true, admissionNo: true, section: { select: { class: { select: { name: true } } } } } },
+                teacher: { select: { employeeId: true, user: { select: { fullName: true } } } },
+              },
+            },
+          },
+          orderBy: { paymentDate: 'desc' },
+        })
+      : [];
+
+  for (const t of transportPayments) {
+    transportTotal = transportTotal.plus(t.amount);
+    if (t.method === 'CASH') cashTotal = cashTotal.plus(t.amount);
+    else bankTotal = bankTotal.plus(t.amount);
+    const s = t.challan.student;
+    rows.push({
+      id: t.id,
+      date: pktDayString(t.paymentDate),
+      studentName: s ? `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}` : (t.challan.teacher?.user.fullName ?? '—'),
+      admissionNo: s ? s.admissionNo : (t.challan.teacher?.employeeId ?? '—'),
+      className: s ? s.section.class.name : 'Staff',
+      amount: toMoneyString(t.amount),
+      method: t.method as PaymentMethod,
+      receivedBy: t.receivedBy.fullName,
+      note: `Transport ${t.challan.challanNo} · ${t.challan.routeName}${t.note ? ` · ${t.note}` : ''}`,
+      unallocated: '0.00',
+    });
+  }
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+
+  const totalCollected = sum([...payments.map((p) => p.amount), ...transportPayments.map((t) => t.amount)]);
 
   return {
     from: query.from,
     to: query.to,
     summary: {
       totalCollected: toMoneyString(totalCollected),
-      count: payments.length,
+      count: payments.length + transportPayments.length,
       tuitionTotal: toMoneyString(tuitionTotal),
       transportTotal: toMoneyString(transportTotal),
       admissionTotal: toMoneyString(admissionTotal),

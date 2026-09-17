@@ -32,7 +32,7 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
   const { year, month } = input;
   const teachers = await prisma.teacherProfile.findMany({
     where: { status: UserStatus.ACTIVE, ...(input.teacherIds ? { id: { in: input.teacherIds } } : {}) },
-    include: { user: true, transportAssignment: { include: { route: true } } },
+    include: { user: true },
   });
 
   return prisma.$transaction(
@@ -54,10 +54,11 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
         const basic = money(t.salary);
         const netBefore = basic; // allowances/deductions are 0 at generation
 
-        const ownTransport = t.transportAssignment?.route?.active
-          ? money(t.transportAssignment.route.staffMonthlyFee ?? 0)
-          : ZERO;
-
+        /*
+         * A staff member's own transport is NOT deducted. Riders are billed on
+         * transport challans of their own and pay them at the office; taking the
+         * fare from pay as well would charge them twice.
+         */
         const childChallans = await tx.feeChallan.findMany({
           where: { billedToTeacherId: t.id, year, month },
           include: { items: true, allocations: { include: { payment: true } }, student: true },
@@ -65,14 +66,12 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
         });
 
         const billables = childChallans.map((c) => ({ challan: c, billable: billableOf(c) }));
-        const desired = ownTransport.plus(sum(billables.map((b) => b.billable)));
+        const desired = sum(billables.map((b) => b.billable));
         // Cap so net never goes below 0 (§7.3).
         const staffFee = round2(Decimal.min(desired, Decimal.max(0, netBefore)));
 
-        // Allocate the capped amount: own transport first, then children oldest-first.
+        // Allocate the capped amount to the children's challans, oldest first.
         let remaining = staffFee;
-        const coveredTransport = round2(Decimal.min(ownTransport, remaining));
-        remaining = remaining.minus(coveredTransport);
 
         for (const b of billables) {
           const cover = round2(Decimal.min(b.billable, remaining));
@@ -81,14 +80,13 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
           remaining = remaining.minus(cover);
         }
 
-        const childrenCovered = staffFee.minus(coveredTransport);
+        const childrenCovered = staffFee;
         const uncovered = round2(sum(billables.map((b) => b.billable)).minus(childrenCovered));
         const net = round2(netBefore.minus(staffFee));
 
         const notes = buildNotes({
           childCount: billables.length,
           childNames: billables.map((b) => `${b.challan.student.firstName}${b.challan.student.lastName ? ` ${b.challan.student.lastName}` : ''}`),
-          coveredTransport,
           childrenCovered: round2(childrenCovered),
           uncovered,
         });
@@ -137,12 +135,10 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
 function buildNotes(x: {
   childCount: number;
   childNames: string[];
-  coveredTransport: Money;
   childrenCovered: Money;
   uncovered: Money;
 }): string | null {
   const parts: string[] = [];
-  if (x.coveredTransport.greaterThan(0)) parts.push(`Rs ${x.coveredTransport} own transport`);
   if (x.childrenCovered.greaterThan(0)) {
     const names = x.childNames.slice(0, 4).join(', ') + (x.childNames.length > 4 ? '…' : '');
     parts.push(`Rs ${x.childrenCovered} for ${x.childCount} child challan${x.childCount === 1 ? '' : 's'} (${names})`);
@@ -341,13 +337,20 @@ export async function getSalary(id: string) {
   const transportCovered = round2(Decimal.max(0, money(s.staffFeeDeduction).minus(childrenCovered)));
   const totalPayable = round2(sum(children.map((c) => c.payable)));
 
+  /*
+   * Transport is only ever historical here: slips from before transport was
+   * billed on its own took the fare out of pay. Anything the children did not
+   * absorb was that fare. A newer slip deducts none, so it shows no transport —
+   * reading the person's current route instead would print a fare this slip
+   * never charged.
+   */
   const ownRoute = s.teacher.transportAssignment?.route;
+  const deductedTransport = transportCovered.greaterThan(0);
   return {
     ...shapeSlip(s),
     breakdown: {
-      transportRoute: ownRoute?.name ?? null,
-      // The teacher's own commute fee (shown even if the salary didn't cover it).
-      transportFee: toMoneyString(ownRoute?.active ? (ownRoute.staffMonthlyFee ?? 0) : 0),
+      transportRoute: deductedTransport ? (ownRoute?.name ?? 'School transport') : null,
+      transportFee: toMoneyString(transportCovered),
       transportCovered: toMoneyString(transportCovered),
       childrenCovered: toMoneyString(childrenCovered),
       children,
@@ -369,11 +372,11 @@ export async function listSalaryStructure() {
     where: { status: UserStatus.ACTIVE },
     include: {
       user: { select: { fullName: true, avatarUrl: true } },
-      transportAssignment: { include: { route: true } },
       _count: { select: { staffChildren: true } },
     },
     orderBy: { user: { fullName: 'asc' } },
   });
+  // Transport is not listed: it no longer affects pay (see generateSalaries).
   return teachers.map((t) => ({
     id: t.id,
     name: t.user.fullName,
@@ -381,9 +384,6 @@ export async function listSalaryStructure() {
     employeeId: t.employeeId,
     salary: toMoneyString(t.salary),
     childrenEnrolled: t._count.staffChildren,
-    transport: t.transportAssignment?.route
-      ? { name: t.transportAssignment.route.name, monthlyFee: toMoneyString(t.transportAssignment.route.staffMonthlyFee ?? 0) }
-      : null,
   }));
 }
 

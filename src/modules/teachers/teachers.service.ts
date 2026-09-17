@@ -941,6 +941,7 @@ export async function purgeTeacher(actor: Actor, id: string) {
     await tx.studentAttendance.updateMany({ where: { markedById: userId }, data: { markedById: actor.userId } });
     await tx.teacherPeriodAttendance.updateMany({ where: { markedById: userId }, data: { markedById: actor.userId } });
     await tx.feePayment.updateMany({ where: { receivedById: userId }, data: { receivedById: actor.userId } });
+    await tx.transportPayment.updateMany({ where: { receivedById: userId }, data: { receivedById: actor.userId } });
     await tx.salarySlip.updateMany({ where: { generatedById: userId }, data: { generatedById: actor.userId } });
     await tx.expense.updateMany({ where: { recordedById: userId }, data: { recordedById: actor.userId } });
 
