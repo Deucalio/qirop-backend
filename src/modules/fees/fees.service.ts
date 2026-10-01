@@ -121,6 +121,30 @@ export async function nextChallanNo(tx: Tx, year: number): Promise<string> {
   return `CH-${year}-${String(counter.lastNumber).padStart(6, '0')}`;
 }
 
+/** A certificate raised before monthly billing is the one safe challan to enrich. */
+export function isCertificateOnlyChallan(items: { type: FeeItemType }[]): boolean {
+  return items.length > 0 && items.every((item) => item.type === FeeItemType.CERTIFICATE);
+}
+
+/** Match the totals produced when monthly billing happens before a certificate charge. */
+export function appendMonthlyBilling(
+  existing: { baseAmount: Money; discount: Money; lateFee: Money },
+  monthlyBase: Money,
+  monthlyDiscount: Money,
+) {
+  const base = round2(money(existing.baseAmount).plus(monthlyBase));
+  const discount = round2(Prisma.Decimal.min(money(existing.discount).plus(monthlyDiscount), base));
+  const amount = round2(base.minus(discount).plus(money(existing.lateFee)));
+  return { base, discount, amount };
+}
+
+export function hasChallanSettlement(challan: {
+  staffCovered: Money;
+  allocations: unknown[];
+}): boolean {
+  return challan.allocations.length > 0 || money(challan.staffCovered).greaterThan(0);
+}
+
 
 type ChallanWithLedger = Prisma.FeeChallanGetPayload<{
   include: { items: true; allocations: { include: { payment: true } } };
@@ -307,10 +331,18 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
     await syncChallanCounter(tx, year);
 
     for (const s of students) {
-      const exists = await tx.feeChallan.findUnique({
+      const existing = await tx.feeChallan.findUnique({
         where: { studentId_year_month: { studentId: s.id, year, month } },
+        select: {
+          id: true,
+          challanNo: true,
+          baseAmount: true,
+          discount: true,
+          lateFee: true,
+          items: { select: { type: true } },
+        },
       });
-      if (exists) {
+      if (existing && !isCertificateOnlyChallan(existing.items)) {
         skipped++;
         continue;
       }
@@ -362,30 +394,46 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       if (s.teacherParentId && staffPct > 0) {
         discountRaw = discountRaw.plus(base.times(staffPct).dividedBy(100));
       }
-      const discount = round2(Prisma.Decimal.min(discountRaw, base)); // never exceed base
-      const amount = round2(base.minus(discount));
+      const monthlyDiscount = round2(Prisma.Decimal.min(discountRaw, base)); // never exceed base
+      const monthlyAmount = round2(base.minus(monthlyDiscount));
 
-      const challanNo = await nextChallanNo(tx, year);
-      const challan = await tx.feeChallan.create({
-        data: {
-          challanNo,
-          studentId: s.id,
-          year,
-          month,
-          baseAmount: toMoneyString(base),
-          discount: toMoneyString(discount),
-          amount: toMoneyString(amount),
-          dueDate: due,
-          status: ChallanStatus.UNPAID,
-          // Staff child: fees (minus admission) are billed to the teacher-parent's
-          // salary. Coverage happens when salaries are generated (Phase 5C).
-          billedToTeacherId: s.teacherParentId ?? null,
-          items: { create: items },
-        },
-      });
+      const challan = existing
+        ? await tx.feeChallan.update({
+            where: { id: existing.id },
+            data: {
+              ...(() => {
+                const totals = appendMonthlyBilling(existing, base, monthlyDiscount);
+                return {
+                  baseAmount: toMoneyString(totals.base),
+                  discount: toMoneyString(totals.discount),
+                  amount: toMoneyString(totals.amount),
+                };
+              })(),
+              dueDate: due,
+              billedToTeacherId: s.teacherParentId ?? null,
+              items: { create: items },
+            },
+          })
+        : await tx.feeChallan.create({
+            data: {
+              challanNo: await nextChallanNo(tx, year),
+              studentId: s.id,
+              year,
+              month,
+              baseAmount: toMoneyString(base),
+              discount: toMoneyString(monthlyDiscount),
+              amount: toMoneyString(monthlyAmount),
+              dueDate: due,
+              status: ChallanStatus.UNPAID,
+              // Staff child: fees (minus admission) are billed to the teacher-parent's
+              // salary. Coverage happens when salaries are generated (Phase 5C).
+              billedToTeacherId: s.teacherParentId ?? null,
+              items: { create: items },
+            },
+          });
       if (s.teacherParentId) staffBilled++;
       created++;
-      total = total.plus(amount);
+      total = total.plus(monthlyAmount);
       billed.push({
         admissionNo: s.admissionNo,
         name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
@@ -394,7 +442,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
         parentName: s.parent.user.fullName,
         parentPhone: s.parent.user.phone ?? '—',
         challanNo: challan.challanNo,
-        amount: toMoneyString(amount),
+        amount: toMoneyString(monthlyAmount),
         items: items.map((i) => `${i.label} = ${i.amount}`),
       });
 
@@ -982,9 +1030,13 @@ export async function generatePreview(query: {
 
   const challanRows = await prisma.feeChallan.findMany({
     where: { student: scope },
-    select: { studentId: true, year: true, month: true },
+    select: { studentId: true, year: true, month: true, items: { select: { type: true } } },
   });
-  const billedThisMonth = new Set(challanRows.filter((c) => c.year === year && c.month === month).map((c) => c.studentId));
+  const billedThisMonth = new Set(
+    challanRows
+      .filter((c) => c.year === year && c.month === month && !isCertificateOnlyChallan(c.items))
+      .map((c) => c.studentId),
+  );
   const everBilled = new Set(challanRows.map((c) => c.studentId));
 
   type Row = {
@@ -1382,8 +1434,8 @@ export async function deleteChallan(actor: Actor, id: string) {
       include: { allocations: true, student: true },
     });
     if (!c) throw NotFound('Challan not found');
-    if (c.allocations.length > 0) {
-      throw new AppError('This challan has payments against it and cannot be deleted. Reverse the payments first.', 409, 'HAS_PAYMENTS');
+    if (hasChallanSettlement(c)) {
+      throw new AppError('This challan has settlements against it and cannot be deleted. Reverse the payment or salary deduction first.', 409, 'HAS_SETTLEMENTS');
     }
     const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
     const studentName = c.student ? `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}` : 'Student';
@@ -1413,7 +1465,7 @@ export async function deleteChallansBatch(actor: Actor, ids: string[]) {
           where: { id },
           include: { allocations: true, student: true },
         });
-        if (!c || c.allocations.length > 0) {
+        if (!c || hasChallanSettlement(c)) {
           skipped++;
           continue;
         }

@@ -5,7 +5,7 @@ import { money, sum, round2, toMoneyString, ZERO, Decimal, type Money } from '..
 import { pktDay, pktDayString, parsePktDay } from '../../utils/pktDate';
 import { publicUrl } from '../../services/storage';
 import { userHasPermission } from '../../utils/permissions';
-import { recomputeChallan } from '../fees/fees.service';
+import { recomputeChallan, runSerializable } from '../fees/fees.service';
 import { logAudit } from '../audit/audit.service';
 import type { GenerateSalariesInput, UpdateSalaryInput, ListSalariesQuery } from './salaries.schema';
 
@@ -549,36 +549,54 @@ export async function getMySlipDetail(userId: string, id: string) {
 }
 
 export async function deleteSalariesForMonth(actor: Actor, year: number, month: number) {
-  const slips = await prisma.salarySlip.findMany({
-    where: { year, month },
-    select: { id: true },
-  });
+  return runSerializable(async (tx) => {
+    const slips = await tx.salarySlip.findMany({
+      where: { year, month },
+      select: { id: true, teacherId: true, status: true },
+    });
+    if (slips.length === 0) {
+      throw new AppError(`No salary slips found for ${year}-${String(month).padStart(2, '0')}`, 404, 'NOT_FOUND');
+    }
+    if (slips.some((slip) => slip.status === 'PAID')) {
+      throw new AppError('Paid salary slips cannot be deleted because their fee deductions have already been settled.', 409, 'PAID_SLIP');
+    }
 
-  if (slips.length === 0) {
-    throw new AppError(`No salary slips found for ${year}-${String(month).padStart(2, '0')}`, 404, 'NOT_FOUND');
-  }
+    const teacherIds = slips.map((slip) => slip.teacherId);
+    const coveredChallans = await tx.feeChallan.findMany({
+      where: { year, month, billedToTeacherId: { in: teacherIds }, staffCovered: { gt: 0 } },
+      select: { id: true },
+    });
 
-  const res = await prisma.salarySlip.deleteMany({
-    where: { year, month },
-  });
+    if (coveredChallans.length > 0) {
+      await tx.feeChallan.updateMany({
+        where: { id: { in: coveredChallans.map((challan) => challan.id) } },
+        data: { staffCovered: '0.00' },
+      });
+      for (const challan of coveredChallans) await recomputeChallan(tx, challan.id);
+    }
 
-  const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
-  await prisma.auditLog.create({
-    data: {
-      actorId: actor.userId,
-      actorName: actorUser?.fullName ?? 'Admin',
-      actorRole: actor.role,
-      action: 'DELETE',
-      module: 'SALARIES',
-      targetType: 'SalarySlip',
-      targetId: `${year}-${month}`,
-      targetLabel: `All Salary Slips for ${year}-${String(month).padStart(2, '0')} (${res.count} slips)`,
-      details: `${actorUser?.fullName ?? 'Admin'} deleted all ${res.count} salary slip(s) for ${year}-${String(month).padStart(2, '0')}`,
-      changes: {
-        deletedCount: { before: res.count, after: 0 },
+    const res = await tx.salarySlip.deleteMany({ where: { id: { in: slips.map((slip) => slip.id) } } });
+    const actorUser = await tx.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
+    await tx.auditLog.create({
+      data: {
+        actorId: actor.userId,
+        actorName: actorUser?.fullName ?? 'Admin',
+        actorRole: actor.role,
+        action: 'DELETE',
+        module: 'SALARIES',
+        targetType: 'SalarySlip',
+        targetId: `${year}-${month}`,
+        targetLabel: `All Salary Slips for ${year}-${String(month).padStart(2, '0')} (${res.count} slips)`,
+        details:
+          `${actorUser?.fullName ?? 'Admin'} deleted all ${res.count} salary slip(s) for ${year}-${String(month).padStart(2, '0')}` +
+          ` and reopened ${coveredChallans.length} staff-covered fee challan(s)`,
+        changes: {
+          deletedCount: { before: res.count, after: 0 },
+          staffCoveredCleared: { before: coveredChallans.length, after: 0 },
+        },
       },
-    },
-  });
+    });
 
-  return { deleted: res.count, year, month };
+    return { deleted: res.count, reopenedChallans: coveredChallans.length, year, month };
+  }, { timeout: 120_000, maxWait: 20_000 });
 }

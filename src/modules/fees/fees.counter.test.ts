@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { syncChallanCounter } from './fees.service';
+import { FeeItemType } from '@prisma/client';
+import { appendMonthlyBilling, hasChallanSettlement, isCertificateOnlyChallan, syncChallanCounter } from './fees.service';
 
 function counterTransaction(
   lastNumber: number,
@@ -53,4 +54,28 @@ test('syncChallanCounter never overwrites a newer concurrent allocation', async 
   await syncChallanCounter(state.tx as never, 2026);
 
   assert.equal(state.getLastNumber(), 1601);
+});
+
+test('certificate-only challans are eligible for monthly tuition, unlike normal challans', () => {
+  assert.equal(isCertificateOnlyChallan([{ type: FeeItemType.CERTIFICATE }]), true);
+  assert.equal(isCertificateOnlyChallan([{ type: FeeItemType.CERTIFICATE }, { type: FeeItemType.TUITION }]), false);
+  assert.equal(isCertificateOnlyChallan([]), false);
+});
+
+test('adding monthly billing preserves certificate charges, discounts, and late fees', () => {
+  const totals = appendMonthlyBilling(
+    { baseAmount: '2000.00' as never, discount: '0.00' as never, lateFee: '50.00' as never },
+    '2000.00' as never,
+    '500.00' as never,
+  );
+
+  assert.equal(totals.base.toFixed(2), '4000.00');
+  assert.equal(totals.discount.toFixed(2), '500.00');
+  assert.equal(totals.amount.toFixed(2), '3550.00');
+});
+
+test('salary-covered challans are treated as settled and cannot be deleted', () => {
+  assert.equal(hasChallanSettlement({ staffCovered: '0.00' as never, allocations: [] }), false);
+  assert.equal(hasChallanSettlement({ staffCovered: '1.00' as never, allocations: [] }), true);
+  assert.equal(hasChallanSettlement({ staffCovered: '0.00' as never, allocations: [{}] }), true);
 });
