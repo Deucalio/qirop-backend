@@ -138,6 +138,30 @@ export function appendMonthlyBilling(
   return { base, discount, amount };
 }
 
+type GeneratedFeeItem = { type: FeeItemType; label: string; amount: string };
+
+/**
+ * Keep a later extra-charge run idempotent. An explicit line is identified by
+ * its type, normalized label, and rounded amount; a distinct label remains a
+ * distinct charge even when its amount matches another line.
+ */
+export function unbilledExtraItems(
+  existingItems: { type: FeeItemType; label: string; amount: Money }[],
+  requestedItems: GeneratedFeeItem[],
+): GeneratedFeeItem[] {
+  const keyOf = (item: { type: FeeItemType; label: string; amount: Money | string }) =>
+    `${item.type}\u0000${item.label.trim()}\u0000${toMoneyString(money(item.amount))}`;
+  const known = new Set(existingItems.map(keyOf));
+  const selected = new Set<string>();
+
+  return requestedItems.filter((item) => {
+    const key = keyOf(item);
+    if (known.has(key) || selected.has(key)) return false;
+    selected.add(key);
+    return true;
+  });
+}
+
 export function hasChallanSettlement(challan: {
   staffCovered: Money;
   allocations: unknown[];
@@ -314,6 +338,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
 
   const result = await runSerializable(async (tx) => {
     let created = 0;
+    let updated = 0;
     let skipped = 0;
     let staffBilled = 0;
     let total = ZERO;
@@ -339,13 +364,11 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
           baseAmount: true,
           discount: true,
           lateFee: true,
-          items: { select: { type: true } },
+          staffCovered: true,
+          items: { select: { type: true, label: true, amount: true } },
         },
       });
-      if (existing && !isCertificateOnlyChallan(existing.items)) {
-        skipped++;
-        continue;
-      }
+      const certificateOnly = existing ? isCertificateOnlyChallan(existing.items) : false;
 
       const structure = s.section.class.feeStructure;
       const monthly = money(structure?.monthlyFee ?? 0);
@@ -359,10 +382,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       // Tuition only when a fee structure is actually set (monthly > 0). Classes
       // with no structure produce no tuition — and no challan at all unless some
       // other charge (exam/other) applies.
-      const items: { type: FeeItemType; label: string; amount: string }[] = [];
-      if (monthly.greaterThan(0)) {
-        items.push({ type: FeeItemType.TUITION, label: 'Monthly Tuition', amount: toMoneyString(monthly) });
-      }
+      const requestedExtras: GeneratedFeeItem[] = [];
       /*
        * Ad-hoc extra charges, each its own labelled line item.
        *
@@ -375,11 +395,24 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       for (const e of extraFees) {
         const targeted = e.studentIds && e.studentIds.length > 0;
         if (targeted && !e.studentIds!.includes(s.id)) continue;
-        items.push({
+        requestedExtras.push({
           type: (e.type ?? 'OTHER') as FeeItemType,
           label: e.label.trim(),
           amount: toMoneyString(money(e.amount)),
         });
+      }
+
+      const newExtras = unbilledExtraItems(existing?.items ?? [], requestedExtras);
+      const items: GeneratedFeeItem[] = [];
+      if (!existing || certificateOnly) {
+        if (monthly.greaterThan(0)) {
+          items.push({ type: FeeItemType.TUITION, label: 'Monthly Tuition', amount: toMoneyString(monthly) });
+        }
+        items.push(...newExtras);
+      } else {
+        // A normal challan may only be amended with genuinely new extra lines.
+        // Its tuition, existing discounts, due date, and salary owner stay fixed.
+        items.push(...newExtras);
       }
 
       // Nothing to bill (e.g. a class with no fee structure and no extras) → skip.
@@ -387,10 +420,18 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
         skipped++;
         continue;
       }
+      if (existing && money(existing.staffCovered).greaterThan(0)) {
+        throw new AppError(
+          `Cannot amend challan ${existing.challanNo} after salary coverage has been applied. Resolve the salary adjustment first.`,
+          409,
+          'SALARY_COVERED_CHALLAN',
+        );
+      }
 
       const base = sum(items.map((i) => i.amount));
-      // The student's own recurring discount, plus an optional staff-child perk %.
-      let discountRaw = money(s.feeDiscount);
+      // Recurring student discounts belong to first-time monthly tuition only.
+      // A later amendment can receive the explicitly selected staff percentage.
+      let discountRaw = existing && !certificateOnly ? ZERO : money(s.feeDiscount);
       if (s.teacherParentId && staffPct > 0) {
         discountRaw = discountRaw.plus(base.times(staffPct).dividedBy(100));
       }
@@ -409,8 +450,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
                   amount: toMoneyString(totals.amount),
                 };
               })(),
-              dueDate: due,
-              billedToTeacherId: s.teacherParentId ?? null,
+              ...(certificateOnly ? { dueDate: due, billedToTeacherId: s.teacherParentId ?? null } : {}),
               items: { create: items },
             },
           })
@@ -432,7 +472,8 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
             },
           });
       if (s.teacherParentId) staffBilled++;
-      created++;
+      if (existing) updated++;
+      else created++;
       total = total.plus(monthlyAmount);
       billed.push({
         admissionNo: s.admissionNo,
@@ -477,7 +518,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
     await audit(tx, actor.userId, 'CREATE', 'FeeChallan', `${year}-${month}`, {
       targetLabel: `Monthly Fee Challans (${year}-${String(month).padStart(2, '0')})`,
       details:
-        `${actorUser?.fullName ?? 'Admin'} generated ${created} fee challan(s) totalling ` +
+        `${actorUser?.fullName ?? 'Admin'} generated ${created} fee challan(s) and updated ${updated} existing challan(s), totalling ` +
         `Rs ${toMoneyString(total)} for ${MONTHS[month] ?? month} ${year} — scope: ${scope}, due ${dueDate}` +
         (skipped ? `. ${skipped} student(s) skipped (already had a challan for this month, or nothing to charge)` : '') +
         (extraFees.length
@@ -492,12 +533,13 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
         (staffPct > 0 ? `. Staff-child discount: ${staffPct}%` : ''),
       changes: {
         challansCreated: { before: 0, after: created },
+        challansUpdated: { before: 0, after: updated },
         totalAmount: { before: '0.00', after: toMoneyString(total) },
         _meta: {
           scope,
           period: `${MONTHS[month] ?? month} ${year}`,
           dueDate,
-          studentCount: created,
+          studentCount: created + updated,
           skipped,
           staffBilled,
           classes: classNames,
@@ -521,6 +563,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
 
     return {
       created,
+      updated,
       skipped,
       staffBilled,
       totalAmount: toMoneyString(total),
@@ -600,7 +643,7 @@ export async function recordPayment(actor: Actor, input: RecordPaymentInput) {
 }
 
 export async function reversePayment(actor: Actor, paymentId: string, reason: string) {
-  return prisma.$transaction(async (tx) => {
+  return runSerializable(async (tx) => {
     const payment = await tx.feePayment.findUnique({ where: { id: paymentId }, include: { allocations: true, student: true } });
     if (!payment) throw NotFound('Payment not found');
     if (payment.isReversed) throw new AppError('This payment is already reversed', 409, 'ALREADY_REVERSED');

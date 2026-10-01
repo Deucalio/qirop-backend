@@ -4,6 +4,33 @@ import { Prisma } from '@prisma/client';
 import { AppError } from '../utils/apiResponse';
 import { isProduction } from '../config/env';
 
+function uniqueConflictDetails(err: Prisma.PrismaClientKnownRequestError) {
+  const target = err.meta?.target;
+  const fields = Array.isArray(target)
+    ? target.filter((field): field is string => typeof field === 'string' && /^[A-Za-z0-9_]+$/.test(field))
+    : [];
+
+  if (fields.includes('challanNo')) {
+    return {
+      message: 'A duplicate challan number was detected. Please retry the request.',
+      code: 'CHALLAN_NUMBER_CONFLICT',
+      details: { fields },
+    };
+  }
+  if (fields.includes('studentId') && fields.includes('year') && fields.includes('month')) {
+    return {
+      message: 'A fee challan already exists for this student and month.',
+      code: 'CHALLAN_ALREADY_EXISTS',
+      details: { fields },
+    };
+  }
+  return {
+    message: 'A record with this value already exists',
+    code: 'UNIQUE_VIOLATION',
+    ...(fields.length > 0 ? { details: { fields } } : {}),
+  };
+}
+
 /** 404 for any unmatched route. */
 export function notFoundHandler(req: Request, res: Response): void {
   res.status(404).json({
@@ -83,8 +110,9 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
+      const conflict = uniqueConflictDetails(err);
       res.status(409).json({
-        error: { message: 'A record with this value already exists', code: 'UNIQUE_VIOLATION' },
+        error: conflict,
       });
       return;
     }

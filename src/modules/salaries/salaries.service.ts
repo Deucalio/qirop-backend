@@ -35,7 +35,7 @@ export async function generateSalaries(actor: Actor, input: GenerateSalariesInpu
     include: { user: true },
   });
 
-  return prisma.$transaction(
+  return runSerializable(
     async (tx) => {
       let created = 0;
       let skipped = 0;

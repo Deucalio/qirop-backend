@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FeeItemType } from '@prisma/client';
-import { appendMonthlyBilling, hasChallanSettlement, isCertificateOnlyChallan, syncChallanCounter } from './fees.service';
+import {
+  appendMonthlyBilling,
+  hasChallanSettlement,
+  isCertificateOnlyChallan,
+  syncChallanCounter,
+  unbilledExtraItems,
+} from './fees.service';
 
 function counterTransaction(
   lastNumber: number,
@@ -78,4 +84,17 @@ test('salary-covered challans are treated as settled and cannot be deleted', () 
   assert.equal(hasChallanSettlement({ staffCovered: '0.00' as never, allocations: [] }), false);
   assert.equal(hasChallanSettlement({ staffCovered: '1.00' as never, allocations: [] }), true);
   assert.equal(hasChallanSettlement({ staffCovered: '0.00' as never, allocations: [{}] }), true);
+});
+
+test('later extra-charge runs add only new lines and deduplicate the request', () => {
+  const extras = unbilledExtraItems(
+    [{ type: FeeItemType.EXAM, label: 'Term Exam', amount: '500.00' as never }],
+    [
+      { type: FeeItemType.EXAM, label: 'Term Exam', amount: '500.00' },
+      { type: FeeItemType.OTHER, label: 'Stationery', amount: '250.00' },
+      { type: FeeItemType.OTHER, label: 'Stationery', amount: '250.0' },
+    ],
+  );
+
+  assert.deepEqual(extras, [{ type: FeeItemType.OTHER, label: 'Stationery', amount: '250.00' }]);
 });
