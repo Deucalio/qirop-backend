@@ -1,230 +1,281 @@
-import PdfPrinterModule from 'pdfmake';
-import type { TDocumentDefinitions, Content, TFontDictionary, TableCell } from 'pdfmake/interfaces';
-import { prisma } from '../../config/prisma';
+import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces';
 import { getSalary } from './salaries.service';
 import { formatPKR } from '../../utils/money';
+import { loadSchool, render } from '../fees/fees.pdf';
 
-type PdfKitDoc = NodeJS.ReadableStream & { end(): void };
-const PdfPrinter = PdfPrinterModule as unknown as {
-  new (fonts: TFontDictionary): { createPdfKitDocument(doc: TDocumentDefinitions): PdfKitDoc };
-};
-const printer = new PdfPrinter({
-  Roboto: { normal: 'Helvetica', bold: 'Helvetica-Bold', italics: 'Helvetica-Oblique', bolditalics: 'Helvetica-BoldOblique' },
-});
+type SalaryData = Awaited<ReturnType<typeof getSalary>>;
+type SchoolData = Awaited<ReturnType<typeof loadSchool>>;
 
-const BRAND = '#4f46e5';
-const INK = '#1e293b';
-const MUTED = '#64748b';
-const LINE = '#e2e8f0';
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const INK = '#000000';
+const MUTED = '#4b5563';
 
-function render(doc: TDocumentDefinitions): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const pdf = printer.createPdfKitDocument(doc);
-    const chunks: Buffer[] = [];
-    pdf.on('data', (c: Buffer) => chunks.push(c));
-    pdf.on('end', () => resolve(Buffer.concat(chunks)));
-    pdf.on('error', reject);
-    pdf.end();
-  });
+function dmy(value: string | null): string {
+  if (!value) return '-';
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}-${month}-${year}` : value;
 }
 
+function textCell(text: string, opts: { bold?: boolean; right?: boolean; size?: number } = {}) {
+  return {
+    text,
+    fontSize: opts.size ?? 8.5,
+    bold: opts.bold ?? false,
+    color: INK,
+    ...(opts.right ? { alignment: 'right' as const } : {}),
+    margin: [0, 3, 0, 3] as [number, number, number, number],
+  };
+}
 
-const amountRow = (label: string, value: string, opts: { strong?: boolean; color?: string } = {}): Content => ({
-  columns: [
-    { text: label, fontSize: 9, color: opts.color ?? MUTED, bold: opts.strong },
-    { text: value, fontSize: 9, alignment: 'right', color: opts.color ?? INK, bold: opts.strong },
-  ],
-  margin: [0, 2, 0, 2],
-});
+const tableLayout = {
+  hLineWidth: (i: number) => (i === 0 || i === 1 ? 0.7 : 0.25),
+  vLineWidth: () => 0.25,
+  hLineColor: () => INK,
+  vLineColor: () => INK,
+  paddingLeft: () => 5,
+  paddingRight: () => 5,
+  paddingTop: () => 1,
+  paddingBottom: () => 1,
+};
 
-function generateSlipContent(s: any, school: any, addPageBreak: boolean = false): Content[] {
+function schoolHeader(school: SchoolData): Content {
+  const details = {
+    stack: [
+      { text: school.name.toUpperCase(), fontSize: 13, bold: true, color: INK },
+      ...(school.address ? [{ text: school.address, fontSize: 8, color: MUTED, margin: [0, 1, 0, 0] }] : []),
+      ...(school.phone ? [{ text: school.phone, fontSize: 8, color: MUTED }] : []),
+    ],
+  };
+
+  return (school.logoDataUri
+    ? {
+        columns: [
+          { image: 'logo', fit: [34, 34], width: 36 },
+          { ...details, margin: [7, 1, 0, 0] },
+        ],
+        margin: [8, 7, 8, 7],
+      }
+    : { ...details, margin: [8, 7, 8, 7] }) as Content;
+}
+
+function salarySlipContent(s: SalaryData, school: SchoolData, addPageBreak = false): Content[] {
   const b = s.breakdown;
+  const period = `${MONTHS[s.month] ?? ''} ${s.year}`.trim();
+  const isPaid = s.status === 'PAID';
   const content: Content[] = [];
 
-  if (addPageBreak) {
-    content.push({ text: '', pageBreak: 'before' });
-  }
+  if (addPageBreak) content.push({ text: '', pageBreak: 'before' });
 
-  content.push(
-    {
-      columns: [
+  const identity = {
+    table: {
+      widths: ['*', '*'],
+      body: [
         [
-          { text: school?.name ?? 'School', fontSize: 16, bold: true, color: BRAND },
-          { text: school?.address ?? '', fontSize: 8, color: MUTED },
+          textCell(`Employee: ${s.teacherName}`, { bold: true }),
+          textCell(`Employee ID: ${s.employeeId}`, { bold: true, right: true }),
         ],
         [
-          { text: 'SALARY SLIP', fontSize: 15, bold: true, alignment: 'right', color: INK },
-          { text: `${MONTHS[s.month]} ${s.year}`, fontSize: 10, alignment: 'right', color: MUTED, margin: [0, 2, 0, 0] },
-          {
-            table: { body: [[{ text: s.status === 'PAID' ? 'PAID' : 'PENDING', fontSize: 8, bold: true, color: s.status === 'PAID' ? '#166534' : '#854d0e', fillColor: s.status === 'PAID' ? '#dcfce7' : '#fef9c3', margin: [6, 3, 6, 3] }]] },
-            layout: 'noBorders', alignment: 'right', margin: [0, 6, 0, 0],
-          },
+          textCell(`Salary month: ${period}`),
+          textCell(isPaid ? `Paid on: ${dmy(s.paidDate)}` : 'Status: Pending', { right: true }),
         ],
-      ],
-    }
-  );
-  content.push(
-    { canvas: [{ type: 'line', x1: 0, y1: 8, x2: 515, y2: 8, lineWidth: 2, lineColor: BRAND }], margin: [0, 6, 0, 10] },
-    {
-      columns: [
-        [
-          { text: 'EMPLOYEE', fontSize: 7, bold: true, color: MUTED, characterSpacing: 1 },
-          { text: s.teacherName, fontSize: 13, bold: true, color: INK, margin: [0, 2, 0, 0] },
-          { text: `Employee ID: ${s.employeeId}`, fontSize: 9, color: MUTED },
-        ],
-        s.paidDate
-          ? [{ text: 'PAID ON', fontSize: 7, bold: true, color: MUTED, alignment: 'right', characterSpacing: 1 }, { text: s.paidDate, fontSize: 11, bold: true, alignment: 'right', color: INK, margin: [0, 2, 0, 0] }]
-          : [{ text: '' }],
-      ],
-      margin: [0, 0, 0, 14],
-    },
-    // Earnings / deductions
-    {
-      columns: [
-        {
-          width: '*',
-          stack: [
-            { text: 'EARNINGS', fontSize: 8, bold: true, color: '#166534', margin: [0, 0, 0, 4] },
-            amountRow('Basic salary', formatPKR(s.basicSalary)),
-            amountRow('Allowances', formatPKR(s.allowances)),
-          ],
-          margin: [0, 0, 12, 0],
-        },
-        {
-          width: '*',
-          stack: [
-            { text: 'DEDUCTIONS', fontSize: 8, bold: true, color: '#991b1b', margin: [0, 0, 0, 4] },
-            amountRow('Other deductions', formatPKR(s.deductions)),
-            amountRow('Children\'s fees + transport', formatPKR(s.staffFeeDeduction), { color: '#7c3aed' }),
-          ],
-        },
       ],
     },
-    { canvas: [{ type: 'line', x1: 0, y1: 6, x2: 515, y2: 6, lineWidth: 1, lineColor: LINE }], margin: [0, 10, 0, 8] },
-    {
-      columns: [
-        { text: 'NET SALARY', fontSize: 12, bold: true, color: INK },
-        { text: formatPKR(s.netSalary), fontSize: 14, bold: true, alignment: 'right', color: '#166534' },
-      ],
-    }
-  );
+    layout: tableLayout,
+    margin: [8, 0, 8, 0],
+  };
 
-  // Staff-fee deduction breakdown (§7) — amber callout + child & transport tables.
+  const payroll = {
+    table: {
+      headerRows: 1,
+      widths: ['*', 86, '*', 86],
+      body: [
+        [
+          textCell('EARNINGS', { bold: true, size: 8 }),
+          textCell('AMOUNT', { bold: true, right: true, size: 8 }),
+          textCell('DEDUCTIONS', { bold: true, size: 8 }),
+          textCell('AMOUNT', { bold: true, right: true, size: 8 }),
+        ],
+        [
+          textCell('Basic salary'),
+          textCell(formatPKR(s.basicSalary), { right: true }),
+          textCell('Other deductions'),
+          textCell(formatPKR(s.deductions), { right: true }),
+        ],
+        [
+          textCell('Allowances'),
+          textCell(formatPKR(s.allowances), { right: true }),
+          textCell("Children's fees and transport"),
+          textCell(formatPKR(s.staffFeeDeduction), { right: true }),
+        ],
+        [
+          textCell('GROSS EARNINGS', { bold: true }),
+          textCell(formatPKR(Number(s.basicSalary) + Number(s.allowances)), { bold: true, right: true }),
+          textCell('TOTAL DEDUCTIONS', { bold: true }),
+          textCell(formatPKR(Number(s.deductions) + Number(s.staffFeeDeduction)), { bold: true, right: true }),
+        ],
+      ],
+    },
+    layout: tableLayout,
+    margin: [8, 9, 8, 0],
+  };
+
+  const net = {
+    table: {
+      widths: ['*', 140],
+      body: [[textCell('NET SALARY PAYABLE', { bold: true, size: 11 }), textCell(formatPKR(s.netSalary), { bold: true, right: true, size: 11 })]],
+    },
+    layout: {
+      hLineWidth: () => 0.9,
+      vLineWidth: () => 0.9,
+      hLineColor: () => INK,
+      vLineColor: () => INK,
+      paddingLeft: () => 6,
+      paddingRight: () => 6,
+      paddingTop: () => 4,
+      paddingBottom: () => 4,
+    },
+    margin: [8, 8, 8, 8],
+  };
+
+  content.push({
+    table: {
+      widths: ['*'],
+      body: [
+        [schoolHeader(school)],
+        [{ text: `${isPaid ? 'PAID ' : ''}SALARY SLIP - ${period.toUpperCase()}`, fontSize: 12, bold: true, alignment: 'center', color: INK, margin: [0, 6, 0, 6] }],
+        [identity],
+        [payroll],
+        [net],
+      ],
+    },
+    layout: {
+      hLineWidth: () => 0.9,
+      vLineWidth: () => 0.9,
+      hLineColor: () => INK,
+      vLineColor: () => INK,
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+  } as Content);
+
   if (Number(s.staffFeeDeduction) > 0 || b.children.length > 0 || b.transportRoute) {
+    content.push({ text: 'STAFF FEE SETTLEMENT', fontSize: 9, bold: true, color: INK, margin: [8, 14, 8, 4] });
     content.push({
-      table: {
-        widths: ['*'],
-        body: [[{
-          stack: [
-            { text: 'Why fees were deducted from this salary', fontSize: 10, bold: true, color: '#b45309', margin: [0, 0, 0, 3] },
-            {
-              text:
-                'This teacher has children enrolled at the school (and/or uses school transport). Their monthly fees are ' +
-                'settled from this salary instead of being collected in cash. ' +
-                (Number(b.uncoveredPayable) > 0
-                  ? `The salary covered Rs ${b.childrenCovered}; Rs ${b.uncoveredPayable} could not be covered and remains payable on the children's challans.`
-                  : 'The salary covered all of it.'),
-              fontSize: 8.5, color: '#78350f', lineHeight: 1.3,
-            },
-          ],
-          fillColor: '#fffbeb', margin: [10, 8, 10, 8],
-        }]],
-      },
-      layout: { hLineWidth: () => 1, vLineWidth: () => 1, hLineColor: () => '#f59e0b', vLineColor: () => '#f59e0b' },
-      margin: [0, 16, 0, 10],
+      text: Number(b.uncoveredPayable) > 0
+        ? `Salary covered ${formatPKR(b.childrenCovered)} of linked child fees. ${formatPKR(b.uncoveredPayable)} remains payable on the relevant challans.`
+        : 'Linked child fees shown below were settled from this salary. Transport is included only for historical slips that deducted it from pay.',
+      fontSize: 8,
+      color: MUTED,
+      margin: [8, 0, 8, 6],
     });
 
     if (b.transportRoute || Number(b.transportFee) > 0 || Number(b.transportCovered) > 0) {
-      const feeVal = Number(b.transportFee) || 0;
-      const covVal = Number(b.transportCovered) || 0;
-      const remVal = Math.max(0, feeVal - covVal);
-
+      const remaining = Math.max(0, Number(b.transportFee) - Number(b.transportCovered));
       content.push({
         table: {
           headerRows: 1,
-          widths: ['*', 'auto', 'auto', 'auto'],
+          widths: ['*', 80, 90, 70],
           body: [
             [
-              { text: 'Teacher Transport Commute', fontSize: 8, bold: true, color: MUTED },
-              { text: 'Monthly Fee', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
-              { text: 'From salary', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
-              { text: 'Balance', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
+              textCell('TRANSPORT DEDUCTION', { bold: true, size: 8 }),
+              textCell('FEE', { bold: true, right: true, size: 8 }),
+              textCell('FROM SALARY', { bold: true, right: true, size: 8 }),
+              textCell('BALANCE', { bold: true, right: true, size: 8 }),
             ],
             [
-              { text: `Own Commute (${b.transportRoute ?? 'School Transport Route'})`, fontSize: 9 },
-              { text: formatPKR(feeVal), fontSize: 9, alignment: 'right' },
-              { text: formatPKR(covVal), fontSize: 9, alignment: 'right', color: '#7c3aed' },
-              { text: formatPKR(remVal), fontSize: 9, alignment: 'right', color: remVal > 0 ? '#dc2626' : '#166534' },
+              textCell(`Own commute (${b.transportRoute ?? 'School transport route'})`),
+              textCell(formatPKR(b.transportFee), { right: true }),
+              textCell(formatPKR(b.transportCovered), { right: true }),
+              textCell(formatPKR(remaining), { right: true }),
             ],
           ],
         },
-        layout: {
-          hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
-          vLineWidth: () => 0,
-          hLineColor: (i: number) => (i === 1 ? '#7c3aed' : LINE),
-          paddingTop: () => 5, paddingBottom: () => 5,
-        },
-        margin: [0, 0, 0, 10],
-      });
+        layout: tableLayout,
+        margin: [8, 0, 8, 8],
+      } as Content);
     }
 
     if (b.children.length > 0) {
       content.push({
         table: {
           headerRows: 1,
-          widths: ['*', 'auto', 'auto', 'auto'],
+          widths: ['*', 72, 90, 76],
           body: [
             [
-              { text: 'Child (challan & month)', fontSize: 8, bold: true, color: MUTED },
-              { text: 'Fee', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
-              { text: 'From salary', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
-              { text: 'Still payable', fontSize: 8, bold: true, color: MUTED, alignment: 'right' },
+              textCell('CHILD AND CHALLAN', { bold: true, size: 8 }),
+              textCell('FEE', { bold: true, right: true, size: 8 }),
+              textCell('FROM SALARY', { bold: true, right: true, size: 8 }),
+              textCell('STILL PAYABLE', { bold: true, right: true, size: 8 }),
             ],
-            ...b.children.map((c: any): TableCell[] => [
-              { text: `${c.studentName} — ${MONTHS[c.period.month]} ${c.period.year} (${c.challanNo})`, fontSize: 9 },
-              { text: formatPKR(c.billable), fontSize: 9, alignment: 'right' },
-              { text: formatPKR(c.covered), fontSize: 9, alignment: 'right', color: '#7c3aed' },
-              { text: formatPKR(c.payable), fontSize: 9, alignment: 'right', color: Number(c.payable) > 0 ? '#dc2626' : '#166534' },
+            ...b.children.map((child) => [
+              textCell(`${child.studentName} - ${MONTHS[child.period.month]} ${child.period.year} (${child.challanNo})`),
+              textCell(formatPKR(child.billable), { right: true }),
+              textCell(formatPKR(child.covered), { right: true }),
+              textCell(formatPKR(child.payable), { right: true }),
             ]),
           ],
         },
-        layout: {
-          hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === 1 || i === node.table.body.length ? 1 : 0.5),
-          vLineWidth: () => 0,
-          hLineColor: (i: number) => (i === 1 ? '#f59e0b' : LINE),
-          paddingTop: () => 5, paddingBottom: () => 5,
-        },
-      });
+        layout: tableLayout,
+        margin: [8, 0, 8, 0],
+      } as Content);
     }
   }
 
-  content.push({ text: 'This is a computer-generated salary slip.', fontSize: 8, italics: true, color: MUTED, alignment: 'center', margin: [0, 20, 0, 0] });
+  content.push({
+    columns: [
+      {
+        width: '*',
+        stack: [
+          { text: ' ', margin: [0, 18, 0, 0] },
+          { text: '____________________________', fontSize: 8 },
+          { text: 'Authorized Signature', fontSize: 7, color: MUTED, margin: [0, 2, 0, 0] },
+        ],
+      },
+      {
+        width: '*',
+        stack: [
+          { text: ' ', margin: [0, 18, 0, 0] },
+          { text: '____________________________', fontSize: 8, alignment: 'right' },
+          { text: 'Employee Signature', fontSize: 7, color: MUTED, alignment: 'right', margin: [0, 2, 0, 0] },
+        ],
+      },
+    ],
+    margin: [8, 22, 8, 0],
+  });
+  content.push({ text: 'This is a computer-generated salary slip.', fontSize: 7, italics: true, color: MUTED, alignment: 'center', margin: [0, 14, 0, 0] });
   return content;
 }
 
+function salarySlipDocument(content: Content[], school: SchoolData): TDocumentDefinitions {
+  return {
+    pageSize: 'A4',
+    pageMargins: [32, 32, 32, 32],
+    content,
+    ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
+    defaultStyle: { font: 'Roboto', fontSize: 8 },
+  };
+}
+
+/** Exported for PDF layout tests; production entry points load the actual slip and school. */
+export async function renderSalarySlipDocument(s: SalaryData, school: SchoolData): Promise<Buffer> {
+  return render(salarySlipDocument(salarySlipContent(s, school), school));
+}
+
 export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer; filename: string }> {
-  const [s, school] = await Promise.all([getSalary(id), prisma.school.findFirst()]);
-  const content = generateSlipContent(s, school);
-  const buffer = await render({ pageSize: 'A4', pageMargins: [40, 40, 40, 40], content, defaultStyle: { font: 'Roboto' } });
-  return { buffer, filename: `salary-${s.employeeId}-${s.year}-${String(s.month).padStart(2, '0')}.pdf` };
+  const [s, school] = await Promise.all([getSalary(id), loadSchool()]);
+  return {
+    buffer: await renderSalarySlipDocument(s, school),
+    filename: `salary-${s.employeeId}-${s.year}-${String(s.month).padStart(2, '0')}.pdf`,
+  };
 }
 
 export async function renderBulkSalarySlipsPdf(ids: string[]): Promise<{ buffer: Buffer; filename: string }> {
-  const [slips, school] = await Promise.all([
-    Promise.all(ids.map(id => getSalary(id))),
-    prisma.school.findFirst()
-  ]);
-
-  if (slips.length === 0) {
-    throw new Error('No salary slips found.');
-  }
+  const [slips, school] = await Promise.all([Promise.all(ids.map((id) => getSalary(id))), loadSchool()]);
+  if (slips.length === 0) throw new Error('No salary slips found.');
 
   const content: Content[] = [];
-  slips.forEach((s, index) => {
-    content.push(...generateSlipContent(s, school, index > 0));
-  });
-
-  const buffer = await render({ pageSize: 'A4', pageMargins: [40, 40, 40, 40], content, defaultStyle: { font: 'Roboto' } });
-  return { buffer, filename: `salaries-bulk.pdf` };
+  slips.forEach((slip, index) => content.push(...salarySlipContent(slip, school, index > 0)));
+  return { buffer: await render(salarySlipDocument(content, school)), filename: 'salaries-bulk.pdf' };
 }
