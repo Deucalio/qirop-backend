@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { renderSalarySlipDocument } from './salaries.pdf';
+import { renderSalarySlipDocument, B6_WIDTH_PT, B6_HEIGHT_PT } from './salaries.pdf';
 
 const school = {
   name: 'Test Model School',
@@ -22,6 +22,7 @@ const slip = {
   netSalary: '44000.00',
   status: 'PAID',
   paidDate: '2026-10-31',
+  notes: null,
   breakdown: {
     transportRoute: null,
     transportFee: '0.00',
@@ -45,12 +46,12 @@ function mediaBoxes(pdf: Buffer): number[][] {
   return [...pdf.toString('latin1').matchAll(/\/MediaBox \[([^\]]+)\]/g)].map((match) => match[1].trim().split(/\s+/).map(Number));
 }
 
-test('salary slips use the common print metadata and A4 school-document page', async () => {
+test('salary slips use the compact B6 receipt page geometry matching challans', async () => {
   const pdf = await renderSalarySlipDocument(slip as never, school as never);
   const [box] = mediaBoxes(pdf);
 
   assert.ok(box, 'has a page');
-  assert.equal(Math.round(box[2]), 595);
-  assert.equal(Math.round(box[3]), 842);
+  assert.ok(Math.abs(box[2] - B6_WIDTH_PT) < 0.001, `width ${box[2]} expected ${B6_WIDTH_PT}`);
+  assert.ok(Math.abs(box[3] - B6_HEIGHT_PT) < 0.001, `height ${box[3]} expected ${B6_HEIGHT_PT}`);
   assert.match(pdf.toString('latin1'), /\/PrintScaling\s*\/None/);
 });
