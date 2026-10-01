@@ -19,7 +19,7 @@ import { logAudit } from '../audit/audit.service';
 import { money, toMoneyString, round2, ZERO } from '../../utils/money';
 import { pktDay, pktDayString, parsePktDay } from '../../utils/pktDate';
 import type { Prisma as PrismaNs } from '@prisma/client';
-import { recomputeChallan } from '../fees/fees.service';
+import { recomputeChallan, nextChallanNo, runSerializable, syncChallanCounter } from '../fees/fees.service';
 import type { Actor } from '../timetable/timetable.service';
 
 /** Human names for the kinds, used in audit sentences and on the fee list. */
@@ -157,7 +157,7 @@ export async function recordCertificateIssue(actor: Actor, input: RecordIssueInp
 
   const studentName = `${student.firstName}${student.lastName ? ` ${student.lastName}` : ''}`;
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await runSerializable(async (tx) => {
     const serial = await nextSerial(tx, input.kind, year);
     let challanId: string | null = null;
     let challanNo: string | null = null;
@@ -180,7 +180,8 @@ export async function recordCertificateIssue(actor: Actor, input: RecordIssueInp
 
       if (!challan) {
         // No bill this month — raise one carrying just this charge, due today.
-        const no = await nextChallanNoTx(tx, year);
+        await syncChallanCounter(tx, year);
+        const no = await nextChallanNo(tx, year);
         challan = await tx.feeChallan.create({
           data: {
             challanNo: no,
@@ -295,17 +296,7 @@ export async function recordCertificateIssue(actor: Actor, input: RecordIssueInp
   };
 }
 
-/** The next challan number for a year, matching the fees module's format. */
-async function nextChallanNoTx(tx: Prisma.TransactionClient, year: number) {
-  const prefix = `CH-${year}-`;
-  const last = await tx.feeChallan.findFirst({
-    where: { challanNo: { startsWith: prefix } },
-    orderBy: { challanNo: 'desc' },
-    select: { challanNo: true },
-  });
-  const n = last ? Number(last.challanNo.slice(prefix.length)) + 1 : 1;
-  return `${prefix}${String(n).padStart(6, '0')}`;
-}
+
 
 // ---------------------------------------------------------------------------
 // History

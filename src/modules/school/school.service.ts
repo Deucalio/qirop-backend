@@ -139,6 +139,7 @@ export async function resetAllSchoolData(actor: { userId: string; role: Role | s
   await prisma.feePayment.deleteMany();
   await prisma.feeChallanItem.deleteMany();
   await prisma.feeChallan.deleteMany();
+  await prisma.challanCounter.deleteMany();
   await prisma.salarySlip.deleteMany();
 
   // 2. Operational & attendance data
@@ -250,6 +251,7 @@ export async function purgeBatchData(actor: { userId: string; role: Role | strin
     const p = await prisma.feePayment.deleteMany();
     await prisma.feeChallanItem.deleteMany();
     const c = await prisma.feeChallan.deleteMany();
+    await prisma.challanCounter.deleteMany();
     deletedSummary['challans'] = c.count;
     deletedSummary['payments'] = p.count;
   }

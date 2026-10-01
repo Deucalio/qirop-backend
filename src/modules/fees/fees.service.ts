@@ -58,8 +58,8 @@ async function audit(tx: Tx, userId: string, action: string, entity: string, ent
   }
 }
 
-/** Retry a serializable transaction on serialization failure (concurrent payments). */
-async function runSerializable<T>(
+/** Retry a serializable transaction on serialization failure. */
+export async function runSerializable<T>(
   fn: (tx: Tx) => Promise<T>,
   opts?: { timeout?: number; maxWait?: number },
 ): Promise<T> {
@@ -81,8 +81,38 @@ async function runSerializable<T>(
   }
 }
 
+/**
+ * Ensure the ChallanCounter is at least as high as the highest existing challan number
+ * in the database for the given year, preventing UNIQUE_VIOLATION conflicts.
+ */
+export async function syncChallanCounter(tx: Tx, year: number): Promise<void> {
+  const prefix = `CH-${year}-`;
+  const highest = await tx.feeChallan.findFirst({
+    where: { challanNo: { startsWith: prefix } },
+    orderBy: { challanNo: 'desc' },
+    select: { challanNo: true },
+  });
+  if (!highest) return;
+
+  const highestNum = parseInt(highest.challanNo.slice(prefix.length), 10);
+  if (isNaN(highestNum)) return;
+
+  // Create a missing counter, then only ever move an existing one forward.
+  // The conditional update prevents a concurrent allocator from being reset
+  // back to `highestNum` after it has already issued a newer number.
+  await tx.challanCounter.upsert({
+    where: { year },
+    create: { year, lastNumber: highestNum },
+    update: {},
+  });
+  await tx.challanCounter.updateMany({
+    where: { year, lastNumber: { lt: highestNum } },
+    data: { lastNumber: highestNum },
+  });
+}
+
 /** Next sequential challan number for a year, e.g. CH-2026-000123 (counter locked in-tx). */
-async function nextChallanNo(tx: Tx, year: number): Promise<string> {
+export async function nextChallanNo(tx: Tx, year: number): Promise<string> {
   const counter = await tx.challanCounter.upsert({
     where: { year },
     create: { year, lastNumber: 1 },
@@ -90,6 +120,7 @@ async function nextChallanNo(tx: Tx, year: number): Promise<string> {
   });
   return `CH-${year}-${String(counter.lastNumber).padStart(6, '0')}`;
 }
+
 
 type ChallanWithLedger = Prisma.FeeChallanGetPayload<{
   include: { items: true; allocations: { include: { payment: true } } };
@@ -257,7 +288,7 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
   const extraFees = (input.extraFees ?? []).filter((e) => money(e.amount).greaterThan(0));
   const staffPct = input.staffChildDiscountPercent ?? 0;
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await runSerializable(async (tx) => {
     let created = 0;
     let skipped = 0;
     let staffBilled = 0;
@@ -271,6 +302,9 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
       admissionNo: string; name: string; className: string; sectionName: string;
       parentName: string; parentPhone: string; challanNo: string; amount: string; items: string[];
     }[] = [];
+
+    // Ensure the counter is at least the highest existing challan number for this year.
+    await syncChallanCounter(tx, year);
 
     for (const s of students) {
       const exists = await tx.feeChallan.findUnique({
