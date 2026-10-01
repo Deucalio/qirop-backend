@@ -103,6 +103,7 @@ enum ExpenseCategory {
   SALARIES
   SUPPLIES
   TRANSPORT
+  BANK
   OTHER
 }
 

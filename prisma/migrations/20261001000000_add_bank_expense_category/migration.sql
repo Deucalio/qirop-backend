@@ -1,0 +1,1 @@
+ALTER TYPE "ExpenseCategory" ADD VALUE IF NOT EXISTS 'BANK';
