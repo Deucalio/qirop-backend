@@ -1,12 +1,13 @@
 import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces';
 import { getSalary } from './salaries.service';
 import { formatPKR } from '../../utils/money';
-import { loadSchool, render, B6_WIDTH_PT, B6_HEIGHT_PT, RECEIPT_MARGIN } from '../fees/fees.pdf';
+import { loadSchool, render, printer, B6_WIDTH_PT, B6_HEIGHT_PT, RECEIPT_MARGIN } from '../fees/fees.pdf';
 
-export { B6_WIDTH_PT, B6_HEIGHT_PT };
+export { B6_WIDTH_PT, B6_HEIGHT_PT, RECEIPT_MARGIN };
 
 type SalaryData = Awaited<ReturnType<typeof getSalary>>;
 type SchoolData = Awaited<ReturnType<typeof loadSchool>>;
+
 
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const INK = '#000000';
@@ -300,9 +301,9 @@ export function buildSalarySlipBlock(s: SalaryData, school: SchoolData, scale = 
   };
 }
 
-function salarySlipDocument(content: Content[], school: SchoolData): TDocumentDefinitions {
+function salarySlipDocument(content: Content[], school: SchoolData, height: number): TDocumentDefinitions {
   return {
-    pageSize: { width: B6_WIDTH_PT, height: B6_HEIGHT_PT },
+    pageSize: { width: B6_WIDTH_PT, height },
     pageMargins: [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN],
     content,
     ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
@@ -310,12 +311,30 @@ function salarySlipDocument(content: Content[], school: SchoolData): TDocumentDe
   };
 }
 
+export async function measureSlipHeight(s: SalaryData, school: SchoolData, scale = 1): Promise<number> {
+  return new Promise((resolve) => {
+    const doc: TDocumentDefinitions = {
+      pageSize: { width: B6_WIDTH_PT, height: 2000 },
+      pageMargins: [RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN, RECEIPT_MARGIN],
+      content: [buildSalarySlipBlock(s, school, scale)],
+      ...(school.logoDataUri ? { images: { logo: school.logoDataUri } } : {}),
+      defaultStyle: { font: 'Roboto', fontSize: 8 },
+    };
+    const pdf = printer.createPdfKitDocument(doc) as any;
+    pdf.on('data', () => {});
+    pdf.on('end', () => {
+      resolve(Math.ceil((pdf.y ?? 200) + RECEIPT_MARGIN + 8));
+    });
+    pdf.end();
+  });
+}
+
 export async function fittedSlipScale(s: SalaryData, school: SchoolData): Promise<number> {
   const STEP = 0.04;
   const MIN = 0.7;
   let scale = 1;
   while (scale > MIN) {
-    const doc = salarySlipDocument([buildSalarySlipBlock(s, school, scale)], school);
+    const doc = salarySlipDocument([buildSalarySlipBlock(s, school, scale)], school, B6_HEIGHT_PT);
     if (pageCount(await render(doc)) <= 1) return scale;
     scale = Math.round((scale - STEP) * 100) / 100;
   }
@@ -324,8 +343,8 @@ export async function fittedSlipScale(s: SalaryData, school: SchoolData): Promis
 
 /** Exported for PDF layout tests; production entry points load the actual slip and school. */
 export async function renderSalarySlipDocument(s: SalaryData, school: SchoolData): Promise<Buffer> {
-  const scale = await fittedSlipScale(s, school);
-  return render(salarySlipDocument([buildSalarySlipBlock(s, school, scale)], school));
+  const height = await measureSlipHeight(s, school);
+  return render(salarySlipDocument([buildSalarySlipBlock(s, school)], school, height));
 }
 
 export async function renderSalarySlipPdf(id: string): Promise<{ buffer: Buffer; filename: string }> {
@@ -340,11 +359,17 @@ export async function renderBulkSalarySlipsPdf(ids: string[]): Promise<{ buffer:
   const [slips, school] = await Promise.all([Promise.all(ids.map((id) => getSalary(id))), loadSchool()]);
   if (slips.length === 0) throw new Error('No salary slips found.');
 
+  const heights = await Promise.all(slips.map((s) => measureSlipHeight(s, school)));
+  const maxHeight = Math.max(...heights);
+
   const content: Content[] = [];
   for (let i = 0; i < slips.length; i++) {
     const s = slips[i];
-    const scale = await fittedSlipScale(s, school);
-    content.push(buildSalarySlipBlock(s, school, scale, i > 0));
+    content.push(buildSalarySlipBlock(s, school, 1, i > 0));
   }
-  return { buffer: await render(salarySlipDocument(content, school)), filename: 'salaries-bulk.pdf' };
+  return {
+    buffer: await render(salarySlipDocument(content, school, maxHeight)),
+    filename: 'salaries-bulk.pdf',
+  };
 }
+

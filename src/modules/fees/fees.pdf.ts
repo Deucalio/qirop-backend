@@ -24,7 +24,7 @@ import { money, toMoneyString, round2, ZERO } from '../../utils/money';
  * metrics, so no .ttf files need to ship with the app — the PDF stays small
  * and the build has zero font assets to manage.
  */
-const printer = new PdfPrinter({
+export const printer = new PdfPrinter({
   Roboto: {
     normal: 'Helvetica',
     bold: 'Helvetica-Bold',

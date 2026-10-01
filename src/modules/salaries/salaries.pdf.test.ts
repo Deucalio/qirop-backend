@@ -46,12 +46,14 @@ function mediaBoxes(pdf: Buffer): number[][] {
   return [...pdf.toString('latin1').matchAll(/\/MediaBox \[([^\]]+)\]/g)].map((match) => match[1].trim().split(/\s+/).map(Number));
 }
 
-test('salary slips use the compact B6 receipt page geometry matching challans', async () => {
+test('salary slips use compact receipt width and dynamic height fitting content', async () => {
   const pdf = await renderSalarySlipDocument(slip as never, school as never);
-  const [box] = mediaBoxes(pdf);
+  const boxes = mediaBoxes(pdf);
 
-  assert.ok(box, 'has a page');
+  assert.equal(boxes.length, 1, 'slip fits on exactly 1 page');
+  const [box] = boxes;
   assert.ok(Math.abs(box[2] - B6_WIDTH_PT) < 0.001, `width ${box[2]} expected ${B6_WIDTH_PT}`);
-  assert.ok(Math.abs(box[3] - B6_HEIGHT_PT) < 0.001, `height ${box[3]} expected ${B6_HEIGHT_PT}`);
+  assert.ok(box[3] < B6_HEIGHT_PT, `height ${box[3]} should be less than fixed B6 height ${B6_HEIGHT_PT}`);
+  assert.ok(box[3] > 200 && box[3] < 320, `height ${box[3]} should closely wrap content (~250-280 pt)`);
   assert.match(pdf.toString('latin1'), /\/PrintScaling\s*\/None/);
 });
