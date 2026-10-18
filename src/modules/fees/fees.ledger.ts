@@ -94,6 +94,75 @@ export function computePayable(
 }
 
 /**
+ * Attribute cash applied to a challan across its fee heads.
+ *
+ * Line items are priced BEFORE the discount, while the payable is after it and
+ * includes the late fee. Scaling the gross items by `applied / payable` — what
+ * the collections report used to do — credits every discount to the fee heads
+ * as if it had been collected, so the heads summed to more than the cash. Here
+ * each item is first reduced by its pro-rata share of the discount, the late
+ * fee is its own head, and the shares are then scaled to the cash applied.
+ *
+ * Rounding is settled on the largest share, so the result always sums to
+ * exactly `applied` (to the paisa) and the report's heads reconcile with its
+ * total.
+ */
+export function splitAppliedByHead<T extends string>(
+  items: { type: T; amount: Money | number | string }[],
+  discountInput: Money | number | string,
+  lateFeeInput: Money | number | string,
+  appliedInput: Money | number | string,
+): { head: T | 'LATE_FEE'; amount: Money }[] {
+  const { base, discount, lateFee, amount: payable } = computePayable(
+    items.map((i) => i.amount),
+    discountInput,
+    lateFeeInput,
+  );
+  const applied = round2(money(appliedInput));
+  if (payable.lessThanOrEqualTo(0) || applied.lessThanOrEqualTo(0)) return [];
+
+  const netFactor = base.greaterThan(0) ? base.minus(discount).dividedBy(base) : ZERO;
+  const parts: { head: T | 'LATE_FEE'; value: Money }[] = items.map((i) => ({
+    head: i.type,
+    value: money(i.amount).times(netFactor),
+  }));
+  if (lateFee.greaterThan(0)) parts.push({ head: 'LATE_FEE', value: lateFee });
+
+  const ratio = applied.dividedBy(payable);
+  const shares = parts.map((p) => ({ head: p.head, amount: round2(p.value.times(ratio)) }));
+
+  const residual = applied.minus(sum(shares.map((s) => s.amount)));
+  if (!residual.isZero() && shares.length > 0) {
+    const largest = shares.reduce((a, b) => (b.amount.greaterThan(a.amount) ? b : a));
+    largest.amount = largest.amount.plus(residual);
+  }
+  return shares.filter((s) => !s.amount.isZero());
+}
+
+/**
+ * The part of a challan's discount that a payment against it accounts for.
+ *
+ * Discounts live on the challan, not the payment. A challan settled in two
+ * instalments would show its whole discount twice if each receipt carried it,
+ * so each receipt takes the share matching the cash it applied — the shares
+ * across all receipts then add up to the discount exactly once, and for every
+ * receipt `discount share + cash applied` is the fee value it settled.
+ */
+export function discountShareOf(
+  itemAmounts: (Money | number | string)[],
+  discountInput: Money | number | string,
+  lateFeeInput: Money | number | string,
+  appliedInput: Money | number | string,
+): Money {
+  const { discount, amount: payable } = computePayable(itemAmounts, discountInput, lateFeeInput);
+  const applied = money(appliedInput);
+  if (payable.lessThanOrEqualTo(0) || applied.lessThanOrEqualTo(0) || discount.isZero()) return ZERO;
+  // Overpaying a bill doesn't earn more discount than the bill carries.
+  const ratio = applied.greaterThan(payable) ? money(1) : applied.dividedBy(payable);
+  return round2(discount.times(ratio));
+}
+
+/**
  * Split payments touched by a challan purge into those safe to delete and those
  * that must survive.
  *

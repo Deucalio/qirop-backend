@@ -1,7 +1,9 @@
 import { prisma } from '../../config/prisma';
 import { parsePktDay, pktDayString, pktTime12HourString, periodWindow, isOnOrBeforePeriod } from '../../utils/pktDate';
 import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
-import { outstandingAcross } from '../fees/fees.ledger';
+import { outstandingAcross, splitAppliedByHead, discountShareOf } from '../fees/fees.ledger';
+import { receiptNoOf } from '../fees/fees.receipt.pdf';
+import { receiptNoOf as transportReceiptNoOf } from '../transport/transport.billing.service';
 import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll';
 import { AppError } from '../../utils/apiResponse';
 import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus, TransportPaymentMethod } from '@prisma/client';
@@ -612,6 +614,48 @@ export async function getDailyAbsenteeReport(query: { date?: string; from?: stri
   };
 }
 
+/**
+ * How the collections report labels a receipt. Exam, late and ad-hoc charges
+ * count as tuition — the office thinks of them as part of the monthly fee —
+ * while admission is kept apart because a one-off lump sum would otherwise
+ * make that month's tuition look inflated. ADVANCE is cash applied to no
+ * challan yet.
+ */
+export type FeeCollectionType = 'TUITION' | 'ADMISSION' | 'CERTIFICATE' | 'TRANSPORT' | 'ADVANCE';
+const FEE_COLLECTION_TYPE_ORDER: FeeCollectionType[] = ['TUITION', 'ADMISSION', 'CERTIFICATE', 'TRANSPORT', 'ADVANCE'];
+const FEE_HEAD_TO_TYPE: Record<string, FeeCollectionType> = {
+  TUITION: 'TUITION',
+  EXAM: 'TUITION',
+  OTHER: 'TUITION',
+  LATE_FEE: 'TUITION',
+  ADMISSION: 'ADMISSION',
+  CERTIFICATE: 'CERTIFICATE',
+  // Fee challans from before transport got its own billing.
+  TRANSPORT: 'TRANSPORT',
+};
+const orderFeeTypes = (types: Set<FeeCollectionType>) => FEE_COLLECTION_TYPE_ORDER.filter((t) => types.has(t));
+
+interface FeeCollectionRow {
+  id: string;
+  date: string;
+  /** The code printed on the receipt, so a row can be matched to the paper. */
+  receiptNo: string;
+  studentName: string;
+  caste: string | null;
+  admissionNo: string;
+  className: string;
+  parentName: string;
+  /** Every fee type this receipt paid for, in a fixed order. */
+  feeTypes: FeeCollectionType[];
+  /** This receipt's share of the discounts on the challans it settled. */
+  discount: string;
+  amount: string;
+  method: PaymentMethod;
+  receivedBy: string;
+  note: string;
+  unallocated: string;
+}
+
 export async function getFeeCollectionsAuditReport(query: { from: string; to: string; method?: string }) {
   const fromDate = parsePktDay(query.from);
   const toDate = parsePktDay(query.to);
@@ -623,7 +667,12 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       ...(query.method && query.method !== 'all' ? { method: query.method as PaymentMethod } : {}),
     },
     include: {
-      student: { include: { section: { include: { class: true } } } },
+      student: {
+        include: {
+          section: { include: { class: true } },
+          parent: { select: { user: { select: { fullName: true } } } },
+        },
+      },
       receivedBy: { select: { fullName: true } },
       allocations: { include: { challan: { include: { items: true } } } },
     },
@@ -635,6 +684,8 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
   let admissionTotal = ZERO;
   let certificateTotal = ZERO;
   let lateFeeTotal = ZERO;
+  // Exam and ad-hoc charges.
+  let otherTotal = ZERO;
   let cashTotal = ZERO;
   let bankTotal = ZERO;
   // Money received that is not applied to any challan — an advance paid before
@@ -642,8 +693,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
   // real cash, but it belongs to no fee head, so without tracking it here the
   // tuition/transport/admission split silently fails to add up to the total.
   let unallocatedTotal = ZERO;
+  let discountTotal = ZERO;
 
-  const rows = payments.map((p) => {
+  const rows: FeeCollectionRow[] = payments.map((p) => {
     if (p.method === 'CASH') cashTotal = cashTotal.plus(p.amount);
     else bankTotal = bankTotal.plus(p.amount);
 
@@ -651,31 +703,37 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     const rowUnallocated = round2(money(p.amount).minus(applied));
     if (rowUnallocated.greaterThan(0)) unallocatedTotal = unallocatedTotal.plus(rowUnallocated);
 
+    const rowHeads = new Set<FeeCollectionType>();
+    let rowDiscount = ZERO;
+    if (rowUnallocated.greaterThan(0)) rowHeads.add('ADVANCE');
+
     for (const alloc of p.allocations) {
       const c = alloc.challan;
-      if (!c || !c.amount || Number(c.amount) <= 0) continue;
-      const ratio = money(alloc.amountApplied).dividedBy(money(c.amount));
-
-      for (const item of c.items) {
-        const itemShare = round2(money(item.amount).times(ratio));
-        if (item.type === 'TUITION') tuitionTotal = tuitionTotal.plus(itemShare);
-        else if (item.type === 'TRANSPORT') transportTotal = transportTotal.plus(itemShare);
-        else if (item.type === 'ADMISSION') admissionTotal = admissionTotal.plus(itemShare);
-        else if (item.type === 'CERTIFICATE') certificateTotal = certificateTotal.plus(itemShare);
-        // Exam and ad-hoc charges. The variable is named lateFee for the
-        // report's existing column, but a late fee is a challan column rather
-        // than a line item, so nothing that is actually a late fee ever
-        // reaches here.
-        else lateFeeTotal = lateFeeTotal.plus(itemShare);
+      if (!c) continue;
+      rowDiscount = rowDiscount.plus(discountShareOf(c.items.map((i) => i.amount), c.discount, c.lateFee, alloc.amountApplied));
+      for (const share of splitAppliedByHead(c.items, c.discount, c.lateFee, alloc.amountApplied)) {
+        rowHeads.add(FEE_HEAD_TO_TYPE[share.head] ?? 'TUITION');
+        if (share.head === 'TUITION') tuitionTotal = tuitionTotal.plus(share.amount);
+        else if (share.head === 'TRANSPORT') transportTotal = transportTotal.plus(share.amount);
+        else if (share.head === 'ADMISSION') admissionTotal = admissionTotal.plus(share.amount);
+        else if (share.head === 'CERTIFICATE') certificateTotal = certificateTotal.plus(share.amount);
+        else if (share.head === 'LATE_FEE') lateFeeTotal = lateFeeTotal.plus(share.amount);
+        else otherTotal = otherTotal.plus(share.amount);
       }
     }
+    discountTotal = discountTotal.plus(rowDiscount);
 
     return {
       id: p.id,
       date: pktDayString(p.paymentDate),
+      receiptNo: receiptNoOf(p.id),
       studentName: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''}`,
+      caste: p.student.caste?.trim() || null,
       admissionNo: p.student.admissionNo,
       className: p.student.section.class.name,
+      parentName: p.student.parent.user.fullName,
+      feeTypes: orderFeeTypes(rowHeads),
+      discount: toMoneyString(rowDiscount),
       amount: toMoneyString(p.amount),
       method: p.method,
       receivedBy: p.receivedBy.fullName,
@@ -707,8 +765,20 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
                 routeName: true,
                 year: true,
                 month: true,
-                student: { select: { firstName: true, lastName: true, admissionNo: true, section: { select: { class: { select: { name: true } } } } } },
-                teacher: { select: { employeeId: true, user: { select: { fullName: true } } } },
+                baseAmount: true,
+                discount: true,
+                lateFee: true,
+                student: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    admissionNo: true,
+                    caste: true,
+                    section: { select: { class: { select: { name: true } } } },
+                    parent: { select: { user: { select: { fullName: true } } } },
+                  },
+                },
+                teacher: { select: { employeeId: true, fatherName: true, user: { select: { fullName: true } } } },
               },
             },
           },
@@ -721,12 +791,20 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     if (t.method === 'CASH') cashTotal = cashTotal.plus(t.amount);
     else bankTotal = bankTotal.plus(t.amount);
     const s = t.challan.student;
+    const rowDiscount = discountShareOf([t.challan.baseAmount], t.challan.discount, t.challan.lateFee, t.amount);
+    discountTotal = discountTotal.plus(rowDiscount);
     rows.push({
       id: t.id,
       date: pktDayString(t.paymentDate),
+      receiptNo: transportReceiptNoOf(t.id),
       studentName: s ? `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}` : (t.challan.teacher?.user.fullName ?? '—'),
+      caste: s?.caste?.trim() || null,
       admissionNo: s ? s.admissionNo : (t.challan.teacher?.employeeId ?? '—'),
       className: s ? s.section.class.name : 'Staff',
+      // A staff rider has no guardian on file; their father's name fills the column.
+      parentName: s ? s.parent.user.fullName : (t.challan.teacher?.fatherName ?? '—'),
+      feeTypes: ['TRANSPORT'],
+      discount: toMoneyString(rowDiscount),
       amount: toMoneyString(t.amount),
       method: t.method as PaymentMethod,
       receivedBy: t.receivedBy.fullName,
@@ -749,6 +827,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       admissionTotal: toMoneyString(admissionTotal),
       certificateTotal: toMoneyString(certificateTotal),
       lateFeeTotal: toMoneyString(lateFeeTotal),
+      otherTotal: toMoneyString(otherTotal),
+      /** Concessions on the fees collected this period, each receipt's share counted once. */
+      discountTotal: toMoneyString(discountTotal),
       unallocatedTotal: toMoneyString(unallocatedTotal),
       cashTotal: toMoneyString(cashTotal),
       bankTotal: toMoneyString(bankTotal),

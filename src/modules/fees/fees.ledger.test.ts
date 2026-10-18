@@ -9,7 +9,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { paidBreakdown, deriveStatus, outstandingAcross, computePayable, partitionPurgedPayments, type LedgerChallan } from './fees.ledger';
+import { paidBreakdown, deriveStatus, outstandingAcross, computePayable, partitionPurgedPayments, splitAppliedByHead, discountShareOf, type LedgerChallan } from './fees.ledger';
 
 const DAY = 86_400_000;
 const future = () => new Date(Date.now() + 30 * DAY);
@@ -297,5 +297,65 @@ describe('outstandingAcross', () => {
   test('unpaid rows come back so the caller can list the months', () => {
     const r = outstandingAcross([month(3), month(4, { staffCovered: '5000.00' }), month(5)]);
     assert.deepEqual(r.unpaid.map((c) => c.month), [3, 5]);
+  });
+});
+
+describe('splitAppliedByHead', () => {
+  const byHead = (r: ReturnType<typeof splitAppliedByHead>) =>
+    Object.fromEntries(r.map((s) => [s.head, s.amount.toFixed(2)]));
+  const total = (r: ReturnType<typeof splitAppliedByHead>) =>
+    r.reduce((acc, s) => acc + Number(s.amount), 0).toFixed(2);
+
+  test('a discounted challan paid in full credits only the cash, not the gross fee', () => {
+    // Tuition 2000 less 500 concession = 1500 payable. The old split reported 2000 tuition.
+    const r = splitAppliedByHead([{ type: 'TUITION', amount: '2000.00' }], '500.00', '0.00', '1500.00');
+    assert.deepEqual(byHead(r), { TUITION: '1500.00' });
+  });
+
+  test('the discount is shared pro rata across items', () => {
+    const r = splitAppliedByHead(
+      [{ type: 'TUITION', amount: '3000.00' }, { type: 'EXAM', amount: '1000.00' }],
+      '400.00', '0.00', '3600.00',
+    );
+    assert.deepEqual(byHead(r), { TUITION: '2700.00', EXAM: '900.00' });
+  });
+
+  test('the late fee is its own head, not folded into tuition', () => {
+    const r = splitAppliedByHead([{ type: 'TUITION', amount: '2000.00' }], '0.00', '200.00', '2200.00');
+    assert.deepEqual(byHead(r), { TUITION: '2000.00', LATE_FEE: '200.00' });
+  });
+
+  test('a part payment is split in proportion and still sums to the cash', () => {
+    const r = splitAppliedByHead(
+      [{ type: 'TUITION', amount: '1000.00' }, { type: 'TRANSPORT', amount: '1000.00' }, { type: 'EXAM', amount: '1000.00' }],
+      '0.00', '0.00', '1000.00',
+    );
+    assert.equal(total(r), '1000.00', 'rounding residue lands on a head instead of vanishing');
+  });
+
+  test('nothing is attributed to a zero-payable challan', () => {
+    const r = splitAppliedByHead([{ type: 'TUITION', amount: '1000.00' }], '1000.00', '0.00', '0.00');
+    assert.deepEqual(r, []);
+  });
+});
+
+describe('discountShareOf', () => {
+  test('a challan paid in one go carries its whole discount', () => {
+    assert.equal(discountShareOf(['2000.00'], '500.00', '0.00', '1500.00').toFixed(2), '500.00');
+  });
+
+  test('instalments share the discount so it is counted once in total', () => {
+    const first = discountShareOf(['2000.00'], '500.00', '0.00', '750.00');
+    const second = discountShareOf(['2000.00'], '500.00', '0.00', '750.00');
+    assert.equal(first.toFixed(2), '250.00');
+    assert.equal(first.plus(second).toFixed(2), '500.00');
+  });
+
+  test('no discount, no share', () => {
+    assert.equal(discountShareOf(['2000.00'], '0.00', '100.00', '2100.00').toFixed(2), '0.00');
+  });
+
+  test('overpaying a bill never earns more than its discount', () => {
+    assert.equal(discountShareOf(['2000.00'], '500.00', '0.00', '9000.00').toFixed(2), '500.00');
   });
 });
