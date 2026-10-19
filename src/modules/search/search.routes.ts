@@ -7,10 +7,13 @@ import { formatPartialCnic } from '../../utils/cnic';
 import { userHasPermission } from '../../utils/permissions';
 import { Unauthorized } from '../../utils/apiResponse';
 import { publicUrl } from '../../services/storage';
+import { receiptSuffixFromQuery } from '../../utils/receiptNo';
+import { pktDayString } from '../../utils/pktDate';
+import { formatPKR } from '../../utils/money';
 
 export const searchRouter = Router();
 
-const EMPTY = { students: [], teachers: [], parents: [], classes: [], challans: [] };
+const EMPTY = { students: [], teachers: [], parents: [], classes: [], challans: [], receipts: [] };
 
 searchRouter.get(
   '/',
@@ -39,8 +42,11 @@ searchRouter.get(
     ]);
 
     const tokens = q.split(/\s+/).filter(Boolean);
+    // Receipt numbers are the tail of a payment id, so they're only looked up
+    // when the query is shaped like one.
+    const receiptSuffix = mayFees ? receiptSuffixFromQuery(q) : null;
 
-    const [students, teachers, parents, classes, challans] = await Promise.all([
+    const [students, teachers, parents, classes, challans, feeReceipts, transportReceipts] = await Promise.all([
       !mayStudents ? [] : prisma.student.findMany({
         where: {
           OR: [
@@ -155,7 +161,38 @@ searchRouter.get(
           student: { select: { firstName: true, lastName: true } },
         },
       }),
+      !receiptSuffix ? [] : prisma.feePayment.findMany({
+        where: { id: { endsWith: receiptSuffix } },
+        take: 5,
+        select: {
+          id: true,
+          amount: true,
+          paymentDate: true,
+          isReversed: true,
+          student: { select: { firstName: true, lastName: true, admissionNo: true } },
+        },
+      }),
+      !receiptSuffix ? [] : prisma.transportPayment.findMany({
+        where: { id: { endsWith: receiptSuffix } },
+        take: 5,
+        select: {
+          id: true,
+          amount: true,
+          paymentDate: true,
+          isReversed: true,
+          challan: {
+            select: {
+              id: true,
+              student: { select: { firstName: true, lastName: true } },
+              teacher: { select: { user: { select: { fullName: true } } } },
+            },
+          },
+        },
+      }),
     ]);
+
+    const receiptNo = (id: string) => id.slice(-6).toUpperCase();
+    const fullName = (s: { firstName: string; lastName: string | null }) => `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`;
 
     res.json({
       students: students.map((s) => ({
@@ -189,8 +226,24 @@ searchRouter.get(
         id: ch.id,
         title: `Challan #${ch.challanNo}`,
         subtitle: `${ch.student.firstName}${ch.student.lastName ? ` ${ch.student.lastName}` : ''} · Rs. ${ch.amount} (${ch.status})`,
-        url: `/fees?tab=challans&search=${encodeURIComponent(ch.challanNo)}`,
+        // Opens the challan itself; the Challans tab doesn't read a search param.
+        url: `/fees?tab=challans&challan=${encodeURIComponent(ch.id)}`,
       })),
+      receipts: [
+        ...feeReceipts.map((p) => ({
+          id: p.id,
+          title: `Receipt #${receiptNo(p.id)}`,
+          subtitle: `Fee · ${fullName(p.student)} (${p.student.admissionNo}) · ${formatPKR(p.amount)} · ${pktDayString(p.paymentDate)}${p.isReversed ? ' · Reversed' : ''}`,
+          url: `/fees?tab=payments&receipt=${receiptNo(p.id)}`,
+        })),
+        // A transport receipt opens its challan, which lists every receipt against it.
+        ...transportReceipts.map((p) => ({
+          id: p.id,
+          title: `Receipt #${receiptNo(p.id)}`,
+          subtitle: `Transport · ${p.challan.student ? fullName(p.challan.student) : (p.challan.teacher?.user.fullName ?? '—')} · ${formatPKR(p.amount)} · ${pktDayString(p.paymentDate)}${p.isReversed ? ' · Reversed' : ''}`,
+          url: `/transport?tab=payments&challan=${encodeURIComponent(p.challan.id)}`,
+        })),
+      ],
     });
   }),
 );

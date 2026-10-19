@@ -640,6 +640,10 @@ interface FeeCollectionRow {
   date: string;
   /** The code printed on the receipt, so a row can be matched to the paper. */
   receiptNo: string;
+  /** Which ledger the receipt lives in — decides where opening it leads. */
+  source: 'FEE' | 'TRANSPORT';
+  /** Transport receipts open through their challan. */
+  transportChallanId: string | null;
   studentName: string;
   caste: string | null;
   admissionNo: string;
@@ -727,6 +731,8 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       id: p.id,
       date: pktDayString(p.paymentDate),
       receiptNo: receiptNoOf(p.id),
+      source: 'FEE',
+      transportChallanId: null,
       studentName: `${p.student.firstName}${p.student.lastName ? ` ${p.student.lastName}` : ''}`,
       caste: p.student.caste?.trim() || null,
       admissionNo: p.student.admissionNo,
@@ -797,6 +803,8 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       id: t.id,
       date: pktDayString(t.paymentDate),
       receiptNo: transportReceiptNoOf(t.id),
+      source: 'TRANSPORT',
+      transportChallanId: t.challanId,
       studentName: s ? `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}` : (t.challan.teacher?.user.fullName ?? '—'),
       caste: s?.caste?.trim() || null,
       admissionNo: s ? s.admissionNo : (t.challan.teacher?.employeeId ?? '—'),

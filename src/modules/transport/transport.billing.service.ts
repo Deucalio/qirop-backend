@@ -11,6 +11,7 @@
  */
 import { ChallanStatus, FeeItemType, Prisma, Role, StaffRole, TransportPaymentMethod, UserStatus } from '@prisma/client';
 import { prisma } from '../../config/prisma';
+import { receiptSuffixFromQuery } from '../../utils/receiptNo';
 import { AppError, Forbidden, NotFound } from '../../utils/apiResponse';
 import { formatPKR, money, round2, sum, toMoneyString, ZERO } from '../../utils/money';
 import { isFuturePktDay, parsePktDay, pktDay, pktDayString } from '../../utils/pktDate';
@@ -952,8 +953,17 @@ export async function deleteTransportPayment(actor: Actor, paymentId: string, re
 
 export async function listTransportPayments(q: ListTransportPaymentsQuery) {
   const search = challanSearch(q.search);
+
+  // A receipt number is found across all time, whatever filters are set — see
+  // the fee payments list, which does the same.
+  const receiptSuffix = receiptSuffixFromQuery(q.search);
+  const receiptIds = receiptSuffix
+    ? (await prisma.transportPayment.findMany({ where: { id: { endsWith: receiptSuffix } }, select: { id: true } })).map((p) => p.id)
+    : [];
+  const isReceiptLookup = receiptIds.length > 0;
+
   const rows = await prisma.transportPayment.findMany({
-    where: {
+    where: isReceiptLookup ? { id: { in: receiptIds } } : {
       ...(q.from || q.to
         ? { paymentDate: { ...(q.from ? { gte: parsePktDay(q.from) } : {}), ...(q.to ? { lte: parsePktDay(q.to) } : {}) } }
         : {}),
@@ -992,6 +1002,8 @@ export async function listTransportPayments(q: ListTransportPaymentsQuery) {
   const isDeduction = (p: (typeof rows)[number]) => p.method === TransportPaymentMethod.SALARY_DEDUCTION;
   return {
     items,
+    /** 'receipt' when the search was a receipt number and the filters were set aside to find it. */
+    lookup: isReceiptLookup ? ('receipt' as const) : null,
     stats: {
       count: live.length,
       /** Money actually handed over — a salary deduction is not cash received. */

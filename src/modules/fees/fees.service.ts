@@ -8,6 +8,7 @@ import type { Actor } from '../timetable/timetable.service';
 import { paidBreakdown, deriveStatus, computePayable } from './fees.ledger';
 import type { GenerateChallansInput, ListChallansQuery, PatchChallanInput, RecordPaymentInput } from './fees.schema';
 import { publicUrl } from '../../services/storage';
+import { receiptSuffixFromQuery } from '../../utils/receiptNo';
 import { logAudit } from '../audit/audit.service';
 
 type Tx = Prisma.TransactionClient;
@@ -902,6 +903,18 @@ export async function listChallans(query: ListChallansQuery) {
   const rawSearch = (query.search ?? '').trim();
   const tokens = rawSearch.split(/\s+/).filter(Boolean);
 
+  /*
+   * A receipt number names one payment, so the challans it settled are found
+   * whatever period, class or status is selected — the receipt in someone's
+   * hand is rarely for the month on screen. Falls through to the normal
+   * search when nothing matches, so a six-letter name still works.
+   */
+  const receiptSuffix = receiptSuffixFromQuery(rawSearch);
+  const receiptWhere: Prisma.FeeChallanWhereInput | null = receiptSuffix
+    ? { allocations: { some: { payment: { id: { endsWith: receiptSuffix } } } } }
+    : null;
+  const isReceiptLookup = receiptWhere !== null && (await prisma.feeChallan.count({ where: receiptWhere })) > 0;
+
   const searchWhere: Prisma.FeeChallanWhereInput | undefined = tokens.length
     ? {
         OR: [
@@ -960,7 +973,7 @@ export async function listChallans(query: ListChallansQuery) {
     : undefined;
 
   const challans = await prisma.feeChallan.findMany({
-    where: {
+    where: isReceiptLookup && receiptWhere ? receiptWhere : {
       ...(year ? { year } : {}),
       ...(month ? { month } : {}),
       ...(query.status ? { status: query.status } : {}),
@@ -1697,6 +1710,18 @@ export async function listPayments(query: {
   const q = (query.search ?? '').trim();
   const tokens = q.split(/\s+/).filter(Boolean);
 
+  /*
+   * A receipt number names one payment, so it is found across all time and
+   * regardless of the method, state or period filters — the receipt someone
+   * brings to the office is rarely from the month on screen. Falls through to
+   * the normal search when no payment matches.
+   */
+  const receiptSuffix = receiptSuffixFromQuery(q);
+  const receiptIds = receiptSuffix
+    ? (await prisma.feePayment.findMany({ where: { id: { endsWith: receiptSuffix } }, select: { id: true } })).map((p) => p.id)
+    : [];
+  const isReceiptLookup = receiptIds.length > 0;
+
   let dateFilter: { gte?: Date; lte?: Date } | undefined = undefined;
   if (query.from || query.to) {
     dateFilter = {
@@ -1714,7 +1739,7 @@ export async function listPayments(query: {
   const isChallanYearSpecific = query.challanYear && query.challanYear !== 'all';
 
   const payments = await prisma.feePayment.findMany({
-    where: {
+    where: isReceiptLookup ? { id: { in: receiptIds } } : {
       ...(query.studentId ? { studentId: query.studentId } : {}),
       ...(query.studentStatus && query.studentStatus !== 'all'
         ? { student: { status: query.studentStatus as UserStatus } }
@@ -1821,7 +1846,7 @@ export async function listPayments(query: {
   });
 
   const monthFiltered =
-    query.month && query.month !== 'all' && (!query.year || query.year === 'all')
+    !isReceiptLookup && query.month && query.month !== 'all' && (!query.year || query.year === 'all')
       ? shaped.filter((p) => {
           const m = new Date(p.paymentDate).getUTCMonth() + 1;
           return m === Number(query.month);
@@ -1829,12 +1854,13 @@ export async function listPayments(query: {
       : shaped;
 
   const challanFiltered =
-    query.challanMonth === 'advance'
+    !isReceiptLookup && query.challanMonth === 'advance'
       ? monthFiltered.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
       : monthFiltered;
 
   const filtered =
-    query.state === 'unallocated' ? challanFiltered.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
+    isReceiptLookup ? challanFiltered
+    : query.state === 'unallocated' ? challanFiltered.filter((p) => !p.isReversed && Number(p.unallocated) > 0)
     : query.state === 'allocated' ? challanFiltered.filter((p) => !p.isReversed && Number(p.unallocated) === 0)
     : query.state === 'reversed' ? challanFiltered.filter((p) => p.isReversed)
     : challanFiltered;
@@ -1842,6 +1868,8 @@ export async function listPayments(query: {
   const live = challanFiltered.filter((p) => !p.isReversed);
   return {
     payments: filtered,
+    /** 'receipt' when the search was a receipt number and the filters were set aside to find it. */
+    lookup: isReceiptLookup ? ('receipt' as const) : null,
     summary: {
       count: filtered.length,
       totalReceived: toMoneyString(sum(live.map((p) => p.amount))),
