@@ -1,7 +1,7 @@
 import { prisma } from '../../config/prisma';
-import { parsePktDay, pktDayString, pktTime12HourString, periodWindow, isOnOrBeforePeriod } from '../../utils/pktDate';
+import { parsePktDay, pktDay, pktDayString, pktTime12HourString, periodWindow, isOnOrBeforePeriod } from '../../utils/pktDate';
 import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
-import { outstandingAcross, splitAppliedByHead, discountShareOf } from '../fees/fees.ledger';
+import { outstandingAcross, paidBreakdown, splitAppliedByHead, discountShareOf } from '../fees/fees.ledger';
 import { receiptNoOf } from '../fees/fees.receipt.pdf';
 import { receiptNoOf as transportReceiptNoOf } from '../transport/transport.billing.service';
 import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll';
@@ -193,7 +193,17 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
        */
       challans: {
         include: { allocations: { include: { payment: { select: { isReversed: true } } } } },
-        orderBy: [{ year: 'desc' }, { month: 'desc' }],
+        orderBy: [{ year: 'asc' }, { month: 'asc' }],
+      },
+      /*
+       * Transport is billed on challans of its own, so a family behind only on
+       * van fare used to be missing from this report entirely. Same ledger
+       * rules: reversed receipts don't count, and a salary deduction settles
+       * the bill even though it isn't cash.
+       */
+      transportChallans: {
+        include: { payments: { select: { amount: true, isReversed: true, paymentDate: true, method: true } } },
+        orderBy: [{ year: 'asc' }, { month: 'asc' }],
       },
       payments: {
         where: { isReversed: false },
@@ -213,32 +223,86 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
   const inPeriod = (c: { year: number; month: number }) =>
     query.year == null || isOnOrBeforePeriod(c.year, c.month, query.year, upToMonth as number);
 
+  const today = pktDay().getTime();
+  const DAY_MS = 86_400_000;
+
   const defaulters = students
     .map((s) => {
       // `balance = amount − non-reversed cash − staffCovered`. The arithmetic
       // that used to live here subtracted cash only, which billed staff parents
       // for fees already recovered from their salary.
-      const dues = outstandingAcross(s.challans.filter(inPeriod));
-      const totalUnpaid = dues.outstanding;
-      const unpaidChallanCount = dues.unpaidCount;
-      const unpaidMonths = dues.unpaid.map((c) => `${c.month}/${c.year}`);
+      const fees = outstandingAcross(s.challans.filter(inPeriod));
+      const transportLedger = s.transportChallans.filter(inPeriod).map((c) => ({
+        row: c,
+        amount: c.amount,
+        staffCovered: 0,
+        dueDate: c.dueDate,
+        allocations: c.payments.map((p) => ({ amountApplied: p.amount, payment: { isReversed: p.isReversed } })),
+      }));
+      const transport = outstandingAcross(transportLedger);
 
+      const totalUnpaid = fees.outstanding.plus(transport.outstanding);
       if (totalUnpaid.lessThanOrEqualTo(0)) return null;
+
+      /** Each unpaid bill with what's left on it, oldest first, so a part-paid month reads as such. */
+      const unpaidChallans = [
+        ...fees.unpaid.map((c) => ({
+          kind: 'FEE' as const,
+          challanNo: c.challanNo,
+          year: c.year,
+          month: c.month,
+          amount: toMoneyString(c.amount),
+          balance: toMoneyString(paidBreakdown(c).balance),
+        })),
+        ...transport.unpaid.map((t) => ({
+          kind: 'TRANSPORT' as const,
+          challanNo: t.row.challanNo,
+          year: t.row.year,
+          month: t.row.month,
+          amount: toMoneyString(t.amount),
+          balance: toMoneyString(paidBreakdown(t).balance),
+        })),
+      ].sort((a, b) => a.year - b.year || a.month - b.month || a.kind.localeCompare(b.kind));
+
+      const periods = [...new Set(unpaidChallans.map((c) => `${c.year}-${c.month}`))];
+
+      // The latest money the family actually handed over, for either bill. A
+      // salary deduction isn't the family paying, so it doesn't reset the clock.
+      const lastTransportPaid = s.transportChallans
+        .flatMap((c) => c.payments)
+        .filter((p) => !p.isReversed && p.method !== 'SALARY_DEDUCTION')
+        .map((p) => p.paymentDate.getTime());
+      const lastPaidAt = Math.max(s.payments[0]?.paymentDate.getTime() ?? 0, ...lastTransportPaid, 0);
 
       return {
         id: s.id,
         admissionNo: s.admissionNo,
         name: `${s.firstName}${s.lastName ? ` ${s.lastName}` : ''}`,
+        caste: s.caste?.trim() || null,
         className: s.section.class.name,
         sectionName: s.section.name,
+        /** A class's only, unnamed section ("Main") isn't worth printing. */
+        sectionIsDefault: s.section.isDefault,
+        /** Siblings share a parent profile — the family the report can group by. */
+        familyId: s.parentId,
         parentName: s.parent.user.fullName,
         parentPhone: s.parent.user.phone ?? '—',
-        unpaidChallanCount,
-        unpaidMonths,
+        unpaidChallanCount: unpaidChallans.length,
+        /** Distinct months with anything owing — the measure of how far behind. */
+        unpaidPeriodCount: periods.length,
+        unpaidMonths: periods.map((key) => {
+          const [y, m] = key.split('-').map(Number);
+          return `${MONTHS[m]?.slice(0, 3) ?? m} ${y}`;
+        }),
+        unpaidChallans,
+        tuitionOutstanding: toMoneyString(fees.outstanding),
+        transportOutstanding: toMoneyString(transport.outstanding),
         totalOutstanding: toMoneyString(totalUnpaid),
         /** Already recovered from a staff parent's salary — not owed in cash. */
-        staffCovered: toMoneyString(dues.staffCovered),
-        lastPaymentDate: s.payments[0] ? pktDayString(s.payments[0].paymentDate) : 'No payments',
+        staffCovered: toMoneyString(fees.staffCovered),
+        lastPaymentDate: lastPaidAt > 0 ? pktDayString(new Date(lastPaidAt)) : 'No payments',
+        /** Days since the family last paid anything, as of when this was compiled; null if never. */
+        daysSinceLastPayment: lastPaidAt > 0 ? Math.max(0, Math.floor((today - pktDay(new Date(lastPaidAt)).getTime()) / DAY_MS)) : null,
         photoUrl: publicUrl(s.photoUrl),
         isStaffParent: !!s.teacherParentId || !!s.parent.user.teacherProfile,
         /** A leaver still owes what they owe — flagged so chasing can differ. */
@@ -251,12 +315,25 @@ export async function getFeeDefaultersReport(query: DefaultersQuery) {
   const totalOutstandingAmount = sum(defaulters.map((d) => d.totalOutstanding));
   const totalDefaulters = defaulters.length;
   const avgDues = totalDefaulters > 0 ? round2(totalOutstandingAmount.dividedBy(totalDefaulters)) : ZERO;
+  const longOverdue = defaulters.filter((d) => d.unpaidPeriodCount >= 3);
+  // "Stale" counts families who have never paid as well as those gone quiet.
+  const stale = defaulters.filter((d) => d.daysSinceLastPayment === null || d.daysSinceLastPayment >= 60);
 
   return {
     summary: {
       totalDefaulters,
+      /** Households behind on payment — siblings counted once. */
+      familyCount: new Set(defaulters.map((d) => d.familyId)).size,
       totalOutstandingAmount: toMoneyString(totalOutstandingAmount),
+      tuitionOutstanding: toMoneyString(sum(defaulters.map((d) => d.tuitionOutstanding))),
+      transportOutstanding: toMoneyString(sum(defaulters.map((d) => d.transportOutstanding))),
       averageDuesPerDefaulter: toMoneyString(avgDues),
+      /** Three or more months behind. */
+      longOverdueCount: longOverdue.length,
+      longOverdueAmount: toMoneyString(sum(longOverdue.map((d) => d.totalOutstanding))),
+      /** No payment at all in the last 60 days, or ever. */
+      staleCount: stale.length,
+      staleAmount: toMoneyString(sum(stale.map((d) => d.totalOutstanding))),
       /** Latest billing period counted, or null when this is "everything owed today". */
       billedUpTo: query.year ? `${String(upToMonth).padStart(2, '0')}/${query.year}` : null,
       /** Called out separately: a leaver's debt is harder to recover. */
