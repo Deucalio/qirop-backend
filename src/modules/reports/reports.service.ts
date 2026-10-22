@@ -3,6 +3,7 @@ import { parsePktDay, pktDay, pktDayString, pktTime12HourString, periodWindow, i
 import { toMoneyString, ZERO, sum, round2, money } from '../../utils/money';
 import { outstandingAcross, paidBreakdown, splitAppliedByHead, discountShareOf } from '../fees/fees.ledger';
 import { receiptNoOf } from '../fees/fees.receipt.pdf';
+import { voucherNoOf } from '../../utils/receiptNo';
 import { receiptNoOf as transportReceiptNoOf } from '../transport/transport.billing.service';
 import { payrollTotals, groupForRegister, groupTotals } from './reports.payroll';
 import { AppError } from '../../utils/apiResponse';
@@ -942,6 +943,11 @@ export async function getExpenseLedgerAuditReport(query: { from: string; to: str
 
   const byCategory = new Map<ExpenseCategory, Prisma.Decimal>();
   let personalFundingTotal = ZERO;
+  let schoolCashTotal = ZERO;
+  let schoolBankTotal = ZERO;
+  let otherFundingTotal = ZERO;
+  /** Who paid out of their own pocket, and how much — keyed by person, or by type when no one is named. */
+  const personal = new Map<string, { name: string; payerType: PayerType; amount: Prisma.Decimal }>();
 
   const rows = expenses.map((e) => {
     byCategory.set(e.category, (byCategory.get(e.category) ?? ZERO).plus(e.amount));
@@ -949,12 +955,24 @@ export async function getExpenseLedgerAuditReport(query: { from: string; to: str
     for (const f of e.funding) {
       if (f.payerType === 'ADMIN_PERSONAL' || f.payerType === 'TEACHER_PERSONAL') {
         personalFundingTotal = personalFundingTotal.plus(f.amount);
-      }
+        const key = f.payerId ?? f.payerType;
+        const entry = personal.get(key) ?? {
+          name: f.payer?.fullName ?? (f.payerType === 'ADMIN_PERSONAL' ? 'Admin' : 'Teacher'),
+          payerType: f.payerType,
+          amount: ZERO,
+        };
+        entry.amount = entry.amount.plus(f.amount);
+        personal.set(key, entry);
+      } else if (f.payerType === 'SCHOOL_CASH') schoolCashTotal = schoolCashTotal.plus(f.amount);
+      else if (f.payerType === 'SCHOOL_BANK') schoolBankTotal = schoolBankTotal.plus(f.amount);
+      else otherFundingTotal = otherFundingTotal.plus(f.amount);
     }
 
     return {
       id: e.id,
+      voucherNo: voucherNoOf(e.id),
       title: e.title,
+      note: e.note?.trim() || null,
       category: e.category,
       date: pktDayString(e.date),
       amount: toMoneyString(e.amount),
@@ -963,6 +981,7 @@ export async function getExpenseLedgerAuditReport(query: { from: string; to: str
         payerType: f.payerType,
         payerName: f.payer?.fullName ?? null,
         amount: toMoneyString(f.amount),
+        remarks: f.remarks?.trim() || null,
       })),
       attachmentCount: e.attachments.length + (e.attachmentUrl ? 1 : 0),
     };
@@ -977,7 +996,24 @@ export async function getExpenseLedgerAuditReport(query: { from: string; to: str
       totalExpenses: toMoneyString(totalExpenses),
       count: expenses.length,
       personalFundingTotal: toMoneyString(personalFundingTotal),
-      byCategory: [...byCategory.entries()].map(([cat, amt]) => ({ category: cat, amount: toMoneyString(amt) })),
+      schoolCashTotal: toMoneyString(schoolCashTotal),
+      schoolBankTotal: toMoneyString(schoolBankTotal),
+      otherFundingTotal: toMoneyString(otherFundingTotal),
+      /** Paid from someone's own pocket, per person, largest first. Nothing records repayment. */
+      personalByPayer: [...personal.values()]
+        .sort((a, b) => Number(b.amount) - Number(a.amount))
+        .map((p) => ({ name: p.name, payerType: p.payerType, amount: toMoneyString(p.amount) })),
+      /** Largest first. */
+      byCategory: [...byCategory.entries()]
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .map(([cat, amt]) => ({ category: cat, amount: toMoneyString(amt) })),
+      /**
+       * Salaries belong on the payroll register. Entries filed here as an
+       * expense are still reported, but flagged — counted alongside payroll
+       * they would show the same pay going out twice.
+       */
+      salariesExpenseCount: expenses.filter((e) => e.category === 'SALARIES').length,
+      salariesExpenseTotal: toMoneyString(byCategory.get('SALARIES') ?? ZERO),
     },
     rows,
   };

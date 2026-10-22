@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma';
 import { AppError, NotFound } from '../../utils/apiResponse';
 import { money, sum, round2, toMoneyString, ZERO } from '../../utils/money';
 import { pktDayString, parsePktDay } from '../../utils/pktDate';
+import { voucherNoOf, receiptSuffixFromQuery } from '../../utils/receiptNo';
 import { replaceFile, deleteFile, deleteFilesBatch, proxyDownload } from '../../services/storage';
 import type { CreateExpenseInput, UpdateExpenseInput, ListExpensesQuery } from './expenses.schema';
 
@@ -83,6 +84,7 @@ function shape(e: Prisma.ExpenseGetPayload<{ include: typeof expenseInclude }>) 
 
   return {
     id: e.id,
+    voucherNo: voucherNoOf(e.id),
     category: e.category,
     title: e.title,
     amount: toMoneyString(e.amount),
@@ -104,7 +106,18 @@ function shape(e: Prisma.ExpenseGetPayload<{ include: typeof expenseInclude }>) 
 }
 
 export async function listExpenses(query: ListExpensesQuery) {
-  const where: Prisma.ExpenseWhereInput = {
+  /*
+   * A voucher number names one expense, so it is found whatever month or
+   * category is selected. Falls through to the normal title/note search when
+   * nothing matches, so a six-letter word still works.
+   */
+  const voucherSuffix = receiptSuffixFromQuery(query.search);
+  const voucherIds = voucherSuffix
+    ? (await prisma.expense.findMany({ where: { id: { endsWith: voucherSuffix } }, select: { id: true } })).map((e) => e.id)
+    : [];
+  const isVoucherLookup = voucherIds.length > 0;
+
+  const where: Prisma.ExpenseWhereInput = isVoucherLookup ? { id: { in: voucherIds } } : {
     ...(query.category ? { category: query.category } : {}),
     ...(query.from || query.to
       ? { date: { ...(query.from ? { gte: parsePktDay(query.from) } : {}), ...(query.to ? { lte: parsePktDay(query.to) } : {}) } }
@@ -113,7 +126,13 @@ export async function listExpenses(query: ListExpensesQuery) {
   };
   const expenses = await prisma.expense.findMany({ where, include: expenseInclude, orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], take: 1000 });
   const total = sum(expenses.map((e) => e.amount));
-  return { expenses: expenses.map(shape), total: toMoneyString(total), count: expenses.length };
+  return {
+    expenses: expenses.map(shape),
+    total: toMoneyString(total),
+    count: expenses.length,
+    /** 'voucher' when the search was a voucher number and the filters were set aside to find it. */
+    lookup: isVoucherLookup ? ('voucher' as const) : null,
+  };
 }
 
 export async function getExpense(id: string) {

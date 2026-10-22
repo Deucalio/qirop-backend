@@ -7,13 +7,13 @@ import { formatPartialCnic } from '../../utils/cnic';
 import { userHasPermission } from '../../utils/permissions';
 import { Unauthorized } from '../../utils/apiResponse';
 import { publicUrl } from '../../services/storage';
-import { receiptSuffixFromQuery } from '../../utils/receiptNo';
+import { receiptSuffixFromQuery, voucherNoOf } from '../../utils/receiptNo';
 import { pktDayString } from '../../utils/pktDate';
 import { formatPKR } from '../../utils/money';
 
 export const searchRouter = Router();
 
-const EMPTY = { students: [], teachers: [], parents: [], classes: [], challans: [], receipts: [] };
+const EMPTY = { students: [], teachers: [], parents: [], classes: [], challans: [], receipts: [], vouchers: [] };
 
 searchRouter.get(
   '/',
@@ -33,20 +33,23 @@ searchRouter.get(
     // same module that guards its page. Without this any signed-in user —
     // including a parent — could enumerate every student, guardian and challan.
     // Unpermitted sections are skipped entirely, so the rows are never read.
-    const [mayStudents, mayTeachers, mayParents, mayClasses, mayFees] = await Promise.all([
+    const [mayStudents, mayTeachers, mayParents, mayClasses, mayFees, mayExpenses] = await Promise.all([
       userHasPermission(actor.userId, actor.role, PermissionModule.STUDENTS, 'view'),
       userHasPermission(actor.userId, actor.role, PermissionModule.STAFF, 'view'),
       userHasPermission(actor.userId, actor.role, PermissionModule.PARENTS, 'view'),
       userHasPermission(actor.userId, actor.role, PermissionModule.CLASSES, 'view'),
       userHasPermission(actor.userId, actor.role, PermissionModule.FEES, 'view'),
+      userHasPermission(actor.userId, actor.role, PermissionModule.EXPENSES, 'view'),
     ]);
 
     const tokens = q.split(/\s+/).filter(Boolean);
     // Receipt numbers are the tail of a payment id, so they're only looked up
     // when the query is shaped like one.
     const receiptSuffix = mayFees ? receiptSuffixFromQuery(q) : null;
+    // Expense vouchers are numbered the same way.
+    const voucherSuffix = mayExpenses ? receiptSuffixFromQuery(q) : null;
 
-    const [students, teachers, parents, classes, challans, feeReceipts, transportReceipts] = await Promise.all([
+    const [students, teachers, parents, classes, challans, feeReceipts, transportReceipts, vouchers] = await Promise.all([
       !mayStudents ? [] : prisma.student.findMany({
         where: {
           OR: [
@@ -189,6 +192,11 @@ searchRouter.get(
           },
         },
       }),
+      !voucherSuffix ? [] : prisma.expense.findMany({
+        where: { id: { endsWith: voucherSuffix } },
+        take: 5,
+        select: { id: true, title: true, category: true, amount: true, date: true },
+      }),
     ]);
 
     const receiptNo = (id: string) => id.slice(-6).toUpperCase();
@@ -244,6 +252,12 @@ searchRouter.get(
           url: `/transport?tab=payments&challan=${encodeURIComponent(p.challan.id)}`,
         })),
       ],
+      vouchers: vouchers.map((e) => ({
+        id: e.id,
+        title: `Voucher #${voucherNoOf(e.id)}`,
+        subtitle: `Expense · ${e.title} · ${formatPKR(e.amount)} · ${pktDayString(e.date)}`,
+        url: `/expenses?voucher=${voucherNoOf(e.id)}`,
+      })),
     });
   }),
 );
