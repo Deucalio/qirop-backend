@@ -35,5 +35,21 @@ async function shutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
+/*
+ * A crash used to leave nothing in the journal but systemd's restart notice.
+ * Log what killed the process, then exit as Node would have — systemd
+ * restarts it (Restart=always).
+ */
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[CRASH] uncaughtException:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('[CRASH] unhandledRejection:', reason);
+  process.exit(1);
+});
+
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));

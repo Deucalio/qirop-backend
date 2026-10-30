@@ -56,9 +56,13 @@ import { proxyPublicPreview } from './services/storage';
 import { requireAuth } from './middleware/requireAuth';
 import { requireRole } from './middleware/requireRole';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { requestLog } from './middleware/requestLog';
 
 export function createApp(): Express {
   const app = express();
+
+  // First, so it times the whole request and sees ones that never finish.
+  app.use(requestLog);
 
   // Security & parsing. Allow cross-origin embedding of static assets (logos,
   // avatars) so the frontend on a different origin can load /uploads images.
