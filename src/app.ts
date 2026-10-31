@@ -61,6 +61,10 @@ import { requestLog } from './middleware/requestLog';
 export function createApp(): Express {
   const app = express();
 
+  // nginx on the same box proxies api.qiropschool.com; trust only that hop so
+  // req.ip is the real client (the login rate limiter is keyed on it).
+  app.set('trust proxy', 'loopback');
+
   // First, so it times the whole request and sees ones that never finish.
   app.use(requestLog);
 
