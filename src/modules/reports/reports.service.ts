@@ -776,6 +776,14 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
   // tuition/transport/admission split silently fails to add up to the total.
   let unallocatedTotal = ZERO;
   let discountTotal = ZERO;
+  /*
+   * Fee money by the month the challan was billed for, relative to this
+   * period. The Challans page counts payments under the challan's month; this
+   * report counts them under the month they arrived. These two figures are
+   * what separates the two, so the report can say so on its face.
+   */
+  let earlierChallansTotal = ZERO;
+  let laterChallansTotal = ZERO;
 
   const rows: FeeCollectionRow[] = payments.map((p) => {
     if (p.method === 'CASH') cashTotal = cashTotal.plus(p.amount);
@@ -792,6 +800,8 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     for (const alloc of p.allocations) {
       const c = alloc.challan;
       if (!c) continue;
+      if (Date.UTC(c.year, c.month, 0) < fromDate.getTime()) earlierChallansTotal = earlierChallansTotal.plus(alloc.amountApplied);
+      else if (Date.UTC(c.year, c.month - 1, 1) > toDate.getTime()) laterChallansTotal = laterChallansTotal.plus(alloc.amountApplied);
       rowDiscount = rowDiscount.plus(discountShareOf(c.items.map((i) => i.amount), c.discount, c.lateFee, alloc.amountApplied));
       for (const share of splitAppliedByHead(c.items, c.discount, c.lateFee, alloc.amountApplied)) {
         rowHeads.add(FEE_HEAD_TO_TYPE[share.head] ?? 'TUITION');
@@ -917,6 +927,10 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       /** Concessions on the fees collected this period, each receipt's share counted once. */
       discountTotal: toMoneyString(discountTotal),
       unallocatedTotal: toMoneyString(unallocatedTotal),
+      /** Fee receipts in this period that paid challans billed for earlier months. */
+      earlierChallansTotal: toMoneyString(earlierChallansTotal),
+      /** Fee receipts in this period that paid challans billed for later months. */
+      laterChallansTotal: toMoneyString(laterChallansTotal),
       cashTotal: toMoneyString(cashTotal),
       bankTotal: toMoneyString(bankTotal),
     },

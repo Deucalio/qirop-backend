@@ -6,6 +6,7 @@ import { money, sum, round2, toMoneyString, ZERO, type Money } from '../../utils
 import type { Actor } from '../timetable/timetable.service';
 // Pure ledger arithmetic lives in its own IO-free module so it can be unit-tested.
 import { paidBreakdown, deriveStatus, computePayable } from './fees.ledger';
+import { billingMonths } from './fees.periods';
 import type { GenerateChallansInput, ListChallansQuery, PatchChallanInput, RecordPaymentInput } from './fees.schema';
 import { publicUrl } from '../../services/storage';
 import { receiptSuffixFromQuery } from '../../utils/receiptNo';
@@ -692,6 +693,21 @@ function shapeChallan(c: ChallanWithLedger) {
     amount: toMoneyString(c.amount),
     paidAmount: toMoneyString(settled),
     cashPaid: toMoneyString(cash),
+    /**
+     * Part of cashPaid that arrived after the challan's own month ended. The
+     * Challans page counts it under that month, while the Fee Collections
+     * report counts it in the month it was received — this is the difference.
+     */
+    cashPaidLater: (() => {
+      const monthEnd = Date.UTC(c.year, c.month, 0); // last day of the billing month
+      return toMoneyString(
+        sum(
+          c.allocations
+            .filter((a) => !a.payment.isReversed && a.payment.paymentDate.getTime() > monthEnd)
+            .map((a) => a.amountApplied),
+        ),
+      );
+    })(),
     staffCovered: toMoneyString(staff),
     balance: toMoneyString(balance),
     /**
@@ -2019,13 +2035,14 @@ export async function feesSummary(
   if (startDate && endDate) {
     const sDate = new Date(startDate + 'T00:00:00.000Z');
     const eDate = new Date(endDate + 'T23:59:59.999Z');
-    where = { createdAt: { gte: sDate, lte: eDate } };
+    // Challans by the month they are billed for, not the day they were generated.
+    where = { OR: billingMonths({ startDate, endDate }, pktDay()) };
     expenseWhere = { date: { gte: sDate, lte: eDate } };
     salaryWhere = { ...salaryWhere, createdAt: { gte: sDate, lte: eDate } };
   } else if (months && months > 0) {
     const now = pktDay();
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
-    where = { createdAt: { gte: start } };
+    where = { OR: billingMonths({ months }, now) };
     expenseWhere = { date: { gte: start } };
     salaryWhere = { ...salaryWhere, createdAt: { gte: start } };
   } else if (year && month) {
@@ -2112,28 +2129,12 @@ export async function feesSummary(
 }
 
 export async function feesTrend(months?: number, startDate?: string, endDate?: string) {
-  const monthBuckets: { year: number; month: number }[] = [];
-
-  if (startDate && endDate) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    let cur = new Date(Date.UTC(start.getFullYear(), start.getMonth(), 1));
-    const endMonth = new Date(Date.UTC(end.getFullYear(), end.getMonth(), 1));
-
-    let iter = 0;
-    while (cur <= endMonth && iter < 24) {
-      iter++;
-      monthBuckets.push({ year: cur.getUTCFullYear(), month: cur.getUTCMonth() + 1 });
-      cur.setUTCMonth(cur.getUTCMonth() + 1);
-    }
-  } else {
-    const numMonths = Math.min(24, Math.max(1, months || 6));
-    const now = pktDay();
-    for (let i = numMonths - 1; i >= 0; i--) {
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-      monthBuckets.push({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 });
-    }
-  }
+  // The same months the summary cards use, capped at two years.
+  const monthBuckets = billingMonths(
+    startDate && endDate ? { startDate, endDate } : { months: months || 6 },
+    pktDay(),
+    24,
+  );
 
   if (monthBuckets.length === 0) return [];
 

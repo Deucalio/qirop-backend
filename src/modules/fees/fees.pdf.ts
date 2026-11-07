@@ -965,6 +965,8 @@ async function buildStudentAccount(
     amount: toMoneyString(amount),
     paidAmount: toMoneyString(round2(cashPaid.plus(staffCovered))),
     cashPaid: toMoneyString(cashPaid),
+    // Only the Challans page totals read this; a merged print sheet has no single billing month.
+    cashPaidLater: '0.00',
     staffCovered: toMoneyString(staffCovered),
     balance: toMoneyString(round2(balance)),
     lastPaymentDate: lastPaid ? pktDayString(lastPaid) : null,
