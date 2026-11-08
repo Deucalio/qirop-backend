@@ -739,6 +739,12 @@ interface FeeCollectionRow {
   unallocated: string;
   /** The billing months ('YYYY-MM') of the challans this receipt paid, oldest first. */
   billMonths: string[];
+  /** Amount of this receipt applied to challans of this report's period. */
+  appliedPeriod?: string;
+  /** Amount of this receipt applied to challans of earlier months. */
+  appliedEarlier?: string;
+  /** Amount of this receipt applied to challans of later months. */
+  appliedLater?: string;
 }
 
 /** 'YYYY-MM' for a billing month. */
@@ -835,6 +841,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     const rowHeads = new Set<FeeCollectionType>();
     const rowMonths = new Set<string>();
     let rowDiscount = ZERO;
+    let rowPeriodApplied = ZERO;
+    let rowEarlierApplied = ZERO;
+    let rowLaterApplied = ZERO;
     if (rowUnallocated.greaterThan(0)) rowHeads.add('ADVANCE');
 
     for (const alloc of p.allocations) {
@@ -845,11 +854,14 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       if (place === 'earlier') {
         earlierChallansTotal = earlierChallansTotal.plus(alloc.amountApplied);
         earlierByMonth.add(c.year, c.month, alloc.amountApplied);
+        rowEarlierApplied = rowEarlierApplied.plus(alloc.amountApplied);
       } else if (place === 'later') {
         laterChallansTotal = laterChallansTotal.plus(alloc.amountApplied);
         laterByMonth.add(c.year, c.month, alloc.amountApplied);
+        rowLaterApplied = rowLaterApplied.plus(alloc.amountApplied);
       } else {
         periodChallansTotal = periodChallansTotal.plus(alloc.amountApplied);
+        rowPeriodApplied = rowPeriodApplied.plus(alloc.amountApplied);
       }
       rowDiscount = rowDiscount.plus(discountShareOf(c.items.map((i) => i.amount), c.discount, c.lateFee, alloc.amountApplied));
       for (const share of splitAppliedByHead(c.items, c.discount, c.lateFee, alloc.amountApplied)) {
@@ -897,6 +909,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       /** Part of this receipt not applied to any challan. '0.00' when fully applied. */
       unallocated: toMoneyString(rowUnallocated.greaterThan(0) ? rowUnallocated : ZERO),
       billMonths: [...rowMonths].sort(),
+      appliedPeriod: toMoneyString(rowPeriodApplied),
+      appliedEarlier: toMoneyString(rowEarlierApplied),
+      appliedLater: toMoneyString(rowLaterApplied),
     };
   });
 
@@ -971,6 +986,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       note: `Transport ${t.challan.challanNo} · ${t.challan.routeName}${t.note ? ` · ${t.note}` : ''}`,
       unallocated: '0.00',
       billMonths: [ymKey(t.challan.year, t.challan.month)],
+      appliedPeriod: toMoneyString(t.amount),
+      appliedEarlier: '0.00',
+      appliedLater: '0.00',
     });
   }
   rows.sort((a, b) => b.date.localeCompare(a.date));
