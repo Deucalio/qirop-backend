@@ -807,6 +807,16 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
   let earlierChallansTotal = ZERO;
   let laterChallansTotal = ZERO;
   let periodChallansTotal = ZERO;
+  const createSubBreakdown = () => ({
+    tuition: ZERO,
+    admission: ZERO,
+    other: ZERO,
+    lateFee: ZERO,
+    certificate: ZERO,
+  });
+  const periodBreakdown = createSubBreakdown();
+  const earlierBreakdown = createSubBreakdown();
+  const laterBreakdown = createSubBreakdown();
   const earlierByMonth = monthTally();
   const laterByMonth = monthTally();
   const transportByMonth = monthTally();
@@ -844,12 +854,25 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       rowDiscount = rowDiscount.plus(discountShareOf(c.items.map((i) => i.amount), c.discount, c.lateFee, alloc.amountApplied));
       for (const share of splitAppliedByHead(c.items, c.discount, c.lateFee, alloc.amountApplied)) {
         rowHeads.add(FEE_HEAD_TO_TYPE[share.head] ?? 'TUITION');
-        if (share.head === 'TUITION') tuitionTotal = tuitionTotal.plus(share.amount);
-        else if (share.head === 'TRANSPORT') transportTotal = transportTotal.plus(share.amount);
-        else if (share.head === 'ADMISSION') admissionTotal = admissionTotal.plus(share.amount);
-        else if (share.head === 'CERTIFICATE') certificateTotal = certificateTotal.plus(share.amount);
-        else if (share.head === 'LATE_FEE') lateFeeTotal = lateFeeTotal.plus(share.amount);
-        else otherTotal = otherTotal.plus(share.amount);
+        const target = place === 'earlier' ? earlierBreakdown : place === 'later' ? laterBreakdown : periodBreakdown;
+        if (share.head === 'TUITION') {
+          tuitionTotal = tuitionTotal.plus(share.amount);
+          target.tuition = target.tuition.plus(share.amount);
+        } else if (share.head === 'TRANSPORT') {
+          transportTotal = transportTotal.plus(share.amount);
+        } else if (share.head === 'ADMISSION') {
+          admissionTotal = admissionTotal.plus(share.amount);
+          target.admission = target.admission.plus(share.amount);
+        } else if (share.head === 'CERTIFICATE') {
+          certificateTotal = certificateTotal.plus(share.amount);
+          target.certificate = target.certificate.plus(share.amount);
+        } else if (share.head === 'LATE_FEE') {
+          lateFeeTotal = lateFeeTotal.plus(share.amount);
+          target.lateFee = target.lateFee.plus(share.amount);
+        } else {
+          otherTotal = otherTotal.plus(share.amount);
+          target.other = target.other.plus(share.amount);
+        }
       }
     }
     discountTotal = discountTotal.plus(rowDiscount);
@@ -1030,6 +1053,27 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       laterChallansTotal: toMoneyString(laterChallansTotal),
       /** Fee receipts in this period that paid this period's own challans. */
       periodChallansTotal: toMoneyString(periodChallansTotal),
+      periodBreakdown: {
+        tuition: toMoneyString(periodBreakdown.tuition),
+        admission: toMoneyString(periodBreakdown.admission),
+        other: toMoneyString(periodBreakdown.other),
+        lateFee: toMoneyString(periodBreakdown.lateFee),
+        certificate: toMoneyString(periodBreakdown.certificate),
+      },
+      earlierBreakdown: {
+        tuition: toMoneyString(earlierBreakdown.tuition),
+        admission: toMoneyString(earlierBreakdown.admission),
+        other: toMoneyString(earlierBreakdown.other),
+        lateFee: toMoneyString(earlierBreakdown.lateFee),
+        certificate: toMoneyString(earlierBreakdown.certificate),
+      },
+      laterBreakdown: {
+        tuition: toMoneyString(laterBreakdown.tuition),
+        admission: toMoneyString(laterBreakdown.admission),
+        other: toMoneyString(laterBreakdown.other),
+        lateFee: toMoneyString(laterBreakdown.lateFee),
+        certificate: toMoneyString(laterBreakdown.certificate),
+      },
       earlierChallansByMonth: earlierByMonth.list(),
       laterChallansByMonth: laterByMonth.list(),
       /** Receipts against transport challans, by the transport challan's month. */
