@@ -10,6 +10,7 @@ import { AppError } from '../../utils/apiResponse';
 import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserStatus, AttendanceStatus, TransportPaymentMethod } from '@prisma/client';
 import { publicUrl } from '../../services/storage';
 import { logAudit } from '../audit/audit.service';
+import { billingMonths } from '../fees/fees.periods';
 
 export interface RosterQuery {
   classId?: string;
@@ -736,6 +737,27 @@ interface FeeCollectionRow {
   receivedBy: string;
   note: string;
   unallocated: string;
+  /** The billing months ('YYYY-MM') of the challans this receipt paid, oldest first. */
+  billMonths: string[];
+}
+
+/** 'YYYY-MM' for a billing month. */
+const ymKey = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
+
+/** A month → amount tally, returned oldest first as { year, month, amount }. */
+function monthTally() {
+  const m = new Map<string, Prisma.Decimal>();
+  return {
+    add(year: number, month: number, amount: Prisma.Decimal | string | number) {
+      const k = ymKey(year, month);
+      m.set(k, (m.get(k) ?? ZERO).plus(money(amount)));
+    },
+    list() {
+      return [...m.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, amount]) => ({ year: Number(k.slice(0, 4)), month: Number(k.slice(5, 7)), amount: toMoneyString(amount) }));
+    },
+  };
 }
 
 export async function getFeeCollectionsAuditReport(query: { from: string; to: string; method?: string }) {
@@ -784,6 +806,13 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
    */
   let earlierChallansTotal = ZERO;
   let laterChallansTotal = ZERO;
+  let periodChallansTotal = ZERO;
+  const earlierByMonth = monthTally();
+  const laterByMonth = monthTally();
+  const transportByMonth = monthTally();
+  /** Where a billing month sits relative to this report's period. */
+  const placeOf = (year: number, month: number) =>
+    Date.UTC(year, month, 0) < fromDate.getTime() ? 'earlier' : Date.UTC(year, month - 1, 1) > toDate.getTime() ? 'later' : 'period';
 
   const rows: FeeCollectionRow[] = payments.map((p) => {
     if (p.method === 'CASH') cashTotal = cashTotal.plus(p.amount);
@@ -794,14 +823,24 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     if (rowUnallocated.greaterThan(0)) unallocatedTotal = unallocatedTotal.plus(rowUnallocated);
 
     const rowHeads = new Set<FeeCollectionType>();
+    const rowMonths = new Set<string>();
     let rowDiscount = ZERO;
     if (rowUnallocated.greaterThan(0)) rowHeads.add('ADVANCE');
 
     for (const alloc of p.allocations) {
       const c = alloc.challan;
       if (!c) continue;
-      if (Date.UTC(c.year, c.month, 0) < fromDate.getTime()) earlierChallansTotal = earlierChallansTotal.plus(alloc.amountApplied);
-      else if (Date.UTC(c.year, c.month - 1, 1) > toDate.getTime()) laterChallansTotal = laterChallansTotal.plus(alloc.amountApplied);
+      rowMonths.add(ymKey(c.year, c.month));
+      const place = placeOf(c.year, c.month);
+      if (place === 'earlier') {
+        earlierChallansTotal = earlierChallansTotal.plus(alloc.amountApplied);
+        earlierByMonth.add(c.year, c.month, alloc.amountApplied);
+      } else if (place === 'later') {
+        laterChallansTotal = laterChallansTotal.plus(alloc.amountApplied);
+        laterByMonth.add(c.year, c.month, alloc.amountApplied);
+      } else {
+        periodChallansTotal = periodChallansTotal.plus(alloc.amountApplied);
+      }
       rowDiscount = rowDiscount.plus(discountShareOf(c.items.map((i) => i.amount), c.discount, c.lateFee, alloc.amountApplied));
       for (const share of splitAppliedByHead(c.items, c.discount, c.lateFee, alloc.amountApplied)) {
         rowHeads.add(FEE_HEAD_TO_TYPE[share.head] ?? 'TUITION');
@@ -834,6 +873,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       note: p.note ?? '—',
       /** Part of this receipt not applied to any challan. '0.00' when fully applied. */
       unallocated: toMoneyString(rowUnallocated.greaterThan(0) ? rowUnallocated : ZERO),
+      billMonths: [...rowMonths].sort(),
     };
   });
 
@@ -882,6 +922,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
 
   for (const t of transportPayments) {
     transportTotal = transportTotal.plus(t.amount);
+    transportByMonth.add(t.challan.year, t.challan.month, t.amount);
     if (t.method === 'CASH') cashTotal = cashTotal.plus(t.amount);
     else bankTotal = bankTotal.plus(t.amount);
     const s = t.challan.student;
@@ -906,11 +947,67 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       receivedBy: t.receivedBy.fullName,
       note: `Transport ${t.challan.challanNo} · ${t.challan.routeName}${t.note ? ` · ${t.note}` : ''}`,
       unallocated: '0.00',
+      billMonths: [ymKey(t.challan.year, t.challan.month)],
     });
   }
   rows.sort((a, b) => b.date.localeCompare(a.date));
 
   const totalCollected = sum([...payments.map((p) => p.amount), ...transportPayments.map((t) => t.amount)]);
+
+  /*
+   * The bridge to the Challans page. That page counts what has been paid on
+   * this period's fee challans whenever it arrived; this report counts what
+   * arrived in the period. Splitting the period's own challans by when their
+   * money came in (before, during, after the period) joins the two figures.
+   * "After" keeps growing as late payments arrive, so it is stamped with the
+   * day it was worked out. Skipped when the report is filtered by method,
+   * because the Challans page has no such filter to agree with.
+   */
+  let periodChallans: {
+    asOf: string;
+    paidBefore: string;
+    paidDuring: string;
+    paidAfter: string;
+    paidAfterByMonth: { year: number; month: number; amount: string }[];
+    staffCovered: string;
+    collected: string;
+  } | null = null;
+  if (!query.method || query.method === 'all') {
+    const months = billingMonths({ startDate: query.from, endDate: query.to }, pktDay());
+    const own = await prisma.feeChallan.findMany({
+      where: { OR: months },
+      select: {
+        staffCovered: true,
+        allocations: { select: { amountApplied: true, payment: { select: { paymentDate: true, isReversed: true } } } },
+      },
+    });
+    let before = ZERO;
+    let during = ZERO;
+    let after = ZERO;
+    let staff = ZERO;
+    const afterByMonth = monthTally();
+    for (const c of own) {
+      staff = staff.plus(c.staffCovered);
+      for (const a of c.allocations) {
+        if (a.payment.isReversed) continue;
+        const d = a.payment.paymentDate;
+        if (d < fromDate) before = before.plus(a.amountApplied);
+        else if (d > toDate) {
+          after = after.plus(a.amountApplied);
+          afterByMonth.add(d.getUTCFullYear(), d.getUTCMonth() + 1, a.amountApplied);
+        } else during = during.plus(a.amountApplied);
+      }
+    }
+    periodChallans = {
+      asOf: pktDayString(),
+      paidBefore: toMoneyString(before),
+      paidDuring: toMoneyString(during),
+      paidAfter: toMoneyString(after),
+      paidAfterByMonth: afterByMonth.list(),
+      staffCovered: toMoneyString(staff),
+      collected: toMoneyString(before.plus(during).plus(after).plus(staff)),
+    };
+  }
 
   return {
     from: query.from,
@@ -931,6 +1028,14 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       earlierChallansTotal: toMoneyString(earlierChallansTotal),
       /** Fee receipts in this period that paid challans billed for later months. */
       laterChallansTotal: toMoneyString(laterChallansTotal),
+      /** Fee receipts in this period that paid this period's own challans. */
+      periodChallansTotal: toMoneyString(periodChallansTotal),
+      earlierChallansByMonth: earlierByMonth.list(),
+      laterChallansByMonth: laterByMonth.list(),
+      /** Receipts against transport challans, by the transport challan's month. */
+      transportChallansTotal: toMoneyString(sum(transportPayments.map((t) => t.amount))),
+      transportChallansByMonth: transportByMonth.list(),
+      periodChallans,
       cashTotal: toMoneyString(cashTotal),
       bankTotal: toMoneyString(bankTotal),
     },

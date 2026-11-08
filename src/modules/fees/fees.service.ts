@@ -722,6 +722,17 @@ function shapeChallan(c: ChallanWithLedger) {
         .sort((x, y) => y.getTime() - x.getTime());
       return dates[0] ? pktDayString(dates[0]) : null;
     })(),
+    /** cashPaid split by the month each receipt was dated ('YYYY-MM'), oldest first. */
+    cashByReceiptMonth: (() => {
+      const byMonth = new Map<string, Money>();
+      for (const a of c.allocations) {
+        if (a.payment.isReversed) continue;
+        const d = a.payment.paymentDate;
+        const k = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        byMonth.set(k, (byMonth.get(k) ?? ZERO).plus(a.amountApplied));
+      }
+      return [...byMonth.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([month, amount]) => ({ month, amount: toMoneyString(amount) }));
+    })(),
     status: c.status,
     isOverdue: pastDue && balance.greaterThan(0),
     billedToTeacherId: c.billedToTeacherId,
