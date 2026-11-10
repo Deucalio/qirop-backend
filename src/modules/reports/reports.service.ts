@@ -819,6 +819,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     other: ZERO,
     lateFee: ZERO,
     certificate: ZERO,
+    transport: ZERO,
   });
   const periodBreakdown = createSubBreakdown();
   const earlierBreakdown = createSubBreakdown();
@@ -872,6 +873,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
           target.tuition = target.tuition.plus(share.amount);
         } else if (share.head === 'TRANSPORT') {
           transportTotal = transportTotal.plus(share.amount);
+          target.transport = target.transport.plus(share.amount);
         } else if (share.head === 'ADMISSION') {
           admissionTotal = admissionTotal.plus(share.amount);
           target.admission = target.admission.plus(share.amount);
@@ -1077,6 +1079,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         other: toMoneyString(periodBreakdown.other),
         lateFee: toMoneyString(periodBreakdown.lateFee),
         certificate: toMoneyString(periodBreakdown.certificate),
+        transport: toMoneyString(periodBreakdown.transport),
       },
       earlierBreakdown: {
         tuition: toMoneyString(earlierBreakdown.tuition),
@@ -1084,6 +1087,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         other: toMoneyString(earlierBreakdown.other),
         lateFee: toMoneyString(earlierBreakdown.lateFee),
         certificate: toMoneyString(earlierBreakdown.certificate),
+        transport: toMoneyString(earlierBreakdown.transport),
       },
       laterBreakdown: {
         tuition: toMoneyString(laterBreakdown.tuition),
@@ -1091,6 +1095,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         other: toMoneyString(laterBreakdown.other),
         lateFee: toMoneyString(laterBreakdown.lateFee),
         certificate: toMoneyString(laterBreakdown.certificate),
+        transport: toMoneyString(laterBreakdown.transport),
       },
       earlierChallansByMonth: earlierByMonth.list(),
       laterChallansByMonth: laterByMonth.list(),
