@@ -76,6 +76,8 @@ export const generateChallansSchema = z.object({
         // No TRANSPORT: bus fares are billed on transport challans, never here.
         type: z.enum(['TUITION', 'ADMISSION', 'EXAM', 'OTHER']).optional(),
         studentIds: z.array(z.string().min(1)).max(2000).optional(),
+        /** The person confirmed a charge that reads like transport is something else. */
+        notTransport: z.boolean().optional(),
       }),
     )
     .max(15)
@@ -95,6 +97,8 @@ export const patchChallanSchema = z
         type: z.enum(['TUITION', 'ADMISSION', 'EXAM', 'OTHER']),
         label: z.string().trim().min(1).max(80),
         amount: moneyInput({ min: 0 }),
+        /** The person confirmed a charge that reads like transport is something else. */
+        notTransport: z.boolean().optional(),
       })
       .optional(),
     removeItemId: z.string().min(1).optional(),

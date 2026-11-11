@@ -7,6 +7,7 @@ import type { Actor } from '../timetable/timetable.service';
 // Pure ledger arithmetic lives in its own IO-free module so it can be unit-tested.
 import { paidBreakdown, deriveStatus, computePayable } from './fees.ledger';
 import { billingMonths } from './fees.periods';
+import { looksLikeTransport, TRANSPORT_ON_FEE_CHALLAN_MESSAGE } from './fees.charges';
 import type { GenerateChallansInput, ListChallansQuery, PatchChallanInput, RecordPaymentInput } from './fees.schema';
 import { publicUrl } from '../../services/storage';
 import { receiptSuffixFromQuery } from '../../utils/receiptNo';
@@ -336,6 +337,9 @@ export async function generateChallans(actor: Actor, input: GenerateChallansInpu
   const due = parsePktDay(dueDate);
   // Normalise the admin's ad-hoc extra charges once for the whole batch.
   const extraFees = (input.extraFees ?? []).filter((e) => money(e.amount).greaterThan(0));
+  // Transport is billed on transport challans; a charge that reads like it is refused unless confirmed otherwise.
+  const transportLike = extraFees.find((e) => !e.notTransport && looksLikeTransport(e.label));
+  if (transportLike) throw new AppError(`"${transportLike.label}": ${TRANSPORT_ON_FEE_CHALLAN_MESSAGE}`, 400, 'LOOKS_LIKE_TRANSPORT');
   const staffPct = input.staffChildDiscountPercent ?? 0;
 
   const result = await runSerializable(async (tx) => {
@@ -1395,6 +1399,10 @@ export async function patchChallan(actor: Actor, id: string, input: PatchChallan
     }
 
     if (input.addItem) {
+      // Transport is billed on transport challans; a charge that reads like it is refused unless confirmed otherwise.
+      if (!input.addItem.notTransport && looksLikeTransport(input.addItem.label)) {
+        throw new AppError(TRANSPORT_ON_FEE_CHALLAN_MESSAGE, 400, 'LOOKS_LIKE_TRANSPORT');
+      }
       await tx.feeChallanItem.create({
         data: { challanId: id, type: input.addItem.type, label: input.addItem.label, amount: input.addItem.amount },
       });

@@ -700,12 +700,18 @@ export async function getDailyAbsenteeReport(query: { date?: string; from?: stri
  * make that month's tuition look inflated. ADVANCE is cash applied to no
  * challan yet.
  */
-export type FeeCollectionType = 'TUITION' | 'ADMISSION' | 'CERTIFICATE' | 'TRANSPORT' | 'ADVANCE';
-const FEE_COLLECTION_TYPE_ORDER: FeeCollectionType[] = ['TUITION', 'ADMISSION', 'CERTIFICATE', 'TRANSPORT', 'ADVANCE'];
+export type FeeCollectionType = 'TUITION' | 'ARREARS' | 'ADMISSION' | 'CERTIFICATE' | 'TRANSPORT' | 'OTHER' | 'ADVANCE';
+const FEE_COLLECTION_TYPE_ORDER: FeeCollectionType[] = ['TUITION', 'ARREARS', 'ADMISSION', 'CERTIFICATE', 'TRANSPORT', 'OTHER', 'ADVANCE'];
+/**
+ * Opening arrears and hand-typed "Other" lines used to show as Tuition here,
+ * which is how a payment against the 01-08-2026 balances sheet came to read
+ * "Tuition". They now carry their own types. Exam fees go with Other.
+ */
 const FEE_HEAD_TO_TYPE: Record<string, FeeCollectionType> = {
   TUITION: 'TUITION',
-  EXAM: 'TUITION',
-  OTHER: 'TUITION',
+  EXAM: 'OTHER',
+  OTHER: 'OTHER',
+  ARREARS: 'ARREARS',
   LATE_FEE: 'TUITION',
   ADMISSION: 'ADMISSION',
   CERTIFICATE: 'CERTIFICATE',
@@ -730,6 +736,12 @@ interface FeeCollectionRow {
   parentName: string;
   /** Every fee type this receipt paid for, in a fixed order. */
   feeTypes: FeeCollectionType[];
+  /**
+   * The fee types this receipt paid on challans of the report's period, of
+   * earlier months and of later months — so a list of one section's receipts
+   * names what was paid in that section, not the whole receipt.
+   */
+  feeTypesByPlace: { period: FeeCollectionType[]; earlier: FeeCollectionType[]; later: FeeCollectionType[] };
   /** This receipt's share of the discounts on the challans it settled. */
   discount: string;
   amount: string;
@@ -766,6 +778,28 @@ function monthTally() {
   };
 }
 
+/**
+ * The opening balances imported from the 01-08-2026 "List of Overall Balances"
+ * sheet were stored as OTHER lines with this label (see
+ * scripts/import-opening-balances.ts). They are old dues, mostly tuition from
+ * before the system, not exam fees or ad-hoc charges, so the report names them
+ * separately. Matched by prefix so a later sheet with another date also counts.
+ */
+const OPENING_ARREARS_PREFIX = 'Arrears as at ';
+
+/**
+ * An item's head for the collections split. OTHER is a catch-all type, so it is
+ * divided further: opening arrears by their exact label, and every other OTHER
+ * line keyed by its own text ("OTHER|transpot") so the report can list what the
+ * office actually typed. EXAM stays EXAM.
+ */
+function collectionHeadOf(item: { type: string; label: string | null }): string {
+  if (item.type !== 'OTHER') return item.type;
+  const label = (item.label ?? '').trim();
+  if (label.startsWith(OPENING_ARREARS_PREFIX)) return 'ARREARS';
+  return `OTHER|${label || 'No label'}`;
+}
+
 export async function getFeeCollectionsAuditReport(query: { from: string; to: string; method?: string }) {
   const fromDate = parsePktDay(query.from);
   const toDate = parsePktDay(query.to);
@@ -794,6 +828,12 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
   let admissionTotal = ZERO;
   let certificateTotal = ZERO;
   let lateFeeTotal = ZERO;
+  // Parts of otherTotal, kept apart so the report can name them.
+  let examTotal = ZERO;
+  let arrearsTotal = ZERO;
+  let handTypedTotal = ZERO;
+  /** Hand-typed OTHER lines, by the text on the line. */
+  const handTypedByLabel = new Map<string, Prisma.Decimal>();
   // Exam and ad-hoc charges.
   let otherTotal = ZERO;
   let cashTotal = ZERO;
@@ -817,6 +857,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     tuition: ZERO,
     admission: ZERO,
     other: ZERO,
+    exam: ZERO,
+    arrears: ZERO,
+    handTyped: ZERO,
     lateFee: ZERO,
     certificate: ZERO,
     transport: ZERO,
@@ -840,6 +883,7 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
     if (rowUnallocated.greaterThan(0)) unallocatedTotal = unallocatedTotal.plus(rowUnallocated);
 
     const rowHeads = new Set<FeeCollectionType>();
+    const placeHeads = { period: new Set<FeeCollectionType>(), earlier: new Set<FeeCollectionType>(), later: new Set<FeeCollectionType>() };
     const rowMonths = new Set<string>();
     let rowDiscount = ZERO;
     let rowPeriodApplied = ZERO;
@@ -865,8 +909,11 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         rowPeriodApplied = rowPeriodApplied.plus(alloc.amountApplied);
       }
       rowDiscount = rowDiscount.plus(discountShareOf(c.items.map((i) => i.amount), c.discount, c.lateFee, alloc.amountApplied));
-      for (const share of splitAppliedByHead(c.items, c.discount, c.lateFee, alloc.amountApplied)) {
-        rowHeads.add(FEE_HEAD_TO_TYPE[share.head] ?? 'TUITION');
+      const headedItems = c.items.map((i) => ({ type: collectionHeadOf(i), amount: i.amount }));
+      for (const share of splitAppliedByHead(headedItems, c.discount, c.lateFee, alloc.amountApplied)) {
+        const feeType = FEE_HEAD_TO_TYPE[share.head] ?? (share.head.startsWith('OTHER|') ? 'OTHER' : 'TUITION');
+        rowHeads.add(feeType);
+        placeHeads[place].add(feeType);
         const target = place === 'earlier' ? earlierBreakdown : place === 'later' ? laterBreakdown : periodBreakdown;
         if (share.head === 'TUITION') {
           tuitionTotal = tuitionTotal.plus(share.amount);
@@ -884,8 +931,22 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
           lateFeeTotal = lateFeeTotal.plus(share.amount);
           target.lateFee = target.lateFee.plus(share.amount);
         } else {
+          // EXAM, opening arrears and hand-typed OTHER lines. `other` stays their
+          // sum so copies read by older screens still add up.
           otherTotal = otherTotal.plus(share.amount);
           target.other = target.other.plus(share.amount);
+          if (share.head === 'EXAM') {
+            examTotal = examTotal.plus(share.amount);
+            target.exam = target.exam.plus(share.amount);
+          } else if (share.head === 'ARREARS') {
+            arrearsTotal = arrearsTotal.plus(share.amount);
+            target.arrears = target.arrears.plus(share.amount);
+          } else {
+            handTypedTotal = handTypedTotal.plus(share.amount);
+            target.handTyped = target.handTyped.plus(share.amount);
+            const label = share.head.startsWith('OTHER|') ? share.head.slice(6) : share.head;
+            handTypedByLabel.set(label, (handTypedByLabel.get(label) ?? ZERO).plus(share.amount));
+          }
         }
       }
     }
@@ -903,6 +964,11 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       className: p.student.section.class.name,
       parentName: p.student.parent.user.fullName,
       feeTypes: orderFeeTypes(rowHeads),
+      feeTypesByPlace: {
+        period: orderFeeTypes(placeHeads.period),
+        earlier: orderFeeTypes(placeHeads.earlier),
+        later: orderFeeTypes(placeHeads.later),
+      },
       discount: toMoneyString(rowDiscount),
       amount: toMoneyString(p.amount),
       method: p.method,
@@ -981,6 +1047,10 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       // A staff rider has no guardian on file; their father's name fills the column.
       parentName: s ? s.parent.user.fullName : (t.challan.teacher?.fatherName ?? '—'),
       feeTypes: ['TRANSPORT'],
+      feeTypesByPlace: (() => {
+        const place = placeOf(t.challan.year, t.challan.month);
+        return { period: place === 'period' ? ['TRANSPORT'] : [], earlier: place === 'earlier' ? ['TRANSPORT'] : [], later: place === 'later' ? ['TRANSPORT'] : [] };
+      })(),
       discount: toMoneyString(rowDiscount),
       amount: toMoneyString(t.amount),
       method: t.method as PaymentMethod,
@@ -1064,6 +1134,14 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
       certificateTotal: toMoneyString(certificateTotal),
       lateFeeTotal: toMoneyString(lateFeeTotal),
       otherTotal: toMoneyString(otherTotal),
+      /** The parts of otherTotal. Absent on copies compiled before the split. */
+      examTotal: toMoneyString(examTotal),
+      arrearsTotal: toMoneyString(arrearsTotal),
+      handTypedTotal: toMoneyString(handTypedTotal),
+      /** What was typed on the hand-typed OTHER lines, largest first. */
+      handTypedLabels: [...handTypedByLabel.entries()]
+        .sort(([, a], [, b]) => Number(b.minus(a)))
+        .map(([label, amount]) => ({ label, amount: toMoneyString(amount) })),
       /** Concessions on the fees collected this period, each receipt's share counted once. */
       discountTotal: toMoneyString(discountTotal),
       unallocatedTotal: toMoneyString(unallocatedTotal),
@@ -1077,6 +1155,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         tuition: toMoneyString(periodBreakdown.tuition),
         admission: toMoneyString(periodBreakdown.admission),
         other: toMoneyString(periodBreakdown.other),
+        exam: toMoneyString(periodBreakdown.exam),
+        arrears: toMoneyString(periodBreakdown.arrears),
+        handTyped: toMoneyString(periodBreakdown.handTyped),
         lateFee: toMoneyString(periodBreakdown.lateFee),
         certificate: toMoneyString(periodBreakdown.certificate),
         transport: toMoneyString(periodBreakdown.transport),
@@ -1085,6 +1166,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         tuition: toMoneyString(earlierBreakdown.tuition),
         admission: toMoneyString(earlierBreakdown.admission),
         other: toMoneyString(earlierBreakdown.other),
+        exam: toMoneyString(earlierBreakdown.exam),
+        arrears: toMoneyString(earlierBreakdown.arrears),
+        handTyped: toMoneyString(earlierBreakdown.handTyped),
         lateFee: toMoneyString(earlierBreakdown.lateFee),
         certificate: toMoneyString(earlierBreakdown.certificate),
         transport: toMoneyString(earlierBreakdown.transport),
@@ -1093,6 +1177,9 @@ export async function getFeeCollectionsAuditReport(query: { from: string; to: st
         tuition: toMoneyString(laterBreakdown.tuition),
         admission: toMoneyString(laterBreakdown.admission),
         other: toMoneyString(laterBreakdown.other),
+        exam: toMoneyString(laterBreakdown.exam),
+        arrears: toMoneyString(laterBreakdown.arrears),
+        handTyped: toMoneyString(laterBreakdown.handTyped),
         lateFee: toMoneyString(laterBreakdown.lateFee),
         certificate: toMoneyString(laterBreakdown.certificate),
         transport: toMoneyString(laterBreakdown.transport),
