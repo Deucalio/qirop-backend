@@ -10,8 +10,10 @@
  *  - Spent    = expenses dated in the period + salary slips of the period's
  *    months marked Paid (net pay), as the Expense Ledger and Payroll Register
  *    count them. Together they are the report's cash-flow bar.
- *  - Owed     = the Fee Defaulters report with no period: every unpaid fee
- *    and transport challan as of today, students only.
+ *  - Owed     = the Fee Defaulters report for the period's last month: what
+ *    is still unpaid today on fee and transport bills up to that month,
+ *    students only. Picking October shows October's and earlier bills; picking
+ *    this month shows everything owed now.
  *
  * The old dashboard mixed bases (fees *billed for* a month against expenses
  * *paid during* it), which is how it and the report came to show two
@@ -86,15 +88,29 @@ export async function dashboardFinance(p: DashboardPeriod, access: { spending: b
     salariesInExpenses: string;
     /** Salary slips of the period that are generated but not yet paid. */
     salariesPending: string;
+    /**
+     * Months of the period with no salary slips at all yet — their pay is not
+     * in Spent, so Left over reads higher than it will be. Only months from
+     * the first one that ever had slips, up to the current month.
+     */
+    salaryMonthsMissing: BillingMonth[];
   } = null;
   if (access.spending) {
-    const [expenses, slips] = await Promise.all([
+    const [expenses, slips, firstSlip] = await Promise.all([
       prisma.expense.findMany({ where: { date: inRange }, select: { amount: true, date: true, category: true } }),
       prisma.salarySlip.findMany({
         where: { OR: months.map((m: BillingMonth) => ({ year: m.year, month: m.month })) },
         select: { year: true, month: true, netSalary: true, status: true },
       }),
+      prisma.salarySlip.findFirst({ orderBy: [{ year: 'asc' }, { month: 'asc' }], select: { year: true, month: true } }),
     ]);
+    const now = pktDay();
+    const idx = (y: number, m: number) => y * 12 + m;
+    const nowIdx = idx(now.getUTCFullYear(), now.getUTCMonth() + 1);
+    const withSlips = new Set(slips.map((s) => ymKey(s.year, s.month)));
+    const salaryMonthsMissing = firstSlip
+      ? months.filter((m) => idx(m.year, m.month) >= idx(firstSlip.year, firstSlip.month) && idx(m.year, m.month) <= nowIdx && !withSlips.has(ymKey(m.year, m.month)))
+      : [];
     for (const e of expenses) addTo(keyOfDay(e.date), 'spent', e.amount);
     const paid = slips.filter((s) => s.status === SalaryStatus.PAID);
     for (const s of paid) addTo(ymKey(s.year, s.month), 'spent', s.netSalary);
@@ -106,11 +122,13 @@ export async function dashboardFinance(p: DashboardPeriod, access: { spending: b
       salaries: toMoneyString(salaryTotal),
       salariesInExpenses: toMoneyString(sum(expenses.filter((e) => e.category === 'SALARIES').map((e) => e.amount))),
       salariesPending: toMoneyString(sum(slips.filter((s) => s.status !== SalaryStatus.PAID).map((s) => s.netSalary))),
+      salaryMonthsMissing,
     };
   }
 
-  // ---- Owed to the school today ---------------------------------------------
-  const d = (await getFeeDefaultersReport({})).summary;
+  // ---- Still owed on the bills up to the period's last month ---------------
+  const upTo = months[months.length - 1];
+  const d = (await getFeeDefaultersReport({ year: upTo.year, month: upTo.month })).summary;
 
   return {
     period: { from: pktDayString(from), to: pktDayString(to), months },
@@ -130,6 +148,8 @@ export async function dashboardFinance(p: DashboardPeriod, access: { spending: b
     }),
     dues: {
       asOf: pktDayString(),
+      /** Bills up to and including this month are counted. */
+      upTo,
       total: d.totalOutstandingAmount,
       fees: d.tuitionOutstanding ?? '0.00',
       transport: d.transportOutstanding ?? '0.00',
