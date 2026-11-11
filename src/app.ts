@@ -49,6 +49,7 @@ import { transportRouter, meChildTransportRouter, meStaffTransportRouter } from 
 import { salariesRouter } from './modules/salaries/salaries.routes';
 import { certificatesRouter } from './modules/certificates/certificates.routes';
 import { expensesRouter, financeRouter } from './modules/expenses/expenses.routes';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import auditRouter from './modules/audit/audit.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
 import { searchRouter } from './modules/search/search.routes';
@@ -172,6 +173,7 @@ export function createApp(): Express {
   app.use('/api/certificates', certificatesRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/finance', financeRouter);
+  app.use('/api/dashboard', dashboardRouter); // finance cards on the dashboards
   app.use('/api/audit', auditRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/search', searchRouter);

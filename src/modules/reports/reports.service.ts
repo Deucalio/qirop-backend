@@ -11,6 +11,7 @@ import type { Prisma, ExpenseCategory, PayerType, PaymentMethod, Gender, UserSta
 import { publicUrl } from '../../services/storage';
 import { logAudit } from '../audit/audit.service';
 import { billingMonths } from '../fees/fees.periods';
+import { collectionHeadOf } from '../fees/fees.charges';
 
 export interface RosterQuery {
   classId?: string;
@@ -776,28 +777,6 @@ function monthTally() {
         .map(([k, amount]) => ({ year: Number(k.slice(0, 4)), month: Number(k.slice(5, 7)), amount: toMoneyString(amount) }));
     },
   };
-}
-
-/**
- * The opening balances imported from the 01-08-2026 "List of Overall Balances"
- * sheet were stored as OTHER lines with this label (see
- * scripts/import-opening-balances.ts). They are old dues, mostly tuition from
- * before the system, not exam fees or ad-hoc charges, so the report names them
- * separately. Matched by prefix so a later sheet with another date also counts.
- */
-const OPENING_ARREARS_PREFIX = 'Arrears as at ';
-
-/**
- * An item's head for the collections split. OTHER is a catch-all type, so it is
- * divided further: opening arrears by their exact label, and every other OTHER
- * line keyed by its own text ("OTHER|transpot") so the report can list what the
- * office actually typed. EXAM stays EXAM.
- */
-function collectionHeadOf(item: { type: string; label: string | null }): string {
-  if (item.type !== 'OTHER') return item.type;
-  const label = (item.label ?? '').trim();
-  if (label.startsWith(OPENING_ARREARS_PREFIX)) return 'ARREARS';
-  return `OTHER|${label || 'No label'}`;
 }
 
 export async function getFeeCollectionsAuditReport(query: { from: string; to: string; method?: string }) {

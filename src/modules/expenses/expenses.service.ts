@@ -30,6 +30,8 @@ function resolveFunding(amount: string, funding: FundingInput | undefined): Fund
 }
 
 import { logAudit } from '../audit/audit.service';
+import { splitAppliedByHead } from '../fees/fees.ledger';
+import { collectionHeadOf } from '../fees/fees.charges';
 
 async function audit(userId: string, action: string, entityId: string, metadata: Record<string, unknown>) {
   try {
@@ -382,42 +384,52 @@ export async function financeSummary(year: number) {
     }),
   ]);
 
+  /*
+   * Money in is split by what it paid for exactly as the Fee Collections
+   * report splits it (same head rules, discounts shared out), so a month's
+   * parts add up to what was received. The old split applied the payment's
+   * ratio to item amounts before discount, so the parts could exceed the
+   * money, and opening arrears showed as "other".
+   */
+  const blankFees = () => ({
+    tuition: ZERO, arrears: ZERO, admission: ZERO, other: ZERO, lateFee: ZERO,
+    certificate: ZERO, transport: ZERO, notApplied: ZERO,
+  });
   const rows = Array.from({ length: 12 }, (_, i) => ({
     month: i + 1,
     income: ZERO,
     expenses: ZERO,
+    /** Net pay on slips marked paid — what actually went out, as the Payroll Register counts it. */
     salaries: ZERO,
-    feesBreakdown: { tuition: ZERO, transport: ZERO, admission: ZERO, certificate: ZERO, other: ZERO },
+    salariesPending: ZERO,
+    salariesInExpenses: ZERO,
+    feesBreakdown: blankFees(),
     expenseCategories: new Map<ExpenseCategory, { amount: Prisma.Decimal; count: number }>(),
     salaryBreakdown: { basicSalary: ZERO, staffFeeDeduction: ZERO, netPaid: ZERO, staffPaidCount: 0, staffPendingCount: 0 },
   }));
 
   for (const p of payments) {
     const mIdx = p.paymentDate.getUTCMonth();
+    const fb = rows[mIdx].feesBreakdown;
     rows[mIdx].income = rows[mIdx].income.plus(p.amount);
-
+    let applied = ZERO;
     for (const alloc of p.allocations) {
-      const challan = alloc.challan;
-      if (!challan || !challan.amount || Number(challan.amount) <= 0) continue;
-      const ratio = money(alloc.amountApplied).dividedBy(money(challan.amount));
-
-      for (const item of challan.items) {
-        const itemShare = round2(money(item.amount).times(ratio));
-        if (item.type === 'TUITION') rows[mIdx].feesBreakdown.tuition = rows[mIdx].feesBreakdown.tuition.plus(itemShare);
-        else if (item.type === 'TRANSPORT') rows[mIdx].feesBreakdown.transport = rows[mIdx].feesBreakdown.transport.plus(itemShare);
-        else if (item.type === 'ADMISSION') rows[mIdx].feesBreakdown.admission = rows[mIdx].feesBreakdown.admission.plus(itemShare);
-        else if (item.type === 'CERTIFICATE') rows[mIdx].feesBreakdown.certificate = rows[mIdx].feesBreakdown.certificate.plus(itemShare);
-        /*
-         * Everything else — exam fees, ad-hoc charges — as "other".
-         *
-         * This bucket used to be labelled `lateFee`, which it never contained:
-         * a late fee is a column on the challan, not a line item, so the
-         * breakdown reported exam and ad-hoc income under a heading no money
-         * had ever gone into.
-         */
-        else rows[mIdx].feesBreakdown.other = rows[mIdx].feesBreakdown.other.plus(itemShare);
+      const c = alloc.challan;
+      if (!c) continue;
+      applied = applied.plus(alloc.amountApplied);
+      const items = c.items.map((i) => ({ type: collectionHeadOf(i), amount: i.amount }));
+      for (const share of splitAppliedByHead(items, c.discount, c.lateFee, alloc.amountApplied)) {
+        if (share.head === 'TUITION') fb.tuition = fb.tuition.plus(share.amount);
+        else if (share.head === 'ARREARS') fb.arrears = fb.arrears.plus(share.amount);
+        else if (share.head === 'ADMISSION') fb.admission = fb.admission.plus(share.amount);
+        else if (share.head === 'CERTIFICATE') fb.certificate = fb.certificate.plus(share.amount);
+        else if (share.head === 'TRANSPORT') fb.transport = fb.transport.plus(share.amount);
+        else if (share.head === 'LATE_FEE') fb.lateFee = fb.lateFee.plus(share.amount);
+        else fb.other = fb.other.plus(share.amount); // exam fees and hand-typed lines
       }
     }
+    const left = money(p.amount).minus(applied);
+    if (left.greaterThan(0)) fb.notApplied = fb.notApplied.plus(left);
   }
 
   for (const t of transportPayments) {
@@ -430,6 +442,7 @@ export async function financeSummary(year: number) {
     const mIdx = e.date.getUTCMonth();
     rows[mIdx].expenses = rows[mIdx].expenses.plus(e.amount);
 
+    if (e.category === 'SALARIES') rows[mIdx].salariesInExpenses = rows[mIdx].salariesInExpenses.plus(e.amount);
     const catMap = rows[mIdx].expenseCategories;
     const cur = catMap.get(e.category) ?? { amount: ZERO, count: 0 };
     cur.amount = cur.amount.plus(e.amount);
@@ -440,13 +453,14 @@ export async function financeSummary(year: number) {
   for (const s of salaries) {
     const mIdx = s.month - 1;
     if (mIdx < 0 || mIdx > 11) continue;
-    rows[mIdx].salaries = rows[mIdx].salaries.plus(s.netSalary);
     rows[mIdx].salaryBreakdown.basicSalary = rows[mIdx].salaryBreakdown.basicSalary.plus(s.basicSalary);
     rows[mIdx].salaryBreakdown.staffFeeDeduction = rows[mIdx].salaryBreakdown.staffFeeDeduction.plus(s.staffFeeDeduction);
     if (s.status === 'PAID') {
+      rows[mIdx].salaries = rows[mIdx].salaries.plus(s.netSalary);
       rows[mIdx].salaryBreakdown.netPaid = rows[mIdx].salaryBreakdown.netPaid.plus(s.netSalary);
       rows[mIdx].salaryBreakdown.staffPaidCount += 1;
     } else {
+      rows[mIdx].salariesPending = rows[mIdx].salariesPending.plus(s.netSalary);
       rows[mIdx].salaryBreakdown.staffPendingCount += 1;
     }
   }
@@ -456,14 +470,10 @@ export async function financeSummary(year: number) {
     income: toMoneyString(r.income),
     expenses: toMoneyString(r.expenses),
     salaries: toMoneyString(r.salaries),
+    salariesPending: toMoneyString(r.salariesPending),
+    salariesInExpenses: toMoneyString(r.salariesInExpenses),
     net: toMoneyString(round2(r.income.minus(r.expenses).minus(r.salaries))),
-    feesBreakdown: {
-      tuition: toMoneyString(r.feesBreakdown.tuition),
-      transport: toMoneyString(r.feesBreakdown.transport),
-      admission: toMoneyString(r.feesBreakdown.admission),
-      certificate: toMoneyString(r.feesBreakdown.certificate),
-      other: toMoneyString(r.feesBreakdown.other),
-    },
+    feesBreakdown: Object.fromEntries(Object.entries(r.feesBreakdown).map(([k, v]) => [k, toMoneyString(v)])) as Record<keyof typeof r.feesBreakdown, string>,
     expenseCategories: [...r.expenseCategories.entries()].map(([cat, val]) => ({
       category: cat,
       amount: toMoneyString(val.amount),
@@ -481,6 +491,8 @@ export async function financeSummary(year: number) {
   const totalIncome = sum(months.map((m) => m.income));
   const totalExpenses = sum(months.map((m) => m.expenses));
   const totalSalaries = sum(months.map((m) => m.salaries));
+  const totalPending = sum(months.map((m) => m.salariesPending));
+  const totalInExpenses = sum(months.map((m) => m.salariesInExpenses));
 
   return {
     year,
@@ -489,6 +501,8 @@ export async function financeSummary(year: number) {
       income: toMoneyString(totalIncome),
       expenses: toMoneyString(totalExpenses),
       salaries: toMoneyString(totalSalaries),
+      salariesPending: toMoneyString(totalPending),
+      salariesInExpenses: toMoneyString(totalInExpenses),
       net: toMoneyString(round2(totalIncome.minus(totalExpenses).minus(totalSalaries))),
     },
   };
