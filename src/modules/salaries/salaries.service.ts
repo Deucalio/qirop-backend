@@ -418,6 +418,16 @@ export async function updateSalary(actor: Actor, id: string, input: UpdateSalary
   const deductions = input.deductions !== undefined ? money(input.deductions) : money(s.deductions);
   // net = basic + allowances − deductions − staffFeeDeduction (staff fee is fixed at generation).
   const net = round2(money(s.basicSalary).plus(allowances).minus(deductions).minus(money(s.staffFeeDeduction)));
+  // A slip can't pay out less than nothing. Generation already caps at zero; an edit must too.
+  if (net.lessThan(0)) {
+    const pay = round2(money(s.basicSalary).plus(allowances));
+    throw new AppError(
+      `Deductions of Rs ${toMoneyString(round2(deductions.plus(money(s.staffFeeDeduction))))} are more than the pay of Rs ${toMoneyString(pay)}, ` +
+        `so net pay would be Rs ${toMoneyString(net)}. Reduce the deductions to at most Rs ${toMoneyString(round2(pay.minus(money(s.staffFeeDeduction))))} and recover the rest in a later month.`,
+      400,
+      'NEGATIVE_NET_PAY',
+    );
+  }
 
   const updated = await prisma.salarySlip.update({
     where: { id },
@@ -453,6 +463,13 @@ export async function updateSalary(actor: Actor, id: string, input: UpdateSalary
 export async function setSalaryStatus(actor: Actor, id: string, status: 'PENDING' | 'PAID', paidDate?: string) {
   const s = await prisma.salarySlip.findUnique({ where: { id }, include: { teacher: { include: { user: true } } } });
   if (!s) throw NotFound('Salary slip not found');
+  if (status === 'PAID' && money(s.netSalary).lessThan(0)) {
+    throw new AppError(
+      `${s.teacher.user.fullName}'s slip has net pay of Rs ${toMoneyString(s.netSalary)}: its deductions are more than the pay. Correct the deductions before marking it paid.`,
+      400,
+      'NEGATIVE_NET_PAY',
+    );
+  }
   const updated = await prisma.salarySlip.update({
     where: { id },
     data: {
@@ -484,8 +501,9 @@ export async function setSalaryStatus(actor: Actor, id: string, status: 'PENDING
 /** Mark many salary slips paid at once (payday). Already-paid slips are skipped. */
 export async function markSalariesPaid(actor: Actor, slipIds: string[], paidDate?: string) {
   const when = paidDate ? parsePktDay(paidDate) : pktDay();
+  // A slip with negative net pay is left unpaid: it must be corrected first.
   const res = await prisma.salarySlip.updateMany({
-    where: { id: { in: slipIds }, status: 'PENDING' },
+    where: { id: { in: slipIds }, status: 'PENDING', netSalary: { gte: 0 } },
     data: { status: 'PAID', paidDate: when },
   });
   const actorUser = await prisma.user.findUnique({ where: { id: actor.userId }, select: { fullName: true } });
@@ -502,7 +520,16 @@ export async function markSalariesPaid(actor: Actor, slipIds: string[], paidDate
       details: `Admin marked ${res.count} salary slip${res.count === 1 ? '' : 's'} as paid`,
     },
   });
-  return { paid: res.count, skipped: slipIds.length - res.count };
+  const negative = await prisma.salarySlip.findMany({
+    where: { id: { in: slipIds }, status: 'PENDING', netSalary: { lt: 0 } },
+    select: { teacher: { select: { user: { select: { fullName: true } } } } },
+  });
+  return {
+    paid: res.count,
+    skipped: slipIds.length - res.count,
+    /** Left unpaid because deductions are more than the pay; named so the screen can say who. */
+    negativeNetPay: negative.map((n) => n.teacher.user.fullName),
+  };
 }
 
 /** Month-scoped payroll summary (for the dashboard/overview). */
