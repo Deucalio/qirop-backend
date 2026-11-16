@@ -1065,6 +1065,8 @@ export async function listChallans(query: ListChallansQuery) {
       id: c.student.id,
       name: `${c.student.firstName}${c.student.lastName ? ` ${c.student.lastName}` : ''}`,
       admissionNo: c.student.admissionNo,
+      /** The family name the office goes by — printed on the fee statement. */
+      caste: c.student.caste?.trim() || null,
       /**
        * A student can be deactivated after their challan was raised, or the
        * challan may simply be old. The debt stays real either way, so the row
